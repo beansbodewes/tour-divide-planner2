@@ -1,0 +1,17 @@
+{
+  "name": "Tour Divide Planner",
+  "short_name": "Tour Divide",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2efe8",
+  "theme_color": "#1e241f",
+  "description": "Day-by-day Tour Divide planning, route map, and section comments.",
+  "icons": [
+    {
+      "src": "app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tour Divide icon">
+  <rect width="512" height="512" rx="96" fill="#1e241f"/>
+  <path d="M64 358h384" stroke="#f2efe8" stroke-width="24" stroke-linecap="round"/>
+  <path d="M96 342 210 170l84 110 70-92 52 154" fill="none" stroke="#eb5e28" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="134" cy="358" r="30" fill="#1d7f5b"/>
+  <circle cx="378" cy="358" r="30" fill="#1d7f5b"/>
+</svg>
