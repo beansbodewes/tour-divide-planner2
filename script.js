@@ -1,22 +1,3 @@
-const MAPBOX_ACCESS_TOKEN = "";
-  "....";
-
-const MAPBOX_ACCESS_TOKEN = "";
-
-git add script.js
-git commit --amend -m "Initial Tour Divide planner"
-git push -u origin main --force
-
-cd "/Users/noahbodewes/Documents/New project/Tour divide /XcodeImport/www"
-sed -i '' 's|^const MAPBOX_ACCESS_TOKEN =.*$|const MAPBOX_ACCESS_TOKEN = "";|' script.js
-
-
-git add script.js
-git commit --amend -m "Initial Tour Divide planner"
-git push -u origin main --force
-
-
-
 const STORAGE_KEY = "tour-divide-plan-v1";
 const COMMENTS_KEY = "tour-divide-comments-v1";
 const LOCAL_ACCOUNTS_KEY = "tour-divide-local-accounts-v1";
