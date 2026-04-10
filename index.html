@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#1e241f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Tour Divide" />
-    <title>Tour Divide Daily Planner</title>
+    <meta name="apple-mobile-web-app-title" content="Bikepack Finisher" />
+    <title>Bikepack Finisher</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,32 +21,17 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=2" />
+    <link rel="stylesheet" href="styles.css?v=7" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
     <header class="hero">
-      <p class="eyebrow">Bikepack Racing Toolkit</p>
-      <h1>Tour Divide Planner</h1>
-      <p class="subhead">
-        Plan each race day, inspect the full route map with resupply points, and discuss route sections with other riders.
-      </p>
-    </header>
-
-    <main class="app-shell">
-      <nav class="tabs" aria-label="Tour Divide sections">
-        <button class="tab-btn active" data-tab="planner" type="button">Plan</button>
-        <button class="tab-btn" data-tab="map" type="button">Map</button>
-        <button class="tab-btn" data-tab="social" type="button">Community</button>
-      </nav>
-
-      <section class="tab-panel active" id="tab-planner" data-tab-panel="planner">
-        <div class="layout">
-          <section class="panel cloud-panel">
-            <div class="cloud-head">
-              <h2>Cloud Account</h2>
-              <p id="cloud-status">Cloud sync off (local-only mode).</p>
-            </div>
+      <div class="hero-top">
+        <h1 class="site-title">Bikepack Finisher</h1>
+        <div class="account-menu">
+          <button id="account-toggle-btn" class="btn" type="button" aria-expanded="false" aria-controls="account-dropdown">Sign In</button>
+          <section id="account-dropdown" class="account-dropdown" hidden>
+            <p id="cloud-status">Cloud sync off (local-only mode).</p>
             <form id="auth-form" class="cloud-auth-form">
               <label>
                 Email
@@ -60,11 +45,41 @@
                 <button id="sign-up-btn" class="btn" type="button">Sign Up</button>
                 <button id="sign-in-btn" class="btn btn-primary" type="button">Sign In</button>
                 <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
-                <button id="sync-now-btn" class="btn btn-accent" type="button">Sync Now</button>
+                <button id="undo-btn" class="btn btn-accent" type="button">Undo</button>
+                <button id="sync-now-btn" class="btn" type="button">Sync Now</button>
               </div>
             </form>
           </section>
+        </div>
+      </div>
+      <section class="route-switcher-wrap">
+        <p class="route-switcher-label">Route Collection</p>
+        <nav class="route-switcher" aria-label="Choose route family">
+          <button class="route-btn active" data-route="tour_divide" type="button">Tour Divide Race</button>
+          <button class="route-btn" data-route="great_divide_route" type="button">Great Divide Touring Route</button>
+          <button class="route-btn" data-route="colorado_trail" type="button">Colorado Trail</button>
+          <button class="route-btn" data-route="azt_300" type="button">AZT 300</button>
+          <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
+          <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
+          <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
+        </nav>
+        <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
+      </section>
+      <p id="planner-title" class="planner-route-title">Tour Divide Race Planner</p>
+      <p id="planner-subhead" class="subhead">
+        Plan each race day, inspect the full route map with resupply points, and discuss route sections with other riders.
+      </p>
+    </header>
 
+    <main class="app-shell">
+      <nav id="sections-nav" class="tabs" aria-label="Tour Divide Race sections">
+        <button class="tab-btn active" data-tab="planner" type="button">Plan</button>
+        <button class="tab-btn" data-tab="map" type="button">Map</button>
+        <button class="tab-btn" data-tab="social" type="button">Community</button>
+      </nav>
+
+      <section class="tab-panel active" id="tab-planner" data-tab-panel="planner">
+        <div class="layout">
           <section class="panel controls">
             <h2>Plan Setup</h2>
             <form id="plan-form" class="control-grid">
@@ -103,7 +118,18 @@
           <section class="panel export">
             <h2>Export</h2>
             <p>Save your planner as CSV for phone notes, spreadsheets, or crew docs.</p>
-            <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
+            <div class="export-controls">
+              <label>
+                CSV format
+                <select id="export-format">
+                  <option value="standard">Current Planner CSV</option>
+                  <option value="detailed_days">Detailed Day-by-Day</option>
+                  <option value="resupply_only">Resupply-Only Data</option>
+                  <option value="day_matrix">Day Grid (Days as Columns)</option>
+                </select>
+              </label>
+              <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
+            </div>
           </section>
 
           <section class="panel days">
@@ -112,6 +138,26 @@
               <p>Change mileage and the next ride elevation updates automatically.</p>
             </div>
             <div id="day-list" class="day-list"></div>
+            <div class="add-stop-panel">
+              <h3>Add Extra Town / Resupply Stop</h3>
+              <div class="control-grid">
+                <label>
+                  Stop name
+                  <input id="extra-stop-name" type="text" placeholder="New town or stop" />
+                </label>
+                <label>
+                  Mile marker
+                  <input id="extra-stop-mile" type="number" min="0" step="0.1" placeholder="e.g. 642.5" />
+                </label>
+                <label>
+                  Resupply notes
+                  <input id="extra-stop-notes" type="text" placeholder="Store details, hours, supplies..." />
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="add-extra-stop-btn" class="btn btn-primary" type="button">Add Extra Stop</button>
+              </div>
+            </div>
           </section>
         </div>
       </section>
@@ -124,7 +170,7 @@
               <p id="map-subhead">Loaded from your GPX file with evenly spaced days.</p>
             </div>
             <div class="map-route-profile">
-              <p class="map-section-kicker">Tour Divide Elevation Profile</p>
+              <p id="route-profile-kicker" class="map-section-kicker">Tour Divide Elevation Profile</p>
               <div class="map-section-profile-wrap route-profile-wrap">
                 <div class="profile-scroll">
                   <svg id="route-profile" class="map-section-profile route-profile" viewBox="0 0 2400 160" preserveAspectRatio="none" aria-label="Tour Divide elevation profile"></svg>
@@ -133,6 +179,7 @@
                   <span class="axis-y">Elevation (ft)</span>
                   <span class="axis-x">Distance (mi)</span>
                 </div>
+                <p id="route-profile-meta" class="map-section-profile-meta">Loading GPX elevation profile...</p>
                 <div class="profile-zoom-bar">
                   <input id="route-profile-zoom" type="range" min="0.25" max="6" step="0.25" value="1" aria-label="Zoom elevation profile" />
                   <span id="route-profile-zoom-label">Zoom 1x</span>
@@ -140,7 +187,6 @@
                 <div class="profile-scroll-bar">
                   <input id="route-profile-scroll" type="range" min="0" max="100" value="0" step="1" aria-label="Pan elevation profile" />
                 </div>
-                <p id="route-profile-meta" class="map-section-profile-meta">Loading GPX elevation profile...</p>
               </div>
             </div>
             <div id="route-map" class="route-map" aria-label="Tour Divide map"></div>
@@ -260,6 +306,11 @@
             Distance from route (mi)
             <input type="number" class="resupply-distance-1-input" min="0" step="0.1" placeholder="0.4" />
           </label>
+          <label>
+            Address / map search
+            <input type="text" class="resupply-address-1-input" placeholder="Street address or place name" />
+            <a class="resupply-map-link-1 inline-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+          </label>
         </div>
         <div class="resupply-row">
           <label>
@@ -274,20 +325,17 @@
             Distance from route (mi)
             <input type="number" class="resupply-distance-2-input" min="0" step="0.1" placeholder="0.8" />
           </label>
+          <label>
+            Address / map search
+            <input type="text" class="resupply-address-2-input" placeholder="Street address or place name" />
+            <a class="resupply-map-link-2 inline-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+          </label>
         </div>
-        <div class="resupply-row">
-          <label>
-            Resupply option 3
-            <input type="text" class="resupply-options-3-input" placeholder="Late-night store / vending..." />
-          </label>
-          <label>
-            Hours of operation
-            <input type="text" class="resupply-hours-3-input" placeholder="24 hours / limited" />
-          </label>
-          <label class="distance-box">
-            Distance from route (mi)
-            <input type="number" class="resupply-distance-3-input" min="0" step="0.1" placeholder="1.2" />
-          </label>
+        <div class="extra-resupply-options"></div>
+        <div class="extra-bike-shops"></div>
+        <div class="button-row">
+          <button type="button" class="btn btn-accent add-resupply-option-btn">Add Resupply Option</button>
+          <button type="button" class="btn add-bike-shop-btn">Add Bike Shop</button>
         </div>
         <label>
           Shopping list
@@ -329,7 +377,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="script.js?v=2"></script>
+    <script src="script.js?v=7"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {

@@ -44,6 +44,40 @@ body {
   padding: 2.5rem 1rem 1rem;
 }
 
+.hero-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.account-menu {
+  position: relative;
+}
+
+.site-title {
+  margin: 0;
+}
+
+.account-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  width: min(460px, 92vw);
+  z-index: 20;
+  border: 1px solid #c9bea9;
+  border-radius: 12px;
+  background: #fffdf8;
+  padding: 0.7rem;
+  box-shadow: 0 18px 34px rgba(17, 21, 19, 0.2);
+}
+
+.account-dropdown > p {
+  margin: 0 0 0.55rem;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+}
+
 .eyebrow {
   margin: 0;
   font-weight: 700;
@@ -66,6 +100,13 @@ h1 {
   letter-spacing: 0.03em;
 }
 
+.planner-route-title {
+  margin: 0.1rem 0 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+}
+
 .subhead {
   max-width: 760px;
   color: var(--ink-soft);
@@ -76,6 +117,68 @@ h1 {
   max-width: 1100px;
   margin: 0 auto;
   padding: 0 1rem 1rem;
+}
+
+.route-switcher-wrap {
+  margin-top: 0.9rem;
+  margin-bottom: 0.25rem;
+  padding: 0.85rem 0.95rem 0.9rem;
+  border: 1px solid #d2c8b6;
+  border-radius: 14px;
+  background: linear-gradient(150deg, #fdfaf3, #efe8dc);
+}
+
+.route-switcher-label {
+  margin: 0 0 0.45rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5a645f;
+}
+
+.route-switcher {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.route-btn {
+  border: 1px solid #b7ae9e;
+  border-radius: 999px;
+  background: #fff8ec;
+  color: var(--ink);
+  padding: 0.62rem 1.12rem;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.route-btn:hover {
+  background: #fff4df;
+}
+
+.route-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.route-btn.active {
+  border-color: #1d7f5b;
+  background: #1d7f5b;
+  color: #fff;
+}
+
+.route-btn-accent {
+  border-color: #cf6536;
+  color: #8b3614;
+}
+
+.route-switcher-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
 }
 
 .tabs {
@@ -146,11 +249,11 @@ h1 {
 }
 
 .marker-list-panel {
-  grid-column: span 4;
+  grid-column: span 3;
 }
 
 .map-panel {
-  grid-column: span 8;
+  grid-column: span 9;
 }
 
 .comment-form-panel {
@@ -181,7 +284,7 @@ h1 {
 }
 
 .cloud-auth-form {
-  margin-top: 0.8rem;
+  margin-top: 0;
   display: grid;
   gap: 0.8rem;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -257,6 +360,13 @@ select:focus {
   gap: 1rem;
 }
 
+.export-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .metric-list {
   margin-top: 1rem;
   display: grid;
@@ -305,6 +415,16 @@ select:focus {
 .comment-feed {
   display: grid;
   gap: 0.9rem;
+}
+
+.add-stop-panel {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed #cdbfa8;
+}
+
+.add-stop-panel h3 {
+  margin-bottom: 0.6rem;
 }
 
 .day-card,
@@ -375,7 +495,57 @@ select:focus {
 .resupply-row {
   display: grid;
   gap: 0.6rem;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(110px, 0.6fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(110px, 0.55fr) minmax(0, 1fr);
+}
+
+.extra-resupply-options {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.extra-bike-shops {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.extra-resupply-row {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.95fr) minmax(110px, 0.55fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.extra-bike-row {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.95fr) minmax(110px, 0.55fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.remove-resupply-option-btn {
+  align-self: end;
+  white-space: nowrap;
+}
+
+.remove-bike-shop-btn {
+  align-self: end;
+  white-space: nowrap;
+}
+
+.add-resupply-option-btn {
+  padding: 0.38rem 0.72rem;
+  font-size: 0.8rem;
+}
+
+.add-bike-shop-btn {
+  padding: 0.38rem 0.72rem;
+  font-size: 0.8rem;
+}
+
+.inline-map-link {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: #0e5f43;
+  text-decoration: underline;
 }
 
 .distance-box input {
@@ -384,7 +554,7 @@ select:focus {
 
 .route-map {
   width: 100%;
-  height: min(70vh, 620px);
+  height: min(78vh, 760px);
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid #cabfa9;
@@ -461,6 +631,7 @@ select:focus {
   position: absolute;
   inset: 8px 10px 8px 10px;
   pointer-events: none;
+  font-family: "Space Grotesk", sans-serif;
   font-weight: 600;
   color: #2f3732;
   text-shadow: 0 1px 0 #fffefb;
@@ -526,6 +697,13 @@ select:focus {
 
 .map-icon svg {
   display: block;
+}
+
+.map-icon-food span {
+  display: block;
+  font-size: 18px;
+  line-height: 1;
+  transform: translate(-1px, -1px);
 }
 
 .map-comment-item {
@@ -615,6 +793,16 @@ select:focus {
 }
 
 @media (max-width: 920px) {
+  .hero-top {
+    flex-direction: column;
+  }
+
+  .account-dropdown {
+    left: 0;
+    right: auto;
+    width: min(560px, 95vw);
+  }
+
   .controls,
   .metrics,
   .export,
@@ -642,5 +830,25 @@ select:focus {
     position: static;
     width: 100%;
     max-height: none;
+  }
+
+  .extra-resupply-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .extra-bike-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .resupply-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .remove-resupply-option-btn {
+    justify-self: start;
+  }
+
+  .remove-bike-shop-btn {
+    justify-self: start;
   }
 }

@@ -1,11 +1,11 @@
 {
-  "name": "Tour Divide Planner",
-  "short_name": "Tour Divide",
+  "name": "Bikepack Finisher",
+  "short_name": "Bikepack",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f2efe8",
   "theme_color": "#1e241f",
-  "description": "Day-by-day Tour Divide planning, route map, and section comments.",
+  "description": "Day-by-day bikepacking route planning, map views, and section comments.",
   "icons": [
     {
       "src": "app-icon.svg",

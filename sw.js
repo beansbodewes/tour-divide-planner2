@@ -1,4 +1,4 @@
-const CACHE_NAME = "tour-divide-pwa-v2";
+const CACHE_NAME = "bikepack-route-pwa-v18";
 const CORE_ASSETS = [
   "/",
   "/index.html",
@@ -6,7 +6,12 @@ const CORE_ASSETS = [
   "/script.js",
   "/manifest.webmanifest",
   "/app-icon.svg",
-  "/TourDivide2025_v2.gpx"
+  "/TourDivide2025_v2.gpx",
+  "/Bikepacking-Route-GDMBR_V_TD_2017.gpx",
+  "/Bikepacking-Route-Colorado-Trail_v2017_08.gpx",
+  "/AZT300_2026_v4.gpx",
+  "/AZT800_2026_v1.gpx",
+  "/Peru_Great_Divide_Full_(Huaraz_to_Abancay)_22_07_2022.gpx"
 ];
 
 self.addEventListener("install", (event) => {
