@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e241f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Bikepack Finisher" />
+    <title>Bikepack Finisher</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="styles.css?v=15" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <header class="hero">
+      <div class="hero-top">
+        <h1 class="site-title">Bikepack Finisher</h1>
+        <div class="account-menu">
+          <button id="account-toggle-btn" class="btn" type="button" aria-expanded="false" aria-controls="account-dropdown">Sign In</button>
+          <section id="account-dropdown" class="account-dropdown" hidden>
+            <p id="cloud-status">Cloud sync off (local-only mode).</p>
+            <form id="auth-form" class="cloud-auth-form">
+              <label>
+                Email
+                <input id="auth-email" type="email" placeholder="you@example.com" />
+              </label>
+              <label>
+                Password
+                <input id="auth-password" type="password" placeholder="At least 6 characters" />
+              </label>
+              <div class="button-row">
+                <button id="sign-up-btn" class="btn" type="button">Sign Up</button>
+                <button id="sign-in-btn" class="btn btn-primary" type="button">Sign In</button>
+                <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
+                <button id="undo-btn" class="btn btn-accent" type="button">Undo</button>
+                <button id="sync-now-btn" class="btn" type="button">Sync Now</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+      <section class="route-switcher-wrap">
+        <p class="route-switcher-label">Route Collection</p>
+        <nav class="route-switcher" aria-label="Choose route family">
+          <button id="home-view-btn" class="route-btn" type="button">Home</button>
+          <button class="route-btn active" data-route="tour_divide" type="button">Tour Divide Race</button>
+          <button class="route-btn" data-route="great_divide_route" type="button">Great Divide Touring Route</button>
+          <button class="route-btn" data-route="colorado_trail" type="button">Colorado Trail</button>
+          <button class="route-btn" data-route="azt_300" type="button">AZT 300</button>
+          <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
+          <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
+          <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
+        </nav>
+        <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
+      </section>
+      <p id="planner-title" class="planner-route-title">Tour Divide Race Planner</p>
+      <p id="planner-subhead" class="subhead">
+        Plan each race day, inspect the full route map with resupply points, and discuss route sections with other riders.
+      </p>
+    </header>
+
+    <main class="app-shell">
+      <section id="home-page" class="home-page" aria-label="Welcome to Bikepack Finisher">
+        <div class="home-card">
+          <p class="home-kicker">Bikepack Finisher</p>
+          <h1>Plan Faster, Ride Smarter</h1>
+          <p class="home-intro">
+            Build your route day by day, map every resupply stop, and keep all your notes in one place.
+            Use the route collection or upload your own GPX route.
+          </p>
+          <div class="home-photo-strip" aria-label="Bikepacking tour photos">
+            <figure class="home-photo">
+              <img src="home-bike-photo.jpeg" alt="Bikepacking bike on a snowy trail." loading="lazy" />
+            </figure>
+            <figure class="home-photo">
+              <img src="home-bike-photo-2.jpg" alt="Bikepacking photo from your ride gallery." loading="lazy" />
+            </figure>
+            <figure class="home-photo">
+              <img src="home-bike-photo-3.jpg" alt="Bikepacking bike setup on trail terrain." loading="lazy" />
+            </figure>
+          </div>
+          <div class="home-grid">
+            <article class="home-block">
+              <h2>How To Use This Site</h2>
+              <ol>
+                <li>Create a username and password so your plan auto-saves and you can come back anytime.</li>
+                <li>Pick a route (or choose Create Your Own Ride), then set projected days and build your plan.</li>
+                <li>Use your own research to adjust daily mileage, stops, and resupply details.</li>
+                <li>Check the map and elevation tabs to confirm resupply and stop points, and read comments for current section info.</li>
+                <li>Export CSV to share your plan.</li>
+              </ol>
+            </article>
+            <article class="home-block">
+              <h2>Video Walkthrough</h2>
+              <div class="video-placeholder">
+                <p>Tutorial video coming soon</p>
+              </div>
+            </article>
+          </div>
+          <div class="button-row">
+            <button id="home-open-active-btn" class="btn btn-primary" type="button">Open Active Planner</button>
+          </div>
+        </div>
+      </section>
+      <nav id="sections-nav" class="tabs" aria-label="Tour Divide Race sections">
+        <button class="tab-btn active" data-tab="planner" type="button">Plan</button>
+        <button class="tab-btn" data-tab="map" type="button">Map</button>
+        <button class="tab-btn" data-tab="social" type="button">Community</button>
+      </nav>
+
+      <section class="tab-panel active" id="tab-planner" data-tab-panel="planner">
+        <div class="layout">
+          <section class="panel controls">
+            <h2>Plan Setup</h2>
+            <section id="custom-upload-panel" class="custom-upload-panel" hidden>
+              <h3>Create Your Own Route</h3>
+              <label class="upload-dropzone" for="custom-gpx-file">
+                <input id="custom-gpx-file" type="file" accept=".gpx,application/gpx+xml,text/xml,application/xml" />
+                <strong>Drop GPX here, or click to upload</strong>
+                <span id="custom-gpx-status">No GPX uploaded yet.</span>
+              </label>
+              <div class="control-grid custom-projection-grid">
+                <label>
+                  Projected days
+                  <input type="number" id="custom-projected-days" min="2" max="120" value="20" />
+                </label>
+                <label>
+                  Projected resupply points
+                  <input type="number" id="custom-projected-resupplies" min="2" max="60" value="12" />
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Apply Uploaded Route</button>
+              </div>
+            </section>
+            <form id="plan-form" class="control-grid">
+              <label>
+                Start date
+                <input type="date" id="start-date" required />
+              </label>
+              <label>
+                Projected finish date
+                <input type="date" id="finish-date" />
+              </label>
+              <label>
+                Projected days
+                <input type="number" id="total-days" min="10" max="120" value="22" required />
+              </label>
+              <label>
+                Planned rest days
+                <input type="number" id="rest-days" min="0" max="10" value="1" required />
+              </label>
+              <label>
+                Total route distance (mi)
+                <input type="number" id="route-distance" min="2000" max="3200" value="2745" required />
+              </label>
+              <div class="button-row">
+                <button type="submit" class="btn btn-primary">Build Plan</button>
+                <button type="button" id="reset-btn" class="btn">Reset</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel metrics">
+            <h2>Race Snapshot</h2>
+            <div class="metric-list" id="metric-list"></div>
+          </section>
+
+          <section class="panel export">
+            <h2>Export</h2>
+            <p>Save your planner as CSV or Excel for phone notes, spreadsheets, or crew docs.</p>
+            <div class="export-controls">
+              <label>
+                CSV format
+                <select id="export-format">
+                  <option value="standard">Current Planner CSV</option>
+                  <option value="detailed_days">Detailed Day-by-Day</option>
+                  <option value="resupply_only">Resupply-Only Data</option>
+                  <option value="day_matrix">Day Grid (Days as Columns)</option>
+                </select>
+              </label>
+              <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
+              <button id="export-excel-btn" class="btn" type="button">Export Excel</button>
+            </div>
+          </section>
+
+          <section class="panel days">
+            <div class="days-header">
+              <h2>Daily Roadbook</h2>
+              <p>
+                Change mileage and the next ride elevation updates automatically.
+                Total route distance: <strong id="planner-total-route-distance">0 mi</strong>
+              </p>
+            </div>
+            <div id="day-list" class="day-list"></div>
+            <div class="add-stop-panel">
+              <h3>Add Extra Town / Resupply Stop</h3>
+              <div class="control-grid">
+                <label>
+                  Stop name
+                  <input id="extra-stop-name" type="text" placeholder="New town or stop" />
+                </label>
+                <label>
+                  Mile marker
+                  <input id="extra-stop-mile" type="number" min="0" step="0.1" placeholder="e.g. 642.5" />
+                </label>
+                <label>
+                  Resupply notes
+                  <input id="extra-stop-notes" type="text" placeholder="Store details, hours, supplies..." />
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="add-extra-stop-btn" class="btn btn-primary" type="button">Add Extra Stop</button>
+              </div>
+            </div>
+            <div id="custom-stop-editor" class="add-stop-panel" hidden>
+              <h3>Custom Resupply Points</h3>
+              <p id="custom-stop-editor-note" class="empty-note">Upload a custom GPX route to edit stops.</p>
+              <div id="custom-stop-list" class="custom-stop-list"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-map" data-tab-panel="map">
+        <div class="layout map-layout">
+          <section class="panel map-panel">
+            <div class="map-header">
+              <h2>Route Map + Resupply</h2>
+              <p id="map-subhead">Loaded from your GPX file with evenly spaced days.</p>
+            </div>
+            <div class="map-route-profile">
+              <p id="route-profile-kicker" class="map-section-kicker">Tour Divide Elevation Profile</p>
+              <div class="map-section-profile-wrap route-profile-wrap">
+                <div class="profile-scroll">
+                  <svg id="route-profile" class="map-section-profile route-profile" viewBox="0 0 2400 160" preserveAspectRatio="none" aria-label="Tour Divide elevation profile"></svg>
+                </div>
+                <div class="profile-axis-labels">
+                  <span class="axis-y">Elevation (ft)</span>
+                  <span class="axis-x">Distance (mi)</span>
+                </div>
+                <p id="route-profile-meta" class="map-section-profile-meta">Loading GPX elevation profile...</p>
+                <div class="profile-zoom-bar">
+                  <input id="route-profile-zoom" type="range" min="0.25" max="6" step="0.25" value="1" aria-label="Zoom elevation profile" />
+                  <span id="route-profile-zoom-label">Zoom 1x</span>
+                </div>
+                <div class="profile-scroll-bar">
+                  <input id="route-profile-scroll" type="range" min="0" max="100" value="0" step="1" aria-label="Pan elevation profile" />
+                </div>
+              </div>
+            </div>
+            <div id="route-map" class="route-map" aria-label="Tour Divide map"></div>
+            <div class="map-controls">
+              <button id="drag-mode-btn" class="btn" type="button">Drag Mode: Off</button>
+              <button id="fit-route-btn" class="btn" type="button">Fit Route</button>
+            </div>
+            <aside id="map-section-box" class="map-section-box">
+              <p class="map-section-kicker">Section Comments</p>
+              <h3 id="map-section-title">Click a route section</h3>
+              <p id="map-section-elevation" class="map-section-elevation">Elevation: n/a</p>
+              <div class="map-section-profile-wrap">
+                <svg id="map-section-profile" class="map-section-profile" viewBox="0 0 120 52" preserveAspectRatio="none" aria-label="Section elevation profile"></svg>
+                <p id="map-section-profile-meta" class="map-section-profile-meta">Select a section to see elevation profile.</p>
+              </div>
+              <div id="map-section-comments" class="map-section-comments">
+                <p class="empty-note">Tap a section between major resupplies to view comments.</p>
+              </div>
+            </aside>
+          </section>
+
+          <section class="panel marker-list-panel">
+            <h2>Days + Resupply</h2>
+            <ul id="marker-list" class="marker-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-social" data-tab-panel="social">
+        <div class="layout social-layout">
+          <section class="panel comment-form-panel">
+            <h2>Section Discussion</h2>
+            <p>Post notes by route section so other riders can prep better.</p>
+            <form id="comment-form" class="comment-form">
+              <label>
+                Route section
+                <select id="comment-section" required></select>
+              </label>
+              <label>
+                Name
+                <input id="comment-name" type="text" maxlength="40" placeholder="Rider name" required />
+              </label>
+              <label>
+                Comment
+                <textarea id="comment-text" rows="5" maxlength="500" placeholder="Road surface, weather, water, closures, strategy..." required></textarea>
+              </label>
+              <label>
+                Picture (optional)
+                <input id="comment-image" type="file" accept="image/*" />
+              </label>
+              <button class="btn btn-primary" type="submit">Post Comment</button>
+            </form>
+          </section>
+
+          <section class="panel comment-feed-panel">
+            <div class="feed-header">
+              <h2>Recent Community Notes</h2>
+              <p>Stored locally in your browser right now.</p>
+            </div>
+            <div id="comment-feed" class="comment-feed"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <template id="day-template">
+      <article class="day-card">
+        <div class="day-top">
+          <div>
+            <h3 class="day-title"></h3>
+            <p class="day-date"></p>
+          </div>
+          <span class="tag"></span>
+        </div>
+        <div class="day-stats">
+          <label>
+            Miles
+            <input type="number" class="miles-input" min="0" step="0.1" />
+          </label>
+          <label>
+            Gain (ft)
+            <input type="number" class="gain-input" min="0" step="100" />
+          </label>
+        </div>
+        <p class="day-distance-so-far">Distance so far: <strong class="day-distance-so-far-value">0.0 mi</strong></p>
+        <div class="day-notes">
+          <label>
+            Target town / stop
+            <input type="text" class="town-input" />
+          </label>
+          <label>
+            Notes on the day
+            <textarea class="notes-input" rows="3" placeholder="Wind, sleep plan, cutoff strategy..."></textarea>
+          </label>
+        </div>
+      </article>
+    </template>
+
+    <template id="resupply-template">
+      <article class="day-card resupply-card">
+        <div class="day-top">
+          <div>
+            <h3 class="resupply-title"></h3>
+            <p class="day-date resupply-subtitle"></p>
+          </div>
+          <span class="tag ride">Resupply</span>
+        </div>
+        <div class="resupply-mile-edit" hidden>
+          <label>
+            Resupply mile marker
+            <input type="number" class="resupply-mile-input" min="0" step="0.1" />
+          </label>
+        </div>
+        <div class="resupply-row">
+          <label>
+            Resupply option 1
+            <input type="text" class="resupply-options-1-input" placeholder="Market, gas station, cafe..." />
+          </label>
+          <label>
+            Hours of operation
+            <input type="text" class="resupply-hours-1-input" placeholder="6:00 AM - 9:00 PM" />
+          </label>
+          <label class="distance-box">
+            Distance from route (mi)
+            <input type="number" class="resupply-distance-1-input" min="0" step="0.1" placeholder="0.4" />
+          </label>
+          <label>
+            Address / map search
+            <input type="text" class="resupply-address-1-input" placeholder="Street address or place name" />
+            <a class="resupply-map-link-1 inline-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+          </label>
+        </div>
+        <div class="resupply-row">
+          <label>
+            Resupply option 2
+            <input type="text" class="resupply-options-2-input" placeholder="Backup market or cafe..." />
+          </label>
+          <label>
+            Hours of operation
+            <input type="text" class="resupply-hours-2-input" placeholder="7:00 AM - 8:00 PM" />
+          </label>
+          <label class="distance-box">
+            Distance from route (mi)
+            <input type="number" class="resupply-distance-2-input" min="0" step="0.1" placeholder="0.8" />
+          </label>
+          <label>
+            Address / map search
+            <input type="text" class="resupply-address-2-input" placeholder="Street address or place name" />
+            <a class="resupply-map-link-2 inline-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+          </label>
+        </div>
+        <div class="extra-resupply-options"></div>
+        <div class="extra-bike-shops"></div>
+        <div class="button-row">
+          <button type="button" class="btn btn-accent add-resupply-option-btn">Add Resupply Option</button>
+          <button type="button" class="btn add-bike-shop-btn">Add Bike Shop</button>
+        </div>
+        <label>
+          Shopping list
+          <textarea class="shopping-list-input" rows="2" placeholder="Tortillas, bars, drink mix, chain lube..."></textarea>
+        </label>
+        <div class="day-stats">
+          <label>
+            Days until next resupply
+            <input type="number" class="days-until-input" min="1" step="1" />
+          </label>
+          <label>
+            Calorie counter (target kcal)
+            <input type="number" class="calorie-input" min="0" step="50" placeholder="7000" />
+          </label>
+        </div>
+        <label>
+          Extra notes
+          <textarea class="resupply-notes-input" rows="3" placeholder="Fuel strategy, store priorities, backup plan..."></textarea>
+        </label>
+      </article>
+    </template>
+
+    <template id="comment-template">
+      <article class="comment-card">
+        <div class="comment-head">
+          <p class="comment-section"></p>
+          <p class="comment-meta"></p>
+        </div>
+        <p class="comment-body"></p>
+        <img class="comment-image" alt="Route note image" />
+      </article>
+    </template>
+
+    <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="vendor/xlsx/xlsx.full.min.js"></script>
+    <script src="script.js?v=35"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+            await Promise.all(registrations.map((registration) => registration.unregister()));
+            const url = new URL(window.location.href);
+            const alreadyReset = url.searchParams.get("swreset") === "1";
+            if (navigator.serviceWorker.controller && !alreadyReset) {
+              url.searchParams.set("swreset", "1");
+              window.location.replace(url.toString());
+            }
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
