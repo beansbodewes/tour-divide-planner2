@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=13" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -55,6 +55,7 @@
       <section class="route-switcher-wrap">
         <p class="route-switcher-label">Route Collection</p>
         <nav class="route-switcher" aria-label="Choose route family">
+          <button id="home-view-btn" class="route-btn" type="button">Home</button>
           <button class="route-btn active" data-route="tour_divide" type="button">Tour Divide Race</button>
           <button class="route-btn" data-route="great_divide_route" type="button">Great Divide Touring Route</button>
           <button class="route-btn" data-route="colorado_trail" type="button">Colorado Trail</button>
@@ -72,6 +73,48 @@
     </header>
 
     <main class="app-shell">
+      <section id="home-page" class="home-page" aria-label="Welcome to Bikepack Finisher">
+        <div class="home-card">
+          <p class="home-kicker">Bikepack Finisher</p>
+          <h1>Plan Faster, Ride Smarter</h1>
+          <p class="home-intro">
+            Build your route day by day, map every resupply stop, and keep all your notes in one place.
+            Use the route collection or upload your own GPX route.
+          </p>
+          <div class="home-photo-strip" aria-label="Bikepacking tour photos">
+            <figure class="home-photo">
+              <img src="home-bike-photo.jpeg" alt="Bikepacking bike on a snowy trail." loading="lazy" />
+            </figure>
+            <figure class="home-photo">
+              <img src="home-bike-photo-2.jpg" alt="Bikepacking photo from your ride gallery." loading="lazy" />
+            </figure>
+            <figure class="home-photo">
+              <img src="home-bike-photo-3.jpg" alt="Bikepacking bike setup on trail terrain." loading="lazy" />
+            </figure>
+          </div>
+          <div class="home-grid">
+            <article class="home-block">
+              <h2>How To Use This Site</h2>
+              <ol>
+                <li>Create a username and password so your plan auto-saves and you can come back anytime.</li>
+                <li>Pick a route (or choose Create Your Own Ride), then set projected days and build your plan.</li>
+                <li>Use your own research to adjust daily mileage, stops, and resupply details.</li>
+                <li>Check the map and elevation tabs to confirm resupply and stop points, and read comments for current section info.</li>
+                <li>Export CSV to share your plan.</li>
+              </ol>
+            </article>
+            <article class="home-block">
+              <h2>Video Walkthrough</h2>
+              <div class="video-placeholder">
+                <p>Tutorial video coming soon</p>
+              </div>
+            </article>
+          </div>
+          <div class="button-row">
+            <button id="home-open-active-btn" class="btn btn-primary" type="button">Open Active Planner</button>
+          </div>
+        </div>
+      </section>
       <nav id="sections-nav" class="tabs" aria-label="Tour Divide Race sections">
         <button class="tab-btn active" data-tab="planner" type="button">Plan</button>
         <button class="tab-btn" data-tab="map" type="button">Map</button>
@@ -82,6 +125,27 @@
         <div class="layout">
           <section class="panel controls">
             <h2>Plan Setup</h2>
+            <section id="custom-upload-panel" class="custom-upload-panel" hidden>
+              <h3>Create Your Own Route</h3>
+              <label class="upload-dropzone" for="custom-gpx-file">
+                <input id="custom-gpx-file" type="file" accept=".gpx,application/gpx+xml,text/xml,application/xml" />
+                <strong>Drop GPX here, or click to upload</strong>
+                <span id="custom-gpx-status">No GPX uploaded yet.</span>
+              </label>
+              <div class="control-grid custom-projection-grid">
+                <label>
+                  Projected days
+                  <input type="number" id="custom-projected-days" min="2" max="120" value="20" />
+                </label>
+                <label>
+                  Projected resupply points
+                  <input type="number" id="custom-projected-resupplies" min="2" max="60" value="12" />
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Apply Uploaded Route</button>
+              </div>
+            </section>
             <form id="plan-form" class="control-grid">
               <label>
                 Start date
@@ -117,7 +181,7 @@
 
           <section class="panel export">
             <h2>Export</h2>
-            <p>Save your planner as CSV for phone notes, spreadsheets, or crew docs.</p>
+            <p>Save your planner as CSV or Excel for phone notes, spreadsheets, or crew docs.</p>
             <div class="export-controls">
               <label>
                 CSV format
@@ -129,13 +193,17 @@
                 </select>
               </label>
               <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
+              <button id="export-excel-btn" class="btn" type="button">Export Excel</button>
             </div>
           </section>
 
           <section class="panel days">
             <div class="days-header">
               <h2>Daily Roadbook</h2>
-              <p>Change mileage and the next ride elevation updates automatically.</p>
+              <p>
+                Change mileage and the next ride elevation updates automatically.
+                Total route distance: <strong id="planner-total-route-distance">0 mi</strong>
+              </p>
             </div>
             <div id="day-list" class="day-list"></div>
             <div class="add-stop-panel">
@@ -157,6 +225,11 @@
               <div class="button-row">
                 <button id="add-extra-stop-btn" class="btn btn-primary" type="button">Add Extra Stop</button>
               </div>
+            </div>
+            <div id="custom-stop-editor" class="add-stop-panel" hidden>
+              <h3>Custom Resupply Points</h3>
+              <p id="custom-stop-editor-note" class="empty-note">Upload a custom GPX route to edit stops.</p>
+              <div id="custom-stop-list" class="custom-stop-list"></div>
             </div>
           </section>
         </div>
@@ -271,6 +344,7 @@
             <input type="number" class="gain-input" min="0" step="100" />
           </label>
         </div>
+        <p class="day-distance-so-far">Distance so far: <strong class="day-distance-so-far-value">0.0 mi</strong></p>
         <div class="day-notes">
           <label>
             Target town / stop
@@ -292,6 +366,12 @@
             <p class="day-date resupply-subtitle"></p>
           </div>
           <span class="tag ride">Resupply</span>
+        </div>
+        <div class="resupply-mile-edit" hidden>
+          <label>
+            Resupply mile marker
+            <input type="number" class="resupply-mile-input" min="0" step="0.1" />
+          </label>
         </div>
         <div class="resupply-row">
           <label>
@@ -377,7 +457,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="script.js?v=7"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="script.js?v=16"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {

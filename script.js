@@ -6,6 +6,7 @@ const ROUTES = {
     plannerTitle: "Tour Divide Race Planner",
     gpxFile: "TourDivide2025_v2.gpx",
     defaultDistance: 2745,
+    defaultDays: 20,
     minDistance: 2000,
     maxDistance: 3200,
     storagePrefix: "tour-divide",
@@ -35,6 +36,7 @@ const ROUTES = {
     plannerTitle: "Great Divide Touring Route Planner",
     gpxFile: "Bikepacking-Route-GDMBR_V_TD_2017.gpx",
     defaultDistance: 2745,
+    defaultDays: 35,
     minDistance: 2000,
     maxDistance: 3200,
     storagePrefix: "great-divide-touring-route",
@@ -64,6 +66,7 @@ const ROUTES = {
     plannerTitle: "Colorado Trail Planner",
     gpxFile: "Bikepacking-Route-Colorado-Trail_v2017_08.gpx",
     defaultDistance: 527,
+    defaultDays: 15,
     minDistance: 300,
     maxDistance: 700,
     storagePrefix: "colorado-trail",
@@ -87,6 +90,7 @@ const ROUTES = {
     plannerTitle: "AZT 300 Planner",
     gpxFile: "AZT300_2026_v4.gpx",
     defaultDistance: 300,
+    defaultDays: 10,
     minDistance: 240,
     maxDistance: 360,
     storagePrefix: "azt-300",
@@ -107,6 +111,7 @@ const ROUTES = {
     plannerTitle: "AZT 800 Planner",
     gpxFile: "AZT800_2026_v1.gpx",
     defaultDistance: 800,
+    defaultDays: 20,
     minDistance: 650,
     maxDistance: 900,
     storagePrefix: "azt-800",
@@ -149,7 +154,19 @@ const ROUTES = {
   custom_ride: {
     id: "custom_ride",
     label: "Create Your Own Ride",
-    comingSoon: true
+    plannerTitle: "Create Your Own Ride Planner",
+    gpxFile: "",
+    defaultDistance: 500,
+    defaultDays: 20,
+    minDistance: 50,
+    maxDistance: 5000,
+    storagePrefix: "custom-ride",
+    profileCollection: "custom_ride_profiles",
+    csvName: "custom-ride-day-by-day-plan.csv",
+    resupplyPoints: [
+      { mile: 0, name: "Start", lat: 0, lon: 0, resupply: "Upload GPX to build route." },
+      { mile: 500, name: "Finish", lat: 0, lon: 0, resupply: "Finish point from uploaded route." }
+    ]
   }
 };
 
@@ -180,6 +197,7 @@ const finishDateInput = document.getElementById("finish-date");
 const totalDaysInput = document.getElementById("total-days");
 const restDaysInput = document.getElementById("rest-days");
 const routeDistanceInput = document.getElementById("route-distance");
+const plannerTotalRouteDistance = document.getElementById("planner-total-route-distance");
 const dayList = document.getElementById("day-list");
 const metricList = document.getElementById("metric-list");
 const dayTemplate = document.getElementById("day-template");
@@ -189,7 +207,17 @@ const extraStopNameInput = document.getElementById("extra-stop-name");
 const extraStopMileInput = document.getElementById("extra-stop-mile");
 const extraStopNotesInput = document.getElementById("extra-stop-notes");
 const addExtraStopBtn = document.getElementById("add-extra-stop-btn");
+const customUploadPanel = document.getElementById("custom-upload-panel");
+const customGpxFileInput = document.getElementById("custom-gpx-file");
+const customGpxStatus = document.getElementById("custom-gpx-status");
+const customProjectedDaysInput = document.getElementById("custom-projected-days");
+const customProjectedResuppliesInput = document.getElementById("custom-projected-resupplies");
+const customApplyUploadBtn = document.getElementById("custom-apply-upload-btn");
+const customStopEditor = document.getElementById("custom-stop-editor");
+const customStopEditorNote = document.getElementById("custom-stop-editor-note");
+const customStopList = document.getElementById("custom-stop-list");
 const exportBtn = document.getElementById("export-btn");
+const exportExcelBtn = document.getElementById("export-excel-btn");
 const exportFormatSelect = document.getElementById("export-format");
 const cloudStatus = document.getElementById("cloud-status");
 const authEmailInput = document.getElementById("auth-email");
@@ -201,6 +229,9 @@ const syncNowBtn = document.getElementById("sync-now-btn");
 const undoBtn = document.getElementById("undo-btn");
 const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
+const homeViewBtn = document.getElementById("home-view-btn");
+const homePage = document.getElementById("home-page");
+const homeOpenActiveBtn = document.getElementById("home-open-active-btn");
 const routeButtons = Array.from(document.querySelectorAll(".route-btn[data-route]"));
 const plannerTitle = document.getElementById("planner-title");
 const plannerSubhead = document.getElementById("planner-subhead");
@@ -264,6 +295,8 @@ let localAuthMode = false;
 let undoStack = [];
 let latestSnapshot = "";
 let restoringUndo = false;
+let customUploadedTrackPoints = [];
+let customUploadedFile = null;
 
 function getRouteFromUrl() {
   const routeParam = new URLSearchParams(window.location.search).get("route");
@@ -271,8 +304,130 @@ function getRouteFromUrl() {
   return DEFAULT_ROUTE_ID;
 }
 
+function viewModeFromUrl() {
+  const view = new URLSearchParams(window.location.search).get("view");
+  return view === "home" ? "home" : "planner";
+}
+
 function routeUrl(routeId) {
-  return routeId === DEFAULT_ROUTE_ID ? window.location.pathname : `${window.location.pathname}?route=${routeId}`;
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=planner`;
+  return `${window.location.pathname}?route=${routeId}&view=planner`;
+}
+
+function homeUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=home`;
+  return `${window.location.pathname}?route=${routeId}&view=home`;
+}
+
+function setHomeMode(showHome) {
+  if (homePage) homePage.hidden = !showHome;
+  if (sectionsNav) sectionsNav.hidden = showHome;
+  tabPanels.forEach((panel) => {
+    panel.hidden = showHome;
+  });
+  if (homeViewBtn) homeViewBtn.classList.toggle("active", showHome);
+  if (!showHome && map) {
+    setTimeout(() => {
+      map.invalidateSize();
+      if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+    }, 30);
+  }
+}
+
+function activeRouteId() {
+  return getRouteFromUrl();
+}
+
+function isCustomRouteActive() {
+  return activeRouteId() === "custom_ride";
+}
+
+function pointAtMile(trackPoints, cumulative, mile) {
+  return pointAtDistance(trackPoints, cumulative, mile);
+}
+
+function buildEvenResupplyPointsFromTrack(trackPoints, count, cumulativeMiles) {
+  if (!trackPoints.length || !cumulativeMiles.length) return [];
+  const safeCount = Math.max(2, Math.min(60, Number(count || 2)));
+  const totalMiles = cumulativeMiles[cumulativeMiles.length - 1] || 0;
+  const points = [];
+  for (let i = 0; i < safeCount; i++) {
+    const mile = safeCount === 1 ? 0 : (totalMiles * i) / (safeCount - 1);
+    const point = pointAtMile(trackPoints, cumulativeMiles, mile);
+    const name = i === 0 ? "Start" : i === safeCount - 1 ? "Finish" : `Resupply ${i}`;
+    points.push({
+      mile: Number(mile.toFixed(1)),
+      name,
+      lat: point.lat,
+      lon: point.lon,
+      resupply: i === 0 ? "Route start." : i === safeCount - 1 ? "Route finish." : "Custom route resupply point."
+    });
+  }
+  return points;
+}
+
+function refreshCustomRouteVisibility(routeId) {
+  const isCustom = routeId === "custom_ride";
+  if (customUploadPanel) customUploadPanel.hidden = !isCustom;
+  if (customStopEditor) customStopEditor.hidden = !isCustom;
+  if (isCustom && customProjectedDaysInput && totalDaysInput) {
+    customProjectedDaysInput.value = String(Math.max(2, Number(totalDaysInput.value || 20)));
+  }
+}
+
+function renderCustomStopEditor() {
+  if (!customStopList || !customStopEditorNote || !isCustomRouteActive()) return;
+  customStopList.innerHTML = "";
+  if (!resupplyPoints.length) {
+    customStopEditorNote.textContent = "Upload a custom GPX route to edit stops.";
+    return;
+  }
+  customStopEditorNote.textContent = "Edit stop names and mile markers. Map + comments update automatically.";
+  resupplyPoints.forEach((point, index) => {
+    const row = document.createElement("article");
+    row.className = "custom-stop-row";
+    row.innerHTML = `
+      <label>
+        Stop name
+        <input type="text" class="custom-stop-name-input" />
+      </label>
+      <label>
+        Mile
+        <input type="number" class="custom-stop-mile-input" min="0" step="0.1" />
+      </label>
+      <label>
+        Notes
+        <input type="text" class="custom-stop-note-input" />
+      </label>
+    `;
+    const nameInput = row.querySelector(".custom-stop-name-input");
+    const mileInput = row.querySelector(".custom-stop-mile-input");
+    const noteInput = row.querySelector(".custom-stop-note-input");
+    nameInput.value = point.name;
+    mileInput.value = String(Number(point.mile || 0));
+    noteInput.value = point.resupply || "";
+
+    const sync = () => {
+      const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || Number(routeDistanceInput.value || 0);
+      const mile = Math.max(0, Math.min(routeMax, Number(mileInput.value || 0)));
+      const snapped = pointAtMile(gpxTrackPoints, trackCumulativeMiles, mile);
+      resupplyPoints[index] = {
+        ...resupplyPoints[index],
+        name: nameInput.value.trim() || `Stop ${index + 1}`,
+        mile: Number(mile.toFixed(1)),
+        lat: snapped.lat,
+        lon: snapped.lon,
+        resupply: noteInput.value.trim()
+      };
+      refreshResupplyUIAfterChange();
+      renderCustomStopEditor();
+    };
+
+    [nameInput, mileInput, noteInput].forEach((input) => {
+      input.addEventListener("input", sync);
+    });
+    customStopList.appendChild(row);
+  });
 }
 
 function loadCustomResupplyStops() {
@@ -347,6 +502,7 @@ function refreshResupplyUIAfterChange() {
   drawSectionOverlays();
   renderMapSectionComments(selectedSectionName);
   if (plan.length) renderPlan(plan);
+  if (isCustomRouteActive()) renderCustomStopEditor();
   applyDragModeToMarkers();
 }
 
@@ -369,7 +525,10 @@ function applyRouteConfig(routeId) {
   CSV_FILENAME = route.csvName;
   resupplyPoints = route.resupplyPoints.map((point) => ({ ...point }));
   const customStops = loadCustomResupplyStops();
-  if (customStops.length) {
+  if (route.id === "custom_ride" && customStops.length) {
+    resupplyPoints = customStops;
+    sortResupplyPointsByMile();
+  } else if (customStops.length) {
     resupplyPoints = [...resupplyPoints, ...customStops];
     sortResupplyPointsByMile();
   }
@@ -387,7 +546,14 @@ function applyRouteConfig(routeId) {
   if (routeDistanceInput) {
     routeDistanceInput.min = String(route.minDistance);
     routeDistanceInput.max = String(route.maxDistance);
-    if (!routeDistanceInput.value) routeDistanceInput.value = String(route.defaultDistance);
+    routeDistanceInput.value = String(route.defaultDistance);
+  }
+
+  if (totalDaysInput && Number.isFinite(route.defaultDays)) {
+    totalDaysInput.value = String(route.defaultDays);
+    if (startDateInput.value) {
+      finishDateInput.value = addDays(startDateInput.value, Math.max(1, route.defaultDays) - 1);
+    }
   }
 
   routeButtons.forEach((button) => {
@@ -395,6 +561,7 @@ function applyRouteConfig(routeId) {
     const buttonRoute = ROUTES[button.dataset.route];
     button.disabled = Boolean(buttonRoute && buttonRoute.comingSoon);
   });
+  refreshCustomRouteVisibility(route.id);
   return true;
 }
 
@@ -748,6 +915,11 @@ function renderMetrics(config, days) {
   const totalMiles = rideDays.reduce((sum, d) => sum + Number(d.miles || 0), 0);
   const totalGain = rideDays.reduce((sum, d) => sum + Number(d.gain || 0), 0);
 
+  if (plannerTotalRouteDistance) {
+    const routeMiles = Number(config?.routeDistance || routeDistanceInput?.value || 0);
+    plannerTotalRouteDistance.textContent = `${routeMiles.toLocaleString()} mi`;
+  }
+
   const items = [
     ["Route", `${config.routeDistance} mi`],
     ["Race Days", `${config.totalDays}`],
@@ -877,11 +1049,21 @@ function createDayCard(day, index) {
   const gainInput = node.querySelector(".gain-input");
   const townInput = node.querySelector(".town-input");
   const notesInput = node.querySelector(".notes-input");
+  const distanceSoFarValue = node.querySelector(".day-distance-so-far-value");
 
   milesInput.value = normalized.miles;
   gainInput.value = normalized.gain;
   townInput.value = normalized.town;
   notesInput.value = normalized.notes;
+  if (distanceSoFarValue) {
+    let cumulativeMiles = 0;
+    for (let i = 0; i <= index; i++) {
+      const dayAtIndex = plan[i];
+      if (!dayAtIndex || dayAtIndex.type === "Rest") continue;
+      cumulativeMiles += Number(dayAtIndex.miles || 0);
+    }
+    distanceSoFarValue.textContent = `${cumulativeMiles.toFixed(1)} mi`;
+  }
 
   if (day.type === "Rest") {
     milesInput.disabled = true;
@@ -959,6 +1141,30 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
   const normalized = normalizeDay(day);
   node.querySelector(".resupply-title").textContent = `${stopInfo.point.name} Resupply`;
   node.querySelector(".resupply-subtitle").textContent = `Near mile ${stopInfo.point.mile.toFixed(1)} on Day ${day.id}`;
+  const resupplyMileEdit = node.querySelector(".resupply-mile-edit");
+  const resupplyMileInput = node.querySelector(".resupply-mile-input");
+
+  if (resupplyMileEdit && resupplyMileInput) {
+    const isCustom = isCustomRouteActive();
+    resupplyMileEdit.hidden = !isCustom;
+    resupplyMileInput.value = String(Number(stopInfo.point.mile || 0));
+    if (isCustom) {
+      resupplyMileInput.addEventListener("change", () => {
+        if (stopInfo.stopIndex === undefined || !resupplyPoints[stopInfo.stopIndex]) return;
+        const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || Number(routeDistanceInput.value || 0);
+        const requestedMile = Number(resupplyMileInput.value || stopInfo.point.mile || 0);
+        const safeMile = Math.max(0, Math.min(routeMax, requestedMile));
+        const snapped = pointAtMile(gpxTrackPoints, trackCumulativeMiles, safeMile);
+        resupplyPoints[stopInfo.stopIndex] = {
+          ...resupplyPoints[stopInfo.stopIndex],
+          mile: Number(safeMile.toFixed(1)),
+          lat: snapped.lat,
+          lon: snapped.lon
+        };
+        refreshResupplyUIAfterChange();
+      });
+    }
+  }
 
   const resupplyOptions1Input = node.querySelector(".resupply-options-1-input");
   const resupplyHours1Input = node.querySelector(".resupply-hours-1-input");
@@ -1386,9 +1592,26 @@ function downloadCsv(csv, filename) {
   URL.revokeObjectURL(url);
 }
 
+function downloadExcel(headers, rows, filename) {
+  if (typeof XLSX === "undefined") {
+    return false;
+  }
+  const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Plan");
+  XLSX.writeFile(workbook, filename, { bookType: "xlsx" });
+  return true;
+}
+
 function csvNameWithSuffix(suffix) {
   const base = CSV_FILENAME || "bikepack-plan.csv";
   return base.endsWith(".csv") ? `${base.slice(0, -4)}-${suffix}.csv` : `${base}-${suffix}.csv`;
+}
+
+function excelNameWithSuffix(suffix) {
+  const baseCsv = CSV_FILENAME || "bikepack-plan.csv";
+  const base = baseCsv.endsWith(".csv") ? baseCsv.slice(0, -4) : baseCsv;
+  return suffix ? `${base}-${suffix}.xlsx` : `${base}.xlsx`;
 }
 
 function defaultPlanForCurrentConfig() {
@@ -1526,6 +1749,52 @@ function exportStandardCsv(baselinePlan) {
   downloadCsv(buildCsv(headers, rows), CSV_FILENAME || "bikepack-plan.csv");
 }
 
+function standardExportRows(baselinePlan) {
+  const headers = [
+    "Day",
+    "Date",
+    "Type",
+    "Miles",
+    "GainFt",
+    "TargetTown",
+    "ResupplyOption1",
+    "Hours1",
+    "DistanceFromRouteMi1",
+    "Address1",
+    "ResupplyOption2",
+    "Hours2",
+    "DistanceFromRouteMi2",
+    "Address2",
+    "AdditionalResupplyOptions",
+    "AdditionalBikeShops",
+    "ShoppingList",
+    "CalorieTargetKcal",
+    "Notes"
+  ];
+  const rows = plan.map((d) => [
+    d.id,
+    d.date,
+    d.type,
+    d.miles,
+    d.gain,
+    d.town,
+    optionalCsvValue(d, d.id - 1, "resupplyOptions1", baselinePlan),
+    optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
+    optionalCsvValue(d, d.id - 1, "resupplyDistance1", baselinePlan, true),
+    optionalCsvValue(d, d.id - 1, "resupplyAddress1", baselinePlan),
+    optionalCsvValue(d, d.id - 1, "resupplyOptions2", baselinePlan),
+    optionalCsvValue(d, d.id - 1, "resupplyHours2", baselinePlan),
+    optionalCsvValue(d, d.id - 1, "resupplyDistance2", baselinePlan, true),
+    optionalCsvValue(d, d.id - 1, "resupplyAddress2", baselinePlan),
+    optionalExtraOptionsText(d, d.id - 1, baselinePlan),
+    optionalBikeShopsText(d, d.id - 1, baselinePlan),
+    optionalCsvValue(d, d.id - 1, "shoppingList", baselinePlan),
+    optionalCsvValue(d, d.id - 1, "calorieTarget", baselinePlan, true),
+    optionalCsvValue(d, d.id - 1, "notes", baselinePlan)
+  ]);
+  return { headers, rows, suffix: "" };
+}
+
 function exportDetailedDaysCsv(baselinePlan) {
   const summaries = daySummaries(plan);
   const assignments = resupplyDayAssignments(plan);
@@ -1591,6 +1860,69 @@ function exportDetailedDaysCsv(baselinePlan) {
   downloadCsv(buildCsv(headers, rows), csvNameWithSuffix("detailed-days"));
 }
 
+function detailedDaysExportRows(baselinePlan) {
+  const summaries = daySummaries(plan);
+  const assignments = resupplyDayAssignments(plan);
+  const headers = [
+    "Day",
+    "Date",
+    "Type",
+    "StartMile",
+    "EndMile",
+    "DailyDistanceMi",
+    "CumulativeDistanceMi",
+    "ElevationGainFt",
+    "LocationOfStop",
+    "ResuppliesReachedToday",
+    "DaysUntilNextResupply",
+    "ResupplyOption1",
+    "Hours1",
+    "DistanceFromRouteMi1",
+    "Address1",
+    "ResupplyOption2",
+    "Hours2",
+    "DistanceFromRouteMi2",
+    "Address2",
+    "AdditionalResupplyOptions",
+    "AdditionalBikeShops",
+    "ShoppingList",
+    "CalorieTargetKcal",
+    "ExtraResupplyNotes",
+    "NotesOnDay"
+  ];
+  const rows = summaries.map((d, idx) => {
+    const dayStops = (assignments.get(idx) || []).map((s) => `${s.point.name} (${s.point.mile.toFixed(1)} mi)`).join(" | ");
+    return [
+      d.id,
+      d.date,
+      d.type,
+      Number(d.startMile.toFixed(2)),
+      Number(d.endMile.toFixed(2)),
+      Number((d.endMile - d.startMile).toFixed(2)),
+      Number(d.cumulativeMiles.toFixed(2)),
+      d.gain,
+      d.town || "",
+      dayStops,
+      optionalCsvValue(d, d.id - 1, "daysUntilNextResupply", baselinePlan, true),
+      optionalCsvValue(d, d.id - 1, "resupplyOptions1", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "resupplyDistance1", baselinePlan, true),
+      optionalCsvValue(d, d.id - 1, "resupplyAddress1", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "resupplyOptions2", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "resupplyHours2", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "resupplyDistance2", baselinePlan, true),
+      optionalCsvValue(d, d.id - 1, "resupplyAddress2", baselinePlan),
+      optionalExtraOptionsText(d, d.id - 1, baselinePlan),
+      optionalBikeShopsText(d, d.id - 1, baselinePlan),
+      optionalCsvValue(d, d.id - 1, "shoppingList", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "calorieTarget", baselinePlan, true),
+      optionalCsvValue(d, d.id - 1, "resupplyNotes", baselinePlan),
+      optionalCsvValue(d, d.id - 1, "notes", baselinePlan)
+    ];
+  });
+  return { headers, rows, suffix: "detailed-days" };
+}
+
 function exportResupplyOnlyCsv(baselinePlan) {
   const summaries = daySummaries(plan);
   const headers = [
@@ -1652,6 +1984,67 @@ function exportResupplyOnlyCsv(baselinePlan) {
   downloadCsv(buildCsv(headers, rows), csvNameWithSuffix("resupply-only"));
 }
 
+function resupplyOnlyExportRows(baselinePlan) {
+  const summaries = daySummaries(plan);
+  const headers = [
+    "ResupplyStop",
+    "MileMarker",
+    "DayReached",
+    "DateReached",
+    "DistanceSincePreviousStopMi",
+    "DaysFromPreviousStop",
+    "DaysUntilNextResupply",
+    "ResupplyOption1",
+    "Hours1",
+    "DistanceFromRouteMi1",
+    "Address1",
+    "ResupplyOption2",
+    "Hours2",
+    "DistanceFromRouteMi2",
+    "Address2",
+    "AdditionalResupplyOptions",
+    "AdditionalBikeShops",
+    "ShoppingList",
+    "CalorieTargetKcal",
+    "ExtraResupplyNotes",
+    "RouteNote"
+  ];
+
+  const rows = [];
+  for (let i = 0; i < resupplyPoints.length; i++) {
+    const point = resupplyPoints[i];
+    const dayIndex = firstDayIndexAtOrAfterMile(summaries, point.mile);
+    const day = summaries[dayIndex] || {};
+    const previousPoint = resupplyPoints[i - 1];
+    const previousDayIndex = previousPoint ? firstDayIndexAtOrAfterMile(summaries, previousPoint.mile) : dayIndex;
+    rows.push([
+      point.name,
+      Number(point.mile.toFixed(2)),
+      day.id || "",
+      day.date || "",
+      previousPoint ? Number((point.mile - previousPoint.mile).toFixed(2)) : 0,
+      Math.max(0, dayIndex - previousDayIndex),
+      optionalCsvValue(day, (day.id || 1) - 1, "daysUntilNextResupply", baselinePlan, true),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyOptions1", baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyHours1", baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyDistance1", baselinePlan, true),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyAddress1", baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyOptions2", baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyHours2", baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyDistance2", baselinePlan, true),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyAddress2", baselinePlan),
+      optionalExtraOptionsText(day, (day.id || 1) - 1, baselinePlan),
+      optionalBikeShopsText(day, (day.id || 1) - 1, baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "shoppingList", baselinePlan),
+      optionalCsvValue(day, (day.id || 1) - 1, "calorieTarget", baselinePlan, true),
+      optionalCsvValue(day, (day.id || 1) - 1, "resupplyNotes", baselinePlan) || point.resupply || "",
+      optionalCsvValue(day, (day.id || 1) - 1, "notes", baselinePlan)
+    ]);
+  }
+
+  return { headers, rows, suffix: "resupply-only" };
+}
+
 function exportDayMatrixCsv(baselinePlan) {
   const dayHeaders = plan.map((d) => `Day ${d.id}`);
   const headers = ["Field", ...dayHeaders];
@@ -1689,23 +2082,62 @@ function exportDayMatrixCsv(baselinePlan) {
   downloadCsv(buildCsv(headers, rows), csvNameWithSuffix("day-matrix"));
 }
 
+function dayMatrixExportRows(baselinePlan) {
+  const dayHeaders = plan.map((d) => `Day ${d.id}`);
+  const headers = ["Field", ...dayHeaders];
+  const summaries = daySummaries(plan);
+  const rowPairs = [
+    ["Date", (d) => d.date],
+    ["Type", (d) => d.type],
+    ["Start Mile", (_, i) => Number(summaries[i].startMile.toFixed(2))],
+    ["End Mile", (_, i) => Number(summaries[i].endMile.toFixed(2))],
+    ["Daily Distance (mi)", (d, i) => Number((summaries[i].endMile - summaries[i].startMile).toFixed(2))],
+    ["Elevation Gain (ft)", (d) => d.gain || 0],
+    ["Location of Stop", (d) => d.town || ""],
+    ["Resupply Option 1", (d, i) => optionalCsvValue(d, i, "resupplyOptions1", baselinePlan)],
+    ["Hours 1", (d, i) => optionalCsvValue(d, i, "resupplyHours1", baselinePlan)],
+    ["Distance From Route 1 (mi)", (d, i) => optionalCsvValue(d, i, "resupplyDistance1", baselinePlan, true)],
+    ["Address 1", (d, i) => optionalCsvValue(d, i, "resupplyAddress1", baselinePlan)],
+    ["Resupply Option 2", (d, i) => optionalCsvValue(d, i, "resupplyOptions2", baselinePlan)],
+    ["Hours 2", (d, i) => optionalCsvValue(d, i, "resupplyHours2", baselinePlan)],
+    ["Distance From Route 2 (mi)", (d, i) => optionalCsvValue(d, i, "resupplyDistance2", baselinePlan, true)],
+    ["Address 2", (d, i) => optionalCsvValue(d, i, "resupplyAddress2", baselinePlan)],
+    ["Additional Resupply Options", (d, i) => optionalExtraOptionsText(d, i, baselinePlan)],
+    ["Additional Bike Shops", (d, i) => optionalBikeShopsText(d, i, baselinePlan)],
+    ["Shopping List", (d, i) => optionalCsvValue(d, i, "shoppingList", baselinePlan)],
+    ["Calorie Counter (kcal)", (d, i) => optionalCsvValue(d, i, "calorieTarget", baselinePlan, true)],
+    ["Days Until Next Resupply", (d, i) => optionalCsvValue(d, i, "daysUntilNextResupply", baselinePlan, true)],
+    ["Extra Resupply Notes", (d, i) => optionalCsvValue(d, i, "resupplyNotes", baselinePlan)],
+    ["Notes on Day", (d, i) => optionalCsvValue(d, i, "notes", baselinePlan)]
+  ];
+  const rows = rowPairs.map(([label, getter]) => [label, ...plan.map((d, i) => getter(d, i))]);
+  return { headers, rows, suffix: "day-matrix" };
+}
+
+function exportDataForSelectedFormat(baselinePlan) {
+  const format = exportFormatSelect?.value || "standard";
+  if (format === "detailed_days") return detailedDaysExportRows(baselinePlan);
+  if (format === "resupply_only") return resupplyOnlyExportRows(baselinePlan);
+  if (format === "day_matrix") return dayMatrixExportRows(baselinePlan);
+  return standardExportRows(baselinePlan);
+}
+
 function exportCsv() {
   if (!plan.length) return;
   const baselinePlan = defaultPlanForCurrentConfig();
-  const format = exportFormatSelect?.value || "standard";
-  if (format === "detailed_days") {
-    exportDetailedDaysCsv(baselinePlan);
-    return;
+  const { headers, rows, suffix } = exportDataForSelectedFormat(baselinePlan);
+  downloadCsv(buildCsv(headers, rows), suffix ? csvNameWithSuffix(suffix) : (CSV_FILENAME || "bikepack-plan.csv"));
+}
+
+function exportExcel() {
+  if (!plan.length) return;
+  const baselinePlan = defaultPlanForCurrentConfig();
+  const { headers, rows, suffix } = exportDataForSelectedFormat(baselinePlan);
+  const exported = downloadExcel(headers, rows, excelNameWithSuffix(suffix));
+  if (!exported) {
+    downloadCsv(buildCsv(headers, rows), suffix ? csvNameWithSuffix(suffix) : (CSV_FILENAME || "bikepack-plan.csv"));
+    alert("Excel library could not load, so CSV was exported instead.");
   }
-  if (format === "resupply_only") {
-    exportResupplyOnlyCsv(baselinePlan);
-    return;
-  }
-  if (format === "day_matrix") {
-    exportDayMatrixCsv(baselinePlan);
-    return;
-  }
-  exportStandardCsv(baselinePlan);
 }
 
 function setupTabs() {
@@ -2664,6 +3096,67 @@ function applyDragModeToMarkers() {
   setDragButtonState();
 }
 
+function applyTrackToMap(trackPoints, options = {}) {
+  if (!map || !trackPoints.length) return;
+  const { fitBounds = true, rebuildPlan = false } = options;
+
+  gpxTrackPoints = trackPoints;
+  trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
+  trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+
+  if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
+  if (stageLayer) stageLayer.clearLayers();
+  if (resupplyLayer) resupplyLayer.clearLayers();
+  if (sectionLayer) sectionLayer.clearLayers();
+  if (dragGuideLayer) dragGuideLayer.clearLayers();
+  dayMarkers = [];
+  resupplyMarkers = [];
+
+  const coords = gpxTrackPoints.map((point) => [point.lat, point.lon]);
+  routeLine = L.polyline(coords, {
+    color: "#1d7f5b",
+    weight: 3,
+    opacity: 0.85
+  }).addTo(map);
+
+  const gpxTotals = buildEvenStages(gpxTrackPoints, 2);
+  if (gpxTotals.totalMiles > 0) {
+    routeDistanceInput.value = String(Math.round(gpxTotals.totalMiles));
+  }
+
+  renderResupplyMarkers();
+  routeSections = buildResupplySections(gpxTrackPoints);
+  renderRouteProfile();
+  drawSectionOverlays();
+  renderMapSectionComments("");
+
+  if (fitBounds) {
+    map.fitBounds(routeLine.getBounds(), {
+      padding: [30, 30]
+    });
+  }
+
+  if (rebuildPlan) {
+    const config = parseForm();
+    if (config) {
+      plan = buildPlan(config);
+      renderMetrics(config, plan);
+      renderPlan(plan);
+      persistPlan();
+    }
+  }
+
+  updateStagesFromInput();
+  if (plan.length) {
+    recomputeDerivedFields();
+    const config = parseForm();
+    if (config) renderMetrics(config, plan);
+    renderPlan(plan);
+    persistPlan();
+  }
+  applyDragModeToMarkers();
+}
+
 async function initMap() {
   const mapElement = document.getElementById("route-map");
   if (!mapElement || typeof L === "undefined") return;
@@ -2706,67 +3199,28 @@ async function initMap() {
   });
 
   activeBaseLayer = mapboxLayer.addTo(map);
+  stageLayer = L.layerGroup().addTo(map);
+  resupplyLayer = L.layerGroup().addTo(map);
+  sectionLayer = L.layerGroup().addTo(map);
+  dragGuideLayer = L.layerGroup().addTo(map);
 
   try {
-    const response = await fetch(GPX_FILE);
-    if (!response.ok) throw new Error(`Failed GPX load: ${response.status}`);
-    const xmlText = await response.text();
-    gpxTrackPoints = parseGpxTrack(xmlText);
-    if (gpxTrackPoints.length < 2) throw new Error("Not enough track points in GPX");
-    trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
-    trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
-
-    const coords = gpxTrackPoints.map((point) => [point.lat, point.lon]);
-    routeLine = L.polyline(coords, {
-      color: "#1d7f5b",
-      weight: 3,
-      opacity: 0.85
-    }).addTo(map);
-
-    stageLayer = L.layerGroup().addTo(map);
-    resupplyLayer = L.layerGroup().addTo(map);
-    sectionLayer = L.layerGroup().addTo(map);
-    dragGuideLayer = L.layerGroup().addTo(map);
-
-    const gpxTotals = buildEvenStages(gpxTrackPoints, 2);
-    if (gpxTotals.totalMiles > 0) {
-      const stageData = buildEvenStages(gpxTrackPoints, Math.max(2, Number(totalDaysInput.value || 2)));
-      const gpxMiles = Math.round(stageData.totalMiles);
-      routeDistanceInput.value = gpxMiles;
-      if (!plan.length) {
-        const config = parseForm();
-        if (config) {
-          plan = buildPlan(config);
-          renderMetrics(config, plan);
-          renderPlan(plan);
-          persistPlan();
-        }
-      }
+    let trackPoints = [];
+    if (isCustomRouteActive() && customUploadedTrackPoints.length >= 2) {
+      trackPoints = customUploadedTrackPoints;
+    } else if (GPX_FILE) {
+      const response = await fetch(GPX_FILE);
+      if (!response.ok) throw new Error(`Failed GPX load: ${response.status}`);
+      const xmlText = await response.text();
+      trackPoints = parseGpxTrack(xmlText);
     }
 
-    renderResupplyMarkers();
-
-    routeSections = buildResupplySections(gpxTrackPoints);
-    renderRouteProfile();
-    drawSectionOverlays();
-    renderMapSectionComments("");
-
-    map.fitBounds(routeLine.getBounds(), {
-      padding: [30, 30]
-    });
-
-    updateStagesFromInput();
-    if (plan.length) {
-      recomputeDerivedFields();
-      const config = parseForm();
-      if (config) renderMetrics(config, plan);
-      renderPlan(plan);
-      persistPlan();
-    }
-    applyDragModeToMarkers();
+    if (trackPoints.length < 2) throw new Error("Not enough track points in GPX");
+    applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
+    if (isCustomRouteActive()) renderCustomStopEditor();
   } catch {
     markerList.innerHTML =
-      `<li><p class="empty-note">Could not load GPX route file. Check that ${GPX_FILE} is in the project root.</p></li>`;
+      `<li><p class="empty-note">Could not load GPX route file. ${isCustomRouteActive() ? "Upload a custom GPX in Plan tab." : `Check that ${GPX_FILE} is in the project root.`}</p></li>`;
   }
 
   setupCommentSections();
@@ -2915,10 +3369,12 @@ form.addEventListener("submit", (event) => {
 });
 
 resetBtn.addEventListener("click", () => {
+  const activeRoute = ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID];
+  const defaultDays = Math.max(1, Number(activeRoute.defaultDays || 22));
   localStorage.removeItem(STORAGE_KEY);
   startDateInput.value = localDateString(new Date());
-  finishDateInput.value = addDays(startDateInput.value, 21);
-  totalDaysInput.value = 22;
+  finishDateInput.value = addDays(startDateInput.value, defaultDays - 1);
+  totalDaysInput.value = defaultDays;
   restDaysInput.value = 1;
   routeDistanceInput.value = String(resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
   plan = [];
@@ -2928,6 +3384,87 @@ resetBtn.addEventListener("click", () => {
 });
 
 exportBtn.addEventListener("click", exportCsv);
+if (exportExcelBtn) {
+  exportExcelBtn.addEventListener("click", exportExcel);
+}
+
+if (customGpxFileInput && customGpxStatus) {
+  customGpxFileInput.addEventListener("change", () => {
+    const file = customGpxFileInput.files?.[0] || null;
+    customUploadedFile = file;
+    customGpxStatus.textContent = file ? `Selected: ${file.name}` : "No GPX uploaded yet.";
+  });
+}
+
+if (customApplyUploadBtn) {
+  customApplyUploadBtn.addEventListener("click", async () => {
+    if (!isCustomRouteActive()) {
+      setCloudStatus("Switch to Create Your Own Ride first.");
+      return;
+    }
+    const file = customUploadedFile || customGpxFileInput?.files?.[0];
+    if (!file) {
+      setCloudStatus("Choose a GPX file first.");
+      return;
+    }
+
+    try {
+      const xmlText = await file.text();
+      const points = parseGpxTrack(xmlText);
+      if (points.length < 2) {
+        setCloudStatus("That GPX file does not have enough track points.");
+        return;
+      }
+
+      customUploadedTrackPoints = points;
+      const cumulative = buildTrackCumulativeMiles(points);
+      const totalMiles = cumulative[cumulative.length - 1] || 0;
+      const projectedDays = Math.max(2, Math.min(120, Number(customProjectedDaysInput?.value || 20)));
+      const projectedStops = Math.max(2, Math.min(60, Number(customProjectedResuppliesInput?.value || 12)));
+      totalDaysInput.value = String(projectedDays);
+      if (startDateInput.value) finishDateInput.value = addDays(startDateInput.value, projectedDays - 1);
+      routeDistanceInput.value = String(Math.round(totalMiles));
+      localStorage.removeItem(CUSTOM_STOPS_KEY);
+      selectedSectionName = "";
+      resupplyPoints = buildEvenResupplyPointsFromTrack(points, projectedStops, cumulative).map((point) => ({
+        ...point,
+        isCustom: true
+      }));
+      saveCustomResupplyStops();
+
+      if (map) {
+        applyTrackToMap(points, { fitBounds: true, rebuildPlan: true });
+      }
+      renderCustomStopEditor();
+      customGpxStatus.textContent = `Uploaded ${file.name} • ${totalMiles.toFixed(1)} mi`;
+      setCloudStatus("Custom GPX uploaded and route built.");
+    } catch {
+      setCloudStatus("Could not read that GPX file.");
+    }
+  });
+}
+
+if (customUploadPanel) {
+  const dropzone = customUploadPanel.querySelector(".upload-dropzone");
+  if (dropzone && customGpxFileInput && customGpxStatus) {
+    dropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", () => {
+      dropzone.classList.remove("dragover");
+    });
+    dropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropzone.classList.remove("dragover");
+      const files = event.dataTransfer?.files;
+      if (!files?.length) return;
+      const file = files[0];
+      customUploadedFile = file;
+      customGpxStatus.textContent = file ? `Selected: ${file.name}` : "No GPX uploaded yet.";
+    });
+  }
+}
 
 if (addExtraStopBtn) {
   addExtraStopBtn.addEventListener("click", () => {
@@ -3119,6 +3656,18 @@ if (undoBtn) {
   });
 }
 
+if (homeViewBtn) {
+  homeViewBtn.addEventListener("click", () => {
+    window.location.href = homeUrl(getRouteFromUrl());
+  });
+}
+
+if (homeOpenActiveBtn) {
+  homeOpenActiveBtn.addEventListener("click", () => {
+    window.location.href = routeUrl(getRouteFromUrl());
+  });
+}
+
 commentSectionSelect.addEventListener("change", () => {
   renderMapSectionComments(commentSectionSelect.value);
   drawSectionOverlays();
@@ -3127,6 +3676,7 @@ commentSectionSelect.addEventListener("change", () => {
 if (!applyRouteConfig(getRouteFromUrl())) {
   applyRouteConfig(DEFAULT_ROUTE_ID);
 }
+setHomeMode(viewModeFromUrl() === "home");
 enforceSiteBranding();
 setDragButtonState();
 setupAccountMenu();

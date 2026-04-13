@@ -1,4 +1,4 @@
-const CACHE_NAME = "bikepack-route-pwa-v18";
+const CACHE_NAME = "bikepack-route-pwa-v28";
 const CORE_ASSETS = [
   "/",
   "/index.html",
@@ -6,6 +6,9 @@ const CORE_ASSETS = [
   "/script.js",
   "/manifest.webmanifest",
   "/app-icon.svg",
+  "/home-bike-photo.jpeg",
+  "/home-bike-photo-2.jpg",
+  "/home-bike-photo-3.jpg",
   "/TourDivide2025_v2.gpx",
   "/Bikepacking-Route-GDMBR_V_TD_2017.gpx",
   "/Bikepacking-Route-Colorado-Trail_v2017_08.gpx",
