@@ -230,8 +230,13 @@ const undoBtn = document.getElementById("undo-btn");
 const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
 const homeViewBtn = document.getElementById("home-view-btn");
+const customerServiceViewBtn = document.getElementById("customer-service-view-btn");
+const donationsViewBtn = document.getElementById("donations-view-btn");
 const homePage = document.getElementById("home-page");
+const customerServicePage = document.getElementById("customer-service-page");
+const donationsPage = document.getElementById("donations-page");
 const homeOpenActiveBtn = document.getElementById("home-open-active-btn");
+const homeRouteList = document.getElementById("home-route-list");
 const routeButtons = Array.from(document.querySelectorAll(".route-btn[data-route]"));
 const plannerTitle = document.getElementById("planner-title");
 const plannerSubhead = document.getElementById("planner-subhead");
@@ -266,6 +271,20 @@ const commentTextInput = document.getElementById("comment-text");
 const commentImageInput = document.getElementById("comment-image");
 const commentFeed = document.getElementById("comment-feed");
 const commentTemplate = document.getElementById("comment-template");
+const customerServiceForm = document.getElementById("customer-service-form");
+const customerServiceStatus = document.getElementById("customer-service-status");
+const csNameInput = document.getElementById("cs-name");
+const csEmailInput = document.getElementById("cs-email");
+const csTopicInput = document.getElementById("cs-topic");
+const csRouteInput = document.getElementById("cs-route");
+const csMessageInput = document.getElementById("cs-message");
+const donationSuggestionForm = document.getElementById("donation-suggestion-form");
+const donationStatus = document.getElementById("donation-status");
+const donNameInput = document.getElementById("don-name");
+const donEmailInput = document.getElementById("don-email");
+const donAmountInput = document.getElementById("don-amount");
+const donTypeInput = document.getElementById("don-type");
+const donMessageInput = document.getElementById("don-message");
 
 let plan = [];
 let comments = [];
@@ -277,6 +296,8 @@ let resupplyLayer;
 let sectionLayer;
 let routeSections = [];
 let routeLine;
+let routeHoverLine;
+let mapHoverMarker = null;
 let trackCumulativeMiles = [];
 let trackCumulativeGainFt = [];
 let dayMarkers = [];
@@ -297,6 +318,50 @@ let latestSnapshot = "";
 let restoringUndo = false;
 let customUploadedTrackPoints = [];
 let customUploadedFile = null;
+let mapPlanSelection = null;
+let mapPlanPanelEl = null;
+let mapPlanTitleEl = null;
+let mapPlanSubheadEl = null;
+let mapPlanContentEl = null;
+let routeProfileHoverLineEl = null;
+let routeProfileHoverDotEl = null;
+let routeProfileDefaultMetaText = "";
+let routeProfilePointForMile = null;
+let routeProfileBounds = null;
+const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
+const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
+const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
+const homeRouteMetricsCache = new Map();
+const HOME_ROUTE_DETAILS = {
+  tour_divide: {
+    location: "Canada to New Mexico, Rocky Mountains",
+    ridingType: "Ultra-endurance mixed surface racing"
+  },
+  great_divide_route: {
+    location: "Banff to Antelope Wells",
+    ridingType: "Bike touring + long-distance bikepacking"
+  },
+  colorado_trail: {
+    location: "Colorado, USA",
+    ridingType: "High-altitude singletrack + rough jeep roads"
+  },
+  azt_300: {
+    location: "Southern Arizona, USA",
+    ridingType: "Desert singletrack + hike-a-bike race route"
+  },
+  azt_800: {
+    location: "Mexico border to Utah border (Arizona)",
+    ridingType: "Long-haul desert + mountain bikepacking route"
+  },
+  peruvian_divide: {
+    location: "Andes, Peru",
+    ridingType: "High-altitude mixed terrain expedition route"
+  },
+  custom_ride: {
+    location: "Your uploaded route",
+    ridingType: "Custom"
+  }
+};
 
 function getRouteFromUrl() {
   const routeParam = new URLSearchParams(window.location.search).get("route");
@@ -306,7 +371,10 @@ function getRouteFromUrl() {
 
 function viewModeFromUrl() {
   const view = new URLSearchParams(window.location.search).get("view");
-  return view === "home" ? "home" : "planner";
+  if (view === "home") return "home";
+  if (view === "customer-service") return "customer_service";
+  if (view === "donations") return "donations";
+  return "planner";
 }
 
 function routeUrl(routeId) {
@@ -319,19 +387,311 @@ function homeUrl(routeId) {
   return `${window.location.pathname}?route=${routeId}&view=home`;
 }
 
-function setHomeMode(showHome) {
+function customerServiceUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=customer-service`;
+  return `${window.location.pathname}?route=${routeId}&view=customer-service`;
+}
+
+function donationsUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=donations`;
+  return `${window.location.pathname}?route=${routeId}&view=donations`;
+}
+
+function setViewMode(mode) {
+  const showHome = mode === "home";
+  const showCustomerService = mode === "customer_service";
+  const showDonations = mode === "donations";
+  const standaloneMode = showHome || showCustomerService || showDonations;
+  document.body.classList.toggle("home-only-mode", standaloneMode);
   if (homePage) homePage.hidden = !showHome;
-  if (sectionsNav) sectionsNav.hidden = showHome;
+  if (customerServicePage) customerServicePage.hidden = !showCustomerService;
+  if (donationsPage) donationsPage.hidden = !showDonations;
+  if (sectionsNav) sectionsNav.hidden = standaloneMode;
+  if (plannerTitle) plannerTitle.hidden = standaloneMode;
+  if (plannerSubhead) plannerSubhead.hidden = standaloneMode;
+  routeButtons.forEach((button) => {
+    button.classList.toggle("active", !standaloneMode && button.dataset.route === getRouteFromUrl());
+  });
+  if (routeSwitcherNote) {
+    if (showHome) {
+      routeSwitcherNote.textContent = "Home is active. Choose any route to open that planner.";
+    } else if (showCustomerService) {
+      routeSwitcherNote.textContent = "Customer Service is active. Submit a form and we will review it.";
+    } else if (showDonations) {
+      routeSwitcherNote.textContent = "Donations + Suggestions is active. Thanks for supporting Bikepack Finisher.";
+    } else {
+      routeSwitcherNote.textContent = `${(ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID]).label} is active now. Switch routes anytime.`;
+    }
+  }
   tabPanels.forEach((panel) => {
-    panel.hidden = showHome;
+    panel.hidden = standaloneMode;
   });
   if (homeViewBtn) homeViewBtn.classList.toggle("active", showHome);
-  if (!showHome && map) {
+  if (customerServiceViewBtn) customerServiceViewBtn.classList.toggle("active", showCustomerService);
+  if (donationsViewBtn) donationsViewBtn.classList.toggle("active", showDonations);
+  if (!standaloneMode && map) {
     setTimeout(() => {
       map.invalidateSize();
-      if (routeLine) map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+      if (routeLine) {
+        try {
+          const bounds = routeLine.getBounds();
+          if (bounds && bounds.isValid && bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [30, 30] });
+          }
+        } catch {
+          // Ignore fit errors during home/planner view transitions.
+        }
+      }
     }, 30);
   }
+}
+
+function gpxCandidates(fileName) {
+  if (!fileName) return [];
+  const encoded = encodeURI(fileName);
+  return Array.from(
+    new Set([fileName, `./${fileName}`, `/${fileName}`, encoded, `./${encoded}`, `/${encoded}`])
+  );
+}
+
+function formatHomeMiles(miles) {
+  if (!Number.isFinite(miles) || miles <= 0) return "n/a";
+  return `${Math.round(miles).toLocaleString()} mi`;
+}
+
+function formatHomeGain(gainFt) {
+  if (!Number.isFinite(gainFt) || gainFt <= 0) return "n/a";
+  return `~${Math.round(gainFt).toLocaleString()} ft gain`;
+}
+
+function fallbackHomeMetrics(route) {
+  return {
+    distanceMiles: Number(route?.defaultDistance || 0),
+    gainFt: null
+  };
+}
+
+async function loadHomeMetrics(routeId) {
+  if (homeRouteMetricsCache.has(routeId)) {
+    return homeRouteMetricsCache.get(routeId);
+  }
+
+  const route = ROUTES[routeId];
+  if (!route || !route.gpxFile) {
+    const fallback = fallbackHomeMetrics(route);
+    homeRouteMetricsCache.set(routeId, fallback);
+    return fallback;
+  }
+
+  const pending = (async () => {
+    const candidates = gpxCandidates(route.gpxFile);
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-store" });
+        if (!response.ok) continue;
+        const xmlText = await response.text();
+        const points = parseGpxTrack(xmlText);
+        if (points.length < 2) continue;
+        const cumulativeMiles = buildTrackCumulativeMiles(points);
+        const cumulativeGainFt = buildTrackCumulativeGainFt(points);
+        return {
+          distanceMiles: cumulativeMiles[cumulativeMiles.length - 1] || Number(route.defaultDistance || 0),
+          gainFt: cumulativeGainFt[cumulativeGainFt.length - 1] || null
+        };
+      } catch {
+        // Try next candidate path.
+      }
+    }
+    return fallbackHomeMetrics(route);
+  })();
+
+  homeRouteMetricsCache.set(routeId, pending);
+  const resolved = await pending;
+  homeRouteMetricsCache.set(routeId, resolved);
+  return resolved;
+}
+
+function buildHomeRouteRow(routeId) {
+  const route = ROUTES[routeId];
+  if (!route) return null;
+  const detail = HOME_ROUTE_DETAILS[routeId] || HOME_ROUTE_DETAILS.custom_ride;
+  const row = document.createElement("article");
+  row.className = "home-route-row";
+  row.innerHTML = `
+    <button class="home-route-link" type="button">${route.label}</button>
+    <div class="home-route-summary">
+      <div class="home-route-stat"><span class="home-route-stat-label">Length</span><span class="home-route-stat-value home-distance-value">${formatHomeMiles(route.defaultDistance)}</span></div>
+      <div class="home-route-stat"><span class="home-route-stat-label">Elevation</span><span class="home-route-stat-value home-gain-value">Loading...</span></div>
+      <div class="home-route-stat"><span class="home-route-stat-label">Location</span><span class="home-route-stat-value">${detail.location}</span></div>
+      <div class="home-route-stat"><span class="home-route-stat-label">Riding Type</span><span class="home-route-stat-value">${detail.ridingType}</span></div>
+    </div>
+  `;
+
+  const link = row.querySelector(".home-route-link");
+  if (link) {
+    link.addEventListener("click", () => {
+      window.location.href = routeUrl(routeId);
+    });
+  }
+
+  const distanceEl = row.querySelector(".home-distance-value");
+  const gainEl = row.querySelector(".home-gain-value");
+
+  if (routeId === "custom_ride") {
+    if (distanceEl) distanceEl.textContent = "Your GPX";
+    if (gainEl) gainEl.textContent = "From uploaded route";
+    return row;
+  }
+
+  loadHomeMetrics(routeId)
+    .then((metrics) => {
+      if (distanceEl) distanceEl.textContent = formatHomeMiles(metrics.distanceMiles);
+      if (gainEl) gainEl.textContent = formatHomeGain(metrics.gainFt);
+    })
+    .catch(() => {
+      if (distanceEl) distanceEl.textContent = formatHomeMiles(route.defaultDistance);
+      if (gainEl) gainEl.textContent = "n/a";
+    });
+
+  return row;
+}
+
+function renderHomeRouteCollection() {
+  if (!homeRouteList) return;
+  homeRouteList.innerHTML = "";
+  const order = [
+    "tour_divide",
+    "great_divide_route",
+    "colorado_trail",
+    "azt_300",
+    "azt_800",
+    "peruvian_divide",
+    "custom_ride"
+  ];
+  order.forEach((routeId) => {
+    const row = buildHomeRouteRow(routeId);
+    if (row) homeRouteList.appendChild(row);
+  });
+}
+
+function setupCustomerServiceForm() {
+  if (!customerServiceForm) return;
+  customerServiceForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = String(csNameInput?.value || "").trim();
+    const email = String(csEmailInput?.value || "").trim();
+    const topic = String(csTopicInput?.value || "").trim();
+    const route = String(csRouteInput?.value || "").trim();
+    const message = String(csMessageInput?.value || "").trim();
+
+    if (!name || !email || !topic || !message) {
+      if (customerServiceStatus) customerServiceStatus.textContent = "Please fill in all required fields.";
+      return;
+    }
+
+    const submission = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      name,
+      email,
+      topic,
+      route,
+      message
+    };
+
+    let savedCount = 1;
+    try {
+      const raw = localStorage.getItem(CUSTOMER_SERVICE_SUBMISSIONS_KEY);
+      const existing = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(existing) ? existing : [];
+      list.push(submission);
+      localStorage.setItem(CUSTOMER_SERVICE_SUBMISSIONS_KEY, JSON.stringify(list));
+      savedCount = list.length;
+    } catch {
+      if (customerServiceStatus) {
+        customerServiceStatus.textContent = "Could not save your submission in this browser. Please try again.";
+      }
+      return;
+    }
+
+    customerServiceForm.reset();
+    if (customerServiceStatus) {
+      customerServiceStatus.textContent = `Thanks, ${name}. Submission saved (#${savedCount}) on ${niceDate(new Date())}.`;
+    }
+
+    const topicLabel = topic === "bug"
+      ? "Bug Report"
+      : topic === "feature"
+        ? "Feature Request"
+        : topic === "account"
+          ? "Account / Sign In"
+          : "Other";
+    const routeLabel = route ? (ROUTES[route]?.label || route) : "Not route-specific";
+    const subject = encodeURIComponent(`[Bikepack Finisher] ${topicLabel} - ${name}`);
+    const body = encodeURIComponent(
+      `Name: ${name}\nEmail: ${email}\nTopic: ${topicLabel}\nRoute: ${routeLabel}\n\nMessage:\n${message}\n`
+    );
+    window.location.href = `mailto:${CUSTOMER_SERVICE_EMAIL}?subject=${subject}&body=${body}`;
+  });
+}
+
+function setupDonationSuggestionForm() {
+  if (!donationSuggestionForm) return;
+  donationSuggestionForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = String(donNameInput?.value || "").trim();
+    const email = String(donEmailInput?.value || "").trim();
+    const amount = Number(donAmountInput?.value || 0);
+    const type = String(donTypeInput?.value || "").trim();
+    const message = String(donMessageInput?.value || "").trim();
+
+    if (!name || !email || !type || !message) {
+      if (donationStatus) donationStatus.textContent = "Please fill in all required fields.";
+      return;
+    }
+
+    const submission = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      name,
+      email,
+      amount: Number.isFinite(amount) && amount > 0 ? amount : 0,
+      type,
+      message
+    };
+
+    let savedCount = 1;
+    try {
+      const raw = localStorage.getItem(DONATION_SUGGESTION_SUBMISSIONS_KEY);
+      const existing = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(existing) ? existing : [];
+      list.push(submission);
+      localStorage.setItem(DONATION_SUGGESTION_SUBMISSIONS_KEY, JSON.stringify(list));
+      savedCount = list.length;
+    } catch {
+      if (donationStatus) {
+        donationStatus.textContent = "Could not save your submission in this browser. Please try again.";
+      }
+      return;
+    }
+
+    donationSuggestionForm.reset();
+    if (donationStatus) {
+      donationStatus.textContent = `Thanks, ${name}. Submission saved (#${savedCount}) on ${niceDate(new Date())}.`;
+    }
+
+    const typeLabel = type === "donation"
+      ? "Donation"
+      : type === "suggestion"
+        ? "Suggestion"
+        : "Donation + Suggestion";
+    const amountLabel = submission.amount > 0 ? `$${submission.amount}` : "No amount entered";
+    const subject = encodeURIComponent(`[Bikepack Finisher] ${typeLabel} - ${name}`);
+    const body = encodeURIComponent(
+      `Name: ${name}\nEmail: ${email}\nType: ${typeLabel}\nAmount: ${amountLabel}\n\nMessage:\n${message}\n`
+    );
+    window.location.href = `mailto:${CUSTOMER_SERVICE_EMAIL}?subject=${subject}&body=${body}`;
+  });
 }
 
 function activeRouteId() {
@@ -483,20 +843,15 @@ function renderResupplyMarkers() {
   resupplyLayer.clearLayers();
   resupplyMarkers = [];
   resupplyPoints.forEach((point, index) => {
-    let lat = Number(point.lat);
-    let lon = Number(point.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      const snapped = pointForMile(Number(point.mile || 0));
-      lat = Number(snapped.lat);
-      lon = Number(snapped.lon);
-      resupplyPoints[index] = { ...point, lat, lon };
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-    const marker = L.marker([lat, lon], { icon: makeResupplyIcon(), draggable: true })
+    const marker = L.marker([point.lat, point.lon], { icon: makeResupplyIcon(), draggable: true })
       .addTo(resupplyLayer)
       .bindPopup(`<strong>${point.name}</strong><br/>Mile ${point.mile}<br/>${point.resupply}`);
-    safeBringToFront(marker);
+    marker.on("click", () => {
+      if (!plan.length) return;
+      const assignments = resupplyDayAssignments(plan);
+      const dayIndex = findDayIndexForStop(assignments, index);
+      if (dayIndex >= 0) setMapPlanSelection({ dayIndex, stopIndex: index });
+    });
     attachDragHandlers(marker, "resupply", index);
     resupplyMarkers.push(marker);
   });
@@ -568,7 +923,7 @@ function applyRouteConfig(routeId) {
   }
 
   routeButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.route === route.id);
+    button.classList.toggle("active", viewModeFromUrl() === "planner" && button.dataset.route === route.id);
     const buttonRoute = ROUTES[button.dataset.route];
     button.disabled = Boolean(buttonRoute && buttonRoute.comingSoon);
   });
@@ -1434,6 +1789,112 @@ function renderPlan(days) {
       dayList.appendChild(createResupplyCard(day, index, stop, autoDaysUntil));
     });
   });
+
+  renderMapPlanSelection();
+}
+
+function ensureMapPlanPanel() {
+  if (mapPlanPanelEl && mapPlanTitleEl && mapPlanSubheadEl && mapPlanContentEl) return true;
+  if (!markerList) return false;
+  const markerPanel = markerList.closest(".panel");
+  if (!markerPanel || !markerPanel.parentElement) return false;
+
+  let panel = document.getElementById("map-plan-panel");
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "map-plan-panel";
+    panel.className = "panel days";
+    panel.hidden = true;
+
+    const header = document.createElement("div");
+    header.className = "days-header";
+
+    const title = document.createElement("h2");
+    title.id = "map-plan-title";
+    title.textContent = "Selected Stage Plan";
+
+    const subhead = document.createElement("p");
+    subhead.id = "map-plan-subhead";
+    subhead.textContent = "Click a day or resupply icon on the map to edit that stage here.";
+
+    const content = document.createElement("div");
+    content.id = "map-plan-content";
+    content.className = "day-list";
+
+    header.appendChild(title);
+    header.appendChild(subhead);
+    panel.appendChild(header);
+    panel.appendChild(content);
+    markerPanel.parentElement.insertBefore(panel, markerPanel);
+  }
+
+  mapPlanPanelEl = panel;
+  mapPlanTitleEl = panel.querySelector("#map-plan-title");
+  mapPlanSubheadEl = panel.querySelector("#map-plan-subhead");
+  mapPlanContentEl = panel.querySelector("#map-plan-content");
+  return Boolean(mapPlanPanelEl && mapPlanTitleEl && mapPlanSubheadEl && mapPlanContentEl);
+}
+
+function findDayIndexForStop(assignments, stopIndex) {
+  for (const [dayIndex, stops] of assignments.entries()) {
+    if (stops.some((stop) => stop.stopIndex === stopIndex)) return dayIndex;
+  }
+  return -1;
+}
+
+function setMapPlanSelection(selection) {
+  if (!selection || !Number.isInteger(selection.dayIndex) || selection.dayIndex < 0) {
+    mapPlanSelection = null;
+    renderMapPlanSelection();
+    return;
+  }
+  mapPlanSelection = {
+    dayIndex: selection.dayIndex,
+    stopIndex: Number.isInteger(selection.stopIndex) ? selection.stopIndex : null
+  };
+  renderMapPlanSelection();
+}
+
+function renderMapPlanSelection() {
+  if (!ensureMapPlanPanel()) return;
+  if (!plan.length || !mapPlanSelection || !plan[mapPlanSelection.dayIndex]) {
+    mapPlanPanelEl.hidden = true;
+    mapPlanContentEl.innerHTML = "";
+    return;
+  }
+
+  const dayIndex = mapPlanSelection.dayIndex;
+  const day = plan[dayIndex];
+  mapPlanPanelEl.hidden = false;
+  mapPlanContentEl.innerHTML = "";
+  mapPlanContentEl.appendChild(createDayCard(day, dayIndex));
+
+  const assignments = resupplyDayAssignments(plan);
+  const sortedAssignmentDays = Array.from(assignments.keys()).sort((a, b) => a - b);
+  const nextAssignmentByDay = new Map();
+  sortedAssignmentDays.forEach((idx, i) => {
+    nextAssignmentByDay.set(idx, sortedAssignmentDays[i + 1] ?? null);
+  });
+
+  let stops = assignments.get(dayIndex) || [];
+  if (Number.isInteger(mapPlanSelection.stopIndex)) {
+    stops = stops.filter((stop) => stop.stopIndex === mapPlanSelection.stopIndex);
+  }
+
+  stops.forEach((stop) => {
+    const nextDayIdx = nextAssignmentByDay.get(dayIndex);
+    const autoDaysUntil = nextDayIdx === null ? 1 : Math.max(1, nextDayIdx - dayIndex);
+    mapPlanContentEl.appendChild(createResupplyCard(day, dayIndex, stop, autoDaysUntil));
+  });
+
+  if (Number.isInteger(mapPlanSelection.stopIndex) && stops.length) {
+    const stopName = stops[0].point?.name || "Selected stop";
+    mapPlanTitleEl.textContent = `${stopName} + Day ${day.id} Plan`;
+    mapPlanSubheadEl.textContent = "Editing the selected resupply stop and its linked day plan from the map.";
+  } else {
+    mapPlanTitleEl.textContent = `Day ${day.id} Plan`;
+    mapPlanSubheadEl.textContent = "Editing this stage from the map. Changes stay synced with the Plan tab.";
+  }
 }
 
 async function pushCloudData() {
@@ -2164,9 +2625,15 @@ function setupTabs() {
     if (tabName === "map" && map) {
       setTimeout(() => {
         map.invalidateSize();
-        ensureRouteLineVisible();
         if (routeLine) {
-          map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+          try {
+            const bounds = routeLine.getBounds();
+            if (bounds && bounds.isValid && bounds.isValid()) {
+              map.fitBounds(bounds, { padding: [30, 30] });
+            }
+          } catch {
+            // Ignore fit errors when map container sizing is in transition.
+          }
         }
       }, 40);
     }
@@ -2218,32 +2685,9 @@ function interpolatePoint(a, b, target, startDistance, segmentDistance) {
 }
 
 function parseGpxTrack(xmlText) {
-  const regexFallbackPoints = () => {
-    const points = [];
-    const re = /<(trkpt|rtept)\b[^>]*\blat="([^"]+)"[^>]*\blon="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/gi;
-    let match;
-    while ((match = re.exec(xmlText))) {
-      const lat = Number(match[2]);
-      const lon = Number(match[3]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      const eleMatch = /<ele>([^<]+)<\/ele>/i.exec(match[4] || "");
-      const eleRaw = eleMatch ? Number(eleMatch[1]) : Number.NaN;
-      points.push({
-        lat,
-        lon,
-        ele: Number.isFinite(eleRaw) ? eleRaw : null
-      });
-    }
-    return points;
-  };
-
   const parser = new DOMParser();
   const xml = parser.parseFromString(xmlText, "application/xml");
-  const parseError = xml.getElementsByTagName("parsererror");
-  if (parseError && parseError.length) {
-    return regexFallbackPoints();
-  }
-  const parsePointNode = (node) => {
+  const points = Array.from(xml.getElementsByTagName("trkpt")).map((node) => {
     const eleNode = node.getElementsByTagName("ele")[0];
     const ele = eleNode ? Number(eleNode.textContent) : Number.NaN;
     return {
@@ -2251,66 +2695,9 @@ function parseGpxTrack(xmlText) {
       lon: Number(node.getAttribute("lon")),
       ele: Number.isFinite(ele) ? ele : null
     };
-  };
-  const trackNodes = Array.from(xml.getElementsByTagName("trkpt"));
-  const routeNodes = Array.from(xml.getElementsByTagName("rtept"));
-  const sourceNodes = trackNodes.length ? trackNodes : routeNodes;
-  const points = sourceNodes.map(parsePointNode);
-  const normalized = points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
-  if (normalized.length >= 2) return normalized;
-  return regexFallbackPoints();
-}
+  });
 
-async function loadGpxTrackPoints(gpxFile) {
-  if (!gpxFile) return [];
-  const clean = String(gpxFile || "").replace(/^\.\//, "").trim();
-  const encoded = clean
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-
-  const attemptUrls = Array.from(
-    new Set([
-      clean,
-      `./${clean}`,
-      `/${clean}`,
-      encoded,
-      `./${encoded}`,
-      `/${encoded}`,
-      new URL(clean, window.location.href).toString(),
-      new URL(encoded, window.location.href).toString()
-    ])
-  );
-
-  let lastError = "Unknown GPX load error";
-  for (const url of attemptUrls) {
-    try {
-      const response = await fetch(url, { cache: "no-store" });
-      if (!response.ok) {
-        lastError = `HTTP ${response.status} for ${url}`;
-        continue;
-      }
-      const xmlText = await response.text();
-      const points = parseGpxTrack(xmlText);
-      if (points.length >= 2) return points;
-      lastError = `Parsed 0 track points from ${url}`;
-    } catch (error) {
-      lastError = `${error?.message || "Fetch failed"} (${url})`;
-    }
-  }
-
-  throw new Error(lastError);
-}
-
-function buildFallbackTrackFromResupply() {
-  const coords = resupplyPoints
-    .map((point) => ({
-      lat: Number(point.lat),
-      lon: Number(point.lon),
-      ele: null
-    }))
-    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
-  return coords.length >= 2 ? coords : [];
+  return points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
 }
 
 function buildTrackCumulativeMiles(trackPoints) {
@@ -2347,9 +2734,7 @@ function nearestTrackPointAndMile(latlng) {
   let bestDistance = Infinity;
   for (let i = 0; i < gpxTrackPoints.length; i++) {
     const point = gpxTrackPoints[i];
-    const dLat = point.lat - latlng.lat;
-    const dLon = point.lon - latlng.lng;
-    const score = dLat * dLat + dLon * dLon;
+    const score = haversineMiles(point, { lat: latlng.lat, lon: latlng.lng });
     if (score < bestDistance) {
       bestDistance = score;
       nearestIndex = i;
@@ -2534,6 +2919,10 @@ function renderRouteProfile() {
   if (!routeProfile || !routeProfileMeta) return;
   if (!gpxTrackPoints.length) {
     routeProfileMeta.textContent = "Elevation profile unavailable.";
+    routeProfileHoverLineEl = null;
+    routeProfileHoverDotEl = null;
+    routeProfilePointForMile = null;
+    routeProfileBounds = null;
     return;
   }
 
@@ -2555,6 +2944,7 @@ function renderRouteProfile() {
   const right = 2340;
   const top = 12;
   const bottom = 120;
+  routeProfileBounds = { left, right, top, bottom };
   const sampleMaxIndex = Math.max(profile.profileSamples.length - 1, 1);
 
   const pointOnProfileForMile = (mile) => {
@@ -2570,6 +2960,7 @@ function renderRouteProfile() {
     const y = top + ((maxEle - ele) / range) * (bottom - top);
     return { x, y, eleFt: Math.round(ele * 3.28084) };
   };
+  routeProfilePointForMile = pointOnProfileForMile;
 
   const points = profile.profileSamples
     .map((ele, index) => {
@@ -2620,7 +3011,7 @@ function renderRouteProfile() {
   ].join("");
 
   routeProfileMeta.textContent = `Min ${profile.minEleFt.toLocaleString()} ft • Max ${profile.maxEleFt.toLocaleString()} ft`;
-  const defaultMeta = routeProfileMeta.textContent;
+  routeProfileDefaultMetaText = routeProfileMeta.textContent;
 
   const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
   hoverLine.setAttribute("x1", "60");
@@ -2631,6 +3022,7 @@ function renderRouteProfile() {
   hoverLine.setAttribute("stroke-width", "1");
   hoverLine.setAttribute("visibility", "hidden");
   routeProfile.appendChild(hoverLine);
+  routeProfileHoverLineEl = hoverLine;
 
   const hoverDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   hoverDot.setAttribute("cx", "60");
@@ -2641,6 +3033,7 @@ function renderRouteProfile() {
   hoverDot.setAttribute("stroke-width", "0.8");
   hoverDot.setAttribute("visibility", "hidden");
   routeProfile.appendChild(hoverDot);
+  routeProfileHoverDotEl = hoverDot;
 
   routeProfile.onmousemove = (event) => {
     const ctm = routeProfile.getScreenCTM();
@@ -2652,25 +3045,75 @@ function renderRouteProfile() {
     const clampedX = Math.max(left, Math.min(right, local.x));
     const ratio = (clampedX - left) / (right - left);
     const mile = ratio * profile.totalDistanceMi;
-    const chartPoint = pointOnProfileForMile(mile);
-    const clampedY = Math.max(top, Math.min(bottom, chartPoint.y));
-
-    hoverLine.setAttribute("x1", clampedX.toFixed(2));
-    hoverLine.setAttribute("x2", clampedX.toFixed(2));
-    hoverLine.setAttribute("visibility", "visible");
-    hoverDot.setAttribute("cx", clampedX.toFixed(2));
-    hoverDot.setAttribute("cy", clampedY.toFixed(2));
-    hoverDot.setAttribute("visibility", "visible");
-    routeProfileMeta.textContent = `Mile ${mile.toFixed(1)} / ${profile.totalDistanceMi.toFixed(1)} • Elevation ${chartPoint.eleFt.toLocaleString()} ft`;
+    syncRouteProfileHoverByMile(mile, true);
   };
 
   routeProfile.onmouseleave = () => {
-    hoverLine.setAttribute("visibility", "hidden");
-    hoverDot.setAttribute("visibility", "hidden");
-    routeProfileMeta.textContent = defaultMeta;
+    clearRouteProfileHover();
   };
 
   applyRouteProfileZoom(true);
+}
+
+function syncRouteProfileHoverByMile(mile, updateMeta = false, metaPrefix = "") {
+  if (
+    !routeProfileHoverLineEl ||
+    !routeProfileHoverDotEl ||
+    !routeProfilePointForMile ||
+    !routeProfileBounds ||
+    !trackCumulativeMiles.length
+  ) {
+    return;
+  }
+
+  const total = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
+  const clampedMile = Math.max(0, Math.min(total, Number(mile) || 0));
+  const chartPoint = routeProfilePointForMile(clampedMile);
+  const clampedX = Math.max(routeProfileBounds.left, Math.min(routeProfileBounds.right, chartPoint.x));
+  const clampedY = Math.max(routeProfileBounds.top, Math.min(routeProfileBounds.bottom, chartPoint.y));
+
+  routeProfileHoverLineEl.setAttribute("x1", clampedX.toFixed(2));
+  routeProfileHoverLineEl.setAttribute("x2", clampedX.toFixed(2));
+  routeProfileHoverLineEl.setAttribute("visibility", "visible");
+  routeProfileHoverDotEl.setAttribute("cx", clampedX.toFixed(2));
+  routeProfileHoverDotEl.setAttribute("cy", clampedY.toFixed(2));
+  routeProfileHoverDotEl.setAttribute("visibility", "visible");
+
+  if (updateMeta && routeProfileMeta) {
+    const prefix = metaPrefix ? `${metaPrefix} • ` : "";
+    routeProfileMeta.textContent = `${prefix}Mile ${clampedMile.toFixed(1)} / ${total.toFixed(1)} • Elevation ${chartPoint.eleFt.toLocaleString()} ft`;
+  }
+}
+
+function clearRouteProfileHover() {
+  if (routeProfileHoverLineEl) routeProfileHoverLineEl.setAttribute("visibility", "hidden");
+  if (routeProfileHoverDotEl) routeProfileHoverDotEl.setAttribute("visibility", "hidden");
+  if (routeProfileMeta) routeProfileMeta.textContent = routeProfileDefaultMetaText || routeProfileMeta.textContent;
+}
+
+function showMapHoverMarker(point) {
+  if (!map || !point) return;
+  const latlng = [point.lat, point.lon];
+  if (!mapHoverMarker) {
+    mapHoverMarker = L.circleMarker(latlng, {
+      radius: 5,
+      color: "#1f2933",
+      weight: 2,
+      fillColor: "#ffffff",
+      fillOpacity: 0.95,
+      opacity: 1,
+      interactive: false
+    }).addTo(map);
+  } else {
+    mapHoverMarker.setLatLng(latlng);
+    if (!map.hasLayer(mapHoverMarker)) mapHoverMarker.addTo(map);
+  }
+  mapHoverMarker.bringToFront();
+}
+
+function hideMapHoverMarker() {
+  if (!map || !mapHoverMarker) return;
+  if (map.hasLayer(mapHoverMarker)) map.removeLayer(mapHoverMarker);
 }
 
 function applyRouteProfileZoom(preserveScroll) {
@@ -2732,6 +3175,7 @@ function nearestTrackIndexFrom(trackPoints, targetPoint, startIndex) {
 
 function buildResupplySections(trackPoints) {
   if (!trackPoints.length || resupplyPoints.length < 2) return [];
+  const hasGlobalCumulative = trackPoints === gpxTrackPoints && trackCumulativeMiles.length === trackPoints.length;
 
   const sections = [];
   let cursor = 0;
@@ -2749,10 +3193,18 @@ function buildResupplySections(trackPoints) {
 
     const elevation = computeSectionElevation(points);
     const cumulativeMiles = [0];
+    const absoluteMiles = [hasGlobalCumulative ? trackCumulativeMiles[startIndex] || 0 : 0];
     for (let p = 1; p < points.length; p++) {
       cumulativeMiles[p] = cumulativeMiles[p - 1] + haversineMiles(points[p - 1], points[p]);
+      if (hasGlobalCumulative) {
+        absoluteMiles[p] = trackCumulativeMiles[startIndex + p] || 0;
+      } else {
+        absoluteMiles[p] = absoluteMiles[p - 1] + haversineMiles(points[p - 1], points[p]);
+      }
     }
     const sectionDistanceMi = cumulativeMiles[cumulativeMiles.length - 1] || 0;
+    const startTrackMile = absoluteMiles[0] || 0;
+    const endTrackMile = absoluteMiles[absoluteMiles.length - 1] || startTrackMile;
 
     sections.push({
       name: `${start.name} to ${end.name}`,
@@ -2764,6 +3216,9 @@ function buildResupplySections(trackPoints) {
       totalDistanceMi: elevation.totalDistanceMi,
       sectionDistanceMi,
       cumulativeMiles,
+      absoluteMiles,
+      startTrackMile,
+      endTrackMile,
       profileSamples: elevation.profileSamples,
       points
     });
@@ -2777,9 +3232,7 @@ function nearestSectionPoint(section, latlng) {
   let bestIndex = 0;
   let bestScore = Infinity;
   for (let i = 0; i < section.points.length; i++) {
-    const dLat = section.points[i].lat - latlng.lat;
-    const dLon = section.points[i].lon - latlng.lng;
-    const score = dLat * dLat + dLon * dLon;
+    const score = haversineMiles(section.points[i], { lat: latlng.lat, lon: latlng.lng });
     if (score < bestScore) {
       bestScore = score;
       bestIndex = i;
@@ -2980,21 +3433,21 @@ function drawSectionOverlays() {
       section.points.map((point) => [point.lat, point.lon]),
       {
         color: selectedSectionName === section.name ? "#eb5e28" : "#2f7a62",
-        weight: selectedSectionName === section.name ? 6 : 4,
-        opacity: selectedSectionName === section.name ? 0.75 : 0.3,
-        pane: "section-pane"
+        weight: selectedSectionName === section.name ? 7 : 4,
+        opacity: selectedSectionName === section.name ? 0.8 : 0.28
       }
     )
       .addTo(sectionLayer);
-    safeBringToBack(sectionLine);
 
     sectionLine
       .bindTooltip(section.name, { sticky: true })
       .on("mousemove", (event) => {
         const nearestIndex = nearestSectionPoint(section, event.latlng);
         const nearestPoint = section.points[nearestIndex];
-        const sectionMile = section.cumulativeMiles[nearestIndex] || 0;
-        const fromBanff = Number(section.startMile) + sectionMile;
+        const fromBanff = section.absoluteMiles?.[nearestIndex] ?? section.startTrackMile ?? 0;
+        const sectionMile = fromBanff - (section.startTrackMile ?? 0);
+        showMapHoverMarker(nearestPoint);
+        syncRouteProfileHoverByMile(fromBanff, true, section.name);
         const elevText =
           nearestPoint.ele === null ? "Elevation: unavailable" : `Elevation: ${Math.round(nearestPoint.ele * 3.28084).toLocaleString()} ft`;
         const content =
@@ -3002,11 +3455,18 @@ function drawSectionOverlays() {
           `<br/>Section: ${sectionMile.toFixed(1)} / ${section.sectionDistanceMi.toFixed(1)} mi`;
         sectionLine.setTooltipContent(content);
       })
+      .on("mouseout", () => {
+        hideMapHoverMarker();
+        clearRouteProfileHover();
+      })
       .on("click", () => {
         renderMapSectionComments(section.name);
         drawSectionOverlays();
       });
   });
+
+  if (routeLine) routeLine.bringToFront();
+  if (routeHoverLine) routeHoverLine.bringToFront();
 }
 
 function setupCommentSections() {
@@ -3055,24 +3515,6 @@ function makeDayIcon() {
   });
 }
 
-function safeBringToFront(layer) {
-  if (!layer || typeof layer.bringToFront !== "function") return;
-  try {
-    layer.bringToFront();
-  } catch {
-    // no-op
-  }
-}
-
-function safeBringToBack(layer) {
-  if (!layer || typeof layer.bringToBack !== "function") return;
-  try {
-    layer.bringToBack();
-  } catch {
-    // no-op
-  }
-}
-
 function setDragButtonState() {
   if (!dragModeBtn) return;
   dragModeBtn.textContent = dragModeEnabled ? "Drag Mode: On" : "Drag Mode: Off";
@@ -3104,7 +3546,7 @@ function attachDragHandlers(marker, type, index) {
           [latlng.lat, latlng.lng],
           [nearest.point.lat, nearest.point.lon]
         ],
-        { color: "#c62828", weight: 2, dashArray: "4 4", opacity: 0.85, pane: "guide-pane" }
+        { color: "#c62828", weight: 2, dashArray: "4 4", opacity: 0.85 }
       ).addTo(map);
     } else {
       marker._dragGuide.setLatLngs([
@@ -3156,32 +3598,16 @@ function renderMarkerList() {
   if (!markerList) return;
   markerList.innerHTML = "";
 
-  if (!stageOptions.length) {
-    const stageCount = Math.max(2, Math.min(120, Number(totalDaysInput.value || 2)));
-    const total = Number(routeDistanceInput.value || 0);
-    const rough = [];
-    let start = 0;
-    for (let i = 1; i <= stageCount; i++) {
-      const end = i === stageCount ? total : (total * i) / stageCount;
-      rough.push({
-        stage: i,
-        startMile: start.toFixed(1),
-        endMile: end.toFixed(1)
-      });
-      start = end;
-    }
-    stageOptions = rough;
-  }
-
   stageOptions.forEach((day, idx) => {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>Day ${day.stage}</strong><p class="marker-mile">${Number(day.startMile || 0).toFixed(1)}-${Number(day.endMile || 0).toFixed(1)} miles</p>`;
+    item.innerHTML = `<strong>Day ${day.stage}</strong><p class="marker-mile">${day.startMile}-${day.endMile} miles</p>`;
     item.addEventListener("click", () => {
       if (!map) return;
       const marker = dayMarkers[idx];
       if (!marker) return;
       map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 10), { duration: 0.55 });
       marker.openPopup();
+      setMapPlanSelection({ dayIndex: idx });
     });
     markerList.appendChild(item);
   });
@@ -3195,6 +3621,11 @@ function renderMarkerList() {
       if (!marker) return;
       map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 10), { duration: 0.55 });
       marker.openPopup();
+      if (plan.length) {
+        const assignments = resupplyDayAssignments(plan);
+        const dayIndex = findDayIndexForStop(assignments, idx);
+        if (dayIndex >= 0) setMapPlanSelection({ dayIndex, stopIndex: idx });
+      }
     });
     markerList.appendChild(item);
   });
@@ -3225,73 +3656,18 @@ function applyDragModeToMarkers() {
   setDragButtonState();
 }
 
-function getTrackCoords(trackPoints) {
-  return (trackPoints || [])
-    .map((point) => [Number(point.lat), Number(point.lon)])
-    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
-}
-
-function drawMainRouteLine(trackPoints) {
-  if (!map) return null;
-  const coords = getTrackCoords(trackPoints);
-  if (coords.length < 2) return null;
-  routeLine = L.polyline(coords, {
-    color: "#c62828",
-    weight: 3,
-    opacity: 0.95,
-    pane: "route-pane"
-  }).addTo(map);
-  safeBringToFront(routeLine);
-  return routeLine;
-}
-
-function drawFallbackRouteLine(trackPoints, shouldFitBounds) {
-  if (!map) return null;
-  const coords = getTrackCoords(trackPoints);
-  if (coords.length < 2) return null;
-  const fallbackLine = L.polyline(coords, {
-    color: "#c62828",
-    weight: 3,
-    opacity: 0.95,
-    pane: "route-pane"
-  }).addTo(map);
-  if (shouldFitBounds && fallbackLine.getBounds && fallbackLine.getBounds().isValid()) {
-    map.fitBounds(fallbackLine.getBounds(), { padding: [30, 30] });
-  }
-  return fallbackLine;
-}
-
-function ensureMapPanes() {
-  if (!map) return;
-  if (!map.getPane("section-pane")) {
-    const pane = map.createPane("section-pane");
-    pane.style.zIndex = "420";
-  }
-  if (!map.getPane("route-pane")) {
-    const pane = map.createPane("route-pane");
-    pane.style.zIndex = "430";
-  }
-  if (!map.getPane("guide-pane")) {
-    const pane = map.createPane("guide-pane");
-    pane.style.zIndex = "440";
-  }
-}
-
-function ensureRouteLineVisible() {
-  if (!map || gpxTrackPoints.length < 2) return;
-  if (routeLine && map.hasLayer(routeLine)) return;
-  drawMainRouteLine(gpxTrackPoints);
-}
-
 function applyTrackToMap(trackPoints, options = {}) {
   if (!map || !trackPoints.length) return;
   const { fitBounds = true, rebuildPlan = false } = options;
+  setMapPlanSelection(null);
 
   gpxTrackPoints = trackPoints;
   trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
   trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
 
   if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
+  if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
+  hideMapHoverMarker();
   if (stageLayer) stageLayer.clearLayers();
   if (resupplyLayer) resupplyLayer.clearLayers();
   if (sectionLayer) sectionLayer.clearLayers();
@@ -3299,7 +3675,38 @@ function applyTrackToMap(trackPoints, options = {}) {
   dayMarkers = [];
   resupplyMarkers = [];
 
-  drawMainRouteLine(gpxTrackPoints);
+  const coords = gpxTrackPoints.map((point) => [point.lat, point.lon]);
+  routeLine = L.polyline(coords, {
+    color: "#c62828",
+    weight: 4,
+    opacity: 0.95,
+    interactive: false,
+    smoothFactor: 0.1,
+    noClip: true
+  }).addTo(map);
+
+  routeHoverLine = L.polyline(coords, {
+    color: "#c62828",
+    weight: 36,
+    opacity: 0.01,
+    interactive: true,
+    smoothFactor: 0.1,
+    noClip: true
+  }).addTo(map);
+
+  routeHoverLine.on("mousemove", (event) => {
+    const nearest = nearestTrackPointAndMile(event.latlng);
+    if (!nearest) return;
+    showMapHoverMarker(nearest.point);
+    syncRouteProfileHoverByMile(nearest.mile, true, "Route");
+  });
+  routeHoverLine.on("mouseout", () => {
+    hideMapHoverMarker();
+    clearRouteProfileHover();
+  });
+
+  routeLine.bringToFront();
+  routeHoverLine.bringToFront();
 
   const gpxTotals = buildEvenStages(gpxTrackPoints, 2);
   if (gpxTotals.totalMiles > 0) {
@@ -3309,19 +3716,21 @@ function applyTrackToMap(trackPoints, options = {}) {
   renderResupplyMarkers();
   routeSections = buildResupplySections(gpxTrackPoints);
   renderRouteProfile();
-  try {
-    drawSectionOverlays();
-    renderMapSectionComments("");
-  } catch (error) {
-    if (mapSubhead) {
-      mapSubhead.textContent = `Route loaded, but section render failed: ${error?.message || "Unknown error"}`;
-    }
-  }
+  drawSectionOverlays();
+  renderMapSectionComments("");
 
-  if (fitBounds && routeLine) {
-    map.fitBounds(routeLine.getBounds(), {
-      padding: [30, 30]
-    });
+  if (fitBounds) {
+    try {
+      const bounds = routeLine.getBounds();
+      if (bounds && bounds.isValid && bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+      }
+    } catch (error) {
+      const first = coords[0];
+      if (first && Number.isFinite(first[0]) && Number.isFinite(first[1])) {
+        map.setView(first, 6);
+      }
+    }
   }
 
   if (rebuildPlan) {
@@ -3334,13 +3743,7 @@ function applyTrackToMap(trackPoints, options = {}) {
     }
   }
 
-  try {
-    updateStagesFromInput();
-  } catch (error) {
-    if (mapSubhead) {
-      mapSubhead.textContent = `Route loaded, but day marker render failed: ${error?.message || "Unknown error"}`;
-    }
-  }
+  updateStagesFromInput();
   if (plan.length) {
     recomputeDerivedFields();
     const config = parseForm();
@@ -3354,23 +3757,13 @@ function applyTrackToMap(trackPoints, options = {}) {
 async function initMap() {
   const mapElement = document.getElementById("route-map");
   if (!mapElement || typeof L === "undefined") return;
-  mapboxFallbackActive = false;
-
-  if (map) {
-    try {
-      map.remove();
-    } catch {
-      // no-op
-    }
-    map = null;
-  }
+  ensureMapPlanPanel();
 
   map = L.map("route-map", {
     zoomControl: true,
     minZoom: 4,
     maxZoom: 13
   });
-  ensureMapPanes();
   L.control.scale({ imperial: true, metric: false, maxWidth: 120 }).addTo(map);
 
   const mapboxLayer = L.tileLayer(
@@ -3397,9 +3790,7 @@ async function initMap() {
     mapboxFallbackActive = true;
     if (activeBaseLayer) map.removeLayer(activeBaseLayer);
     activeBaseLayer = osmLayer.addTo(map);
-    const current = String(mapSubhead?.textContent || "");
-    const hasNonTileError = current.includes("error:") || current.includes("failed:");
-    if (mapSubhead && !hasNonTileError) {
+    if (mapSubhead) {
       mapSubhead.textContent =
         "Mapbox tiles failed to load here, so this view switched to OpenStreetMap automatically.";
     }
@@ -3412,52 +3803,64 @@ async function initMap() {
   dragGuideLayer = L.layerGroup().addTo(map);
 
   let trackPoints = [];
-  let gpxLoadWarning = "";
   try {
     if (isCustomRouteActive() && customUploadedTrackPoints.length >= 2) {
       trackPoints = customUploadedTrackPoints;
     } else if (GPX_FILE) {
-      trackPoints = await loadGpxTrackPoints(GPX_FILE);
+      const candidates = Array.from(
+        new Set([
+          GPX_FILE,
+          `./${GPX_FILE}`,
+          `/${GPX_FILE}`,
+          encodeURI(GPX_FILE),
+          `./${encodeURI(GPX_FILE)}`,
+          `/${encodeURI(GPX_FILE)}`
+        ])
+      );
+      let lastError = "Unknown GPX load failure";
+      for (const path of candidates) {
+        try {
+          const response = await fetch(path, { cache: "no-store" });
+          if (!response.ok) {
+            lastError = `${path} -> HTTP ${response.status}`;
+            continue;
+          }
+          const xmlText = await response.text();
+          const parsed = parseGpxTrack(xmlText);
+          if (parsed.length >= 2) {
+            trackPoints = parsed;
+            break;
+          }
+          lastError = `${path} -> parsed ${parsed.length} track points`;
+        } catch (error) {
+          lastError = `${path} -> ${error instanceof Error ? error.message : "fetch error"}`;
+        }
+      }
+      if (trackPoints.length < 2) {
+        throw new Error(lastError);
+      }
     }
+    if (trackPoints.length < 2) throw new Error("Not enough track points in GPX");
   } catch (error) {
-    gpxLoadWarning = error?.message ? `GPX load warning: ${error.message}` : "GPX load warning.";
-  }
-
-  if (trackPoints.length < 2) {
-    const fallbackTrack = buildFallbackTrackFromResupply();
-    if (fallbackTrack.length >= 2) {
-      trackPoints = fallbackTrack;
-      if (mapSubhead) {
-        mapSubhead.textContent = gpxLoadWarning
-          ? `${gpxLoadWarning} Showing fallback route from stop coordinates.`
-          : "Using fallback route from stop coordinates.";
-      }
-    } else {
-      markerList.innerHTML =
-        `<li><p class="empty-note">Could not load GPX route file. ${isCustomRouteActive() ? "Upload a custom GPX in Plan tab." : `Check that ${GPX_FILE} is in the project root.`}</p></li>`;
-      if (mapSubhead) {
-        mapSubhead.textContent = gpxLoadWarning || "GPX load error: Not enough track points in GPX.";
-      }
-      setupCommentSections();
-      return;
+    const detail = error instanceof Error ? error.message : "Unknown GPX load error";
+    if (mapSubhead) {
+      mapSubhead.textContent = `GPX load failed: ${detail}`;
     }
+    markerList.innerHTML =
+      `<li><p class="empty-note">Could not load GPX route file. ${isCustomRouteActive() ? "Upload a custom GPX in Plan tab." : `Check that ${GPX_FILE} is in the project root.`}<br/><small>${detail}</small></p></li>`;
+    setupCommentSections();
+    return;
   }
 
   try {
     applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
     if (isCustomRouteActive()) renderCustomStopEditor();
-    renderMarkerList();
   } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unknown map render error";
+    console.error("Map render error after GPX load:", error);
     if (mapSubhead) {
-      mapSubhead.textContent = `Map render error: ${error?.message || "Unknown error"}`;
+      mapSubhead.textContent = `Route loaded, but map render hit an error: ${detail}`;
     }
-    // Safety fallback: draw the raw GPX polyline so route remains visible even if advanced rendering fails.
-    try {
-      drawFallbackRouteLine(trackPoints, true);
-    } catch {
-      // no-op
-    }
-    renderMarkerList();
   }
 
   setupCommentSections();
@@ -3483,20 +3886,17 @@ function updateStagesFromInput() {
   }
 
   stageLayer.clearLayers();
-  if (resupplyLayer && !resupplyMarkers.length) {
-    renderResupplyMarkers();
-  }
   dayMarkers.forEach((marker) => clearMarkerGuide(marker));
   dayMarkers = [];
 
   stageOptions.forEach((stage, index) => {
-    const lat = Number(stage.lat);
-    const lon = Number(stage.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const marker = L.marker([lat, lon], { icon: makeDayIcon(), draggable: true })
+    const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
       .addTo(stageLayer)
       .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
-    safeBringToFront(marker);
+    marker.on("click", () => {
+      if (!plan.length) return;
+      setMapPlanSelection({ dayIndex: index });
+    });
     attachDragHandlers(marker, "day", index);
     dayMarkers.push(marker);
   });
@@ -3767,7 +4167,14 @@ if (dragModeBtn) {
 if (fitRouteBtn) {
   fitRouteBtn.addEventListener("click", () => {
     if (!map || !routeLine) return;
-    map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+    try {
+      const bounds = routeLine.getBounds();
+      if (bounds && bounds.isValid && bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+      }
+    } catch {
+      // No-op if bounds fitting fails unexpectedly.
+    }
   });
 }
 
@@ -3906,6 +4313,18 @@ if (homeViewBtn) {
   });
 }
 
+if (customerServiceViewBtn) {
+  customerServiceViewBtn.addEventListener("click", () => {
+    window.location.href = customerServiceUrl(getRouteFromUrl());
+  });
+}
+
+if (donationsViewBtn) {
+  donationsViewBtn.addEventListener("click", () => {
+    window.location.href = donationsUrl(getRouteFromUrl());
+  });
+}
+
 if (homeOpenActiveBtn) {
   homeOpenActiveBtn.addEventListener("click", () => {
     window.location.href = routeUrl(getRouteFromUrl());
@@ -3920,12 +4339,15 @@ commentSectionSelect.addEventListener("change", () => {
 if (!applyRouteConfig(getRouteFromUrl())) {
   applyRouteConfig(DEFAULT_ROUTE_ID);
 }
-setHomeMode(viewModeFromUrl() === "home");
+renderHomeRouteCollection();
+setViewMode(viewModeFromUrl());
 enforceSiteBranding();
 setDragButtonState();
 setupAccountMenu();
 initCloud();
 setupTabs();
+setupCustomerServiceForm();
+setupDonationSuggestionForm();
 setupRouteProfileScroll();
 setupCommentSections();
 setupCommentForm();

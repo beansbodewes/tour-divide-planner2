@@ -15,8 +15,13 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
-    <link rel="stylesheet" href="styles.css?v=15" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="styles.css?v=19" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -39,7 +44,6 @@
               <div class="button-row">
                 <button id="sign-up-btn" class="btn" type="button">Sign Up</button>
                 <button id="sign-in-btn" class="btn btn-primary" type="button">Sign In</button>
-                <button id="google-sign-in-btn" class="btn" type="button">Sign In with Google</button>
                 <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
                 <button id="undo-btn" class="btn btn-accent" type="button">Undo</button>
                 <button id="sync-now-btn" class="btn" type="button">Sync Now</button>
@@ -59,6 +63,8 @@
           <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
           <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
           <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
+          <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
+          <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
         </nav>
         <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
       </section>
@@ -106,9 +112,140 @@
               </div>
             </article>
           </div>
+          <section class="home-route-collection" aria-label="Route Collections">
+            <h2>Route Collections</h2>
+            <p>Choose a route and start planning with distance, elevation, terrain, and region in mind.</p>
+            <div id="home-route-list" class="home-route-list"></div>
+          </section>
           <div class="button-row">
             <button id="home-open-active-btn" class="btn btn-primary" type="button">Open Active Planner</button>
           </div>
+        </div>
+      </section>
+      <section id="customer-service-page" class="home-page" aria-label="Customer Service" hidden>
+        <div class="home-card">
+          <p class="home-kicker">Bikepack Finisher</p>
+          <h2>Customer Service</h2>
+          <p class="home-intro">
+            Send us your bug report, feature request, or account issue. We review submissions and follow up by email.
+          </p>
+          <p class="home-intro" style="margin-top: 0.2rem;">
+            Support email:
+            <a href="mailto:bikepackfinishers@gmail.com">bikepackfinishers@gmail.com</a>
+          </p>
+          <article class="home-block customer-service-block">
+            <form id="customer-service-form" class="control-grid customer-service-form">
+              <label>
+                Name
+                <input id="cs-name" type="text" placeholder="Your name" required />
+              </label>
+              <label>
+                Email
+                <input id="cs-email" type="email" placeholder="you@example.com" required />
+              </label>
+              <label>
+                Topic
+                <select id="cs-topic" required>
+                  <option value="">Select topic</option>
+                  <option value="bug">Bug Report</option>
+                  <option value="feature">Feature Request</option>
+                  <option value="account">Account / Sign In</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>
+                Route (optional)
+                <select id="cs-route">
+                  <option value="">Not route-specific</option>
+                  <option value="tour_divide">Tour Divide Race</option>
+                  <option value="great_divide_route">Great Divide Touring Route</option>
+                  <option value="colorado_trail">Colorado Trail</option>
+                  <option value="azt_300">AZT 300</option>
+                  <option value="azt_800">AZT 800</option>
+                  <option value="peruvian_divide">Peruvian Divide Trail</option>
+                  <option value="custom_ride">Create Your Own Ride</option>
+                </select>
+              </label>
+              <label style="grid-column: 1 / -1;">
+                Message
+                <textarea id="cs-message" rows="6" placeholder="Tell us what happened or what you’d like us to add..." required></textarea>
+              </label>
+              <div class="button-row" style="grid-column: 1 / -1;">
+                <button id="cs-submit-btn" class="btn btn-primary" type="submit">Submit Form</button>
+              </div>
+            </form>
+            <p id="customer-service-status" class="route-switcher-note" aria-live="polite">
+              Submit a form to save it locally and open your email app to send it to bikepackfinishers@gmail.com.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section id="donations-page" class="home-page" aria-label="Donations and Suggestions" hidden>
+        <div class="home-card">
+          <p class="home-kicker">Bikepack Finisher</p>
+          <h2>Donations + Suggestions</h2>
+          <p class="home-intro">
+            If this tool helps your planning, donations help keep it running. You can also send product suggestions.
+          </p>
+
+          <article class="home-block donation-grid">
+            <div class="donation-tier">
+              <h3>$5</h3>
+              <p>Support map hosting + small fixes.</p>
+            </div>
+            <div class="donation-tier">
+              <h3>$15</h3>
+              <p>Support new route features + polish updates.</p>
+            </div>
+            <div class="donation-tier">
+              <h3>Custom</h3>
+              <p>Any amount helps keep Bikepack Finisher improving.</p>
+            </div>
+          </article>
+          <div class="button-row" style="margin-top: 0.6rem;">
+            <a class="btn btn-primary" href="https://venmo.com/Bikepackfinishers" target="_blank" rel="noopener noreferrer">Donate with Venmo</a>
+            <a class="btn" href="https://www.paypal.com/donate/?business=bikepackfinishers%40gmail.com&currency_code=USD" target="_blank" rel="noopener noreferrer">Donate with PayPal</a>
+          </div>
+
+          <article class="home-block">
+            <p class="home-intro" style="margin-top: 0;">
+              For now, send donation/suggestion messages to
+              <a href="mailto:bikepackfinishers@gmail.com">bikepackfinishers@gmail.com</a>.
+            </p>
+            <form id="donation-suggestion-form" class="control-grid customer-service-form">
+              <label>
+                Name
+                <input id="don-name" type="text" placeholder="Your name" required />
+              </label>
+              <label>
+                Email
+                <input id="don-email" type="email" placeholder="you@example.com" required />
+              </label>
+              <label>
+                Donation amount (optional, USD)
+                <input id="don-amount" type="number" min="0" step="1" placeholder="15" />
+              </label>
+              <label>
+                Type
+                <select id="don-type" required>
+                  <option value="">Select type</option>
+                  <option value="donation">Donation</option>
+                  <option value="suggestion">Suggestion</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+              <label style="grid-column: 1 / -1;">
+                Message
+                <textarea id="don-message" rows="6" placeholder="What would you like to support or suggest?" required></textarea>
+              </label>
+              <div class="button-row" style="grid-column: 1 / -1;">
+                <button id="don-submit-btn" class="btn btn-primary" type="submit">Send Donation / Suggestion</button>
+              </div>
+            </form>
+            <p id="donation-status" class="route-switcher-note" aria-live="polite">
+              Submissions are saved locally and open your email app.
+            </p>
+          </article>
         </div>
       </section>
       <nav id="sections-nav" class="tabs" aria-label="Tour Divide Race sections">
@@ -275,14 +412,6 @@
                 <p class="empty-note">Tap a section between major resupplies to view comments.</p>
               </div>
             </aside>
-            <section id="map-linked-planner-panel" class="map-linked-planner-panel" hidden>
-              <div class="map-linked-planner-head">
-                <h3 id="map-linked-planner-title">Selected Day Plan</h3>
-                <p id="map-linked-planner-note">Editing the selected resupply stop and its linked day plan from the map.</p>
-              </div>
-              <p class="map-linked-planner-cue">▼ Edit the linked plan below</p>
-              <div id="map-linked-planner-content" class="map-linked-planner-content"></div>
-            </section>
           </section>
 
           <section class="panel marker-list-panel">
@@ -346,10 +475,6 @@
           <label>
             Gain (ft)
             <input type="number" class="gain-input" min="0" step="100" />
-          </label>
-          <label>
-            Loss (ft)
-            <input type="number" class="loss-input" min="0" step="100" />
           </label>
         </div>
         <p class="day-distance-so-far">Distance so far: <strong class="day-distance-so-far-value">0.0 mi</strong></p>
@@ -457,24 +582,22 @@
       </article>
     </template>
 
-    <script src="vendor/leaflet/leaflet.js"></script>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="vendor/xlsx/xlsx.full.min.js"></script>
-    <script src="script.js?v=54"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="script.js?v=30"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker.getRegistrations().then(async (registrations) => {
-            await Promise.all(registrations.map((registration) => registration.unregister()));
-            const url = new URL(window.location.href);
-            const alreadyReset = url.searchParams.get("swreset") === "1";
-            if (navigator.serviceWorker.controller && !alreadyReset) {
-              url.searchParams.set("swreset", "1");
-              window.location.replace(url.toString());
-            }
-          });
+          navigator.serviceWorker.getRegistrations().then((regs) => {
+            regs.forEach((reg) => reg.unregister());
+          }).catch(() => {});
         });
       }
     </script>

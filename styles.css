@@ -128,6 +128,117 @@ body {
   color: var(--ink-soft);
 }
 
+.home-route-collection {
+  margin-top: 0.9rem;
+  border: 1px solid #dccfb9;
+  border-radius: 12px;
+  background: #fffefb;
+  padding: 0.8rem;
+}
+
+.home-route-collection p {
+  margin-top: 0.35rem;
+  color: var(--ink-soft);
+}
+
+.home-route-list {
+  margin-top: 0.65rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.home-route-row {
+  border: 1px solid #dccfb9;
+  border-radius: 12px;
+  background: #fffcf6;
+  padding: 0.75rem;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.home-route-link {
+  width: 100%;
+  min-height: 78px;
+  border: 1px solid #b7ae9e;
+  border-radius: 999px;
+  background: #efe8dc;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  padding: 0.95rem 1.2rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-route-link:hover {
+  border-color: #a39b8d;
+  background: #e8decd;
+}
+
+.home-route-link:focus-visible {
+  outline: 2px solid #1d7f5b;
+  outline-offset: 2px;
+}
+
+.home-route-summary {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.home-route-stat {
+  border: 1px dashed #d7ccb8;
+  border-radius: 10px;
+  background: #fffdfa;
+  padding: 0.42rem 0.52rem;
+}
+
+.home-route-stat-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5a645f;
+}
+
+.home-route-stat-value {
+  display: block;
+  margin-top: 0.08rem;
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.donation-grid {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.donation-tier {
+  border: 1px dashed #d7ccb8;
+  border-radius: 10px;
+  background: #fffdfa;
+  padding: 0.55rem;
+}
+
+.donation-tier h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1.1rem;
+}
+
+.donation-tier p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
 .video-placeholder {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -281,6 +392,24 @@ h1 {
   color: #8b3614;
 }
 
+#customer-service-view-btn,
+#donations-view-btn {
+  border-color: #9aa19a;
+  color: #3f4842;
+}
+
+#customer-service-view-btn:hover,
+#donations-view-btn:hover {
+  background: #f1efe9;
+}
+
+#customer-service-view-btn.active,
+#donations-view-btn.active {
+  border-color: #5f665f;
+  background: #5f665f;
+  color: #fff;
+}
+
 .route-switcher-note {
   margin: 0.5rem 0 0;
   font-size: 0.82rem;
@@ -318,6 +447,11 @@ h1 {
 .tab-panel.active {
   display: block;
   animation: reveal 260ms ease;
+}
+
+body.home-only-mode #sections-nav,
+body.home-only-mode .tab-panel {
+  display: none !important;
 }
 
 .layout {
@@ -1045,6 +1179,14 @@ select:focus {
     grid-template-columns: 1fr;
   }
 
+  .home-route-row {
+    grid-template-columns: 1fr;
+  }
+
+  .donation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-top {
     flex-direction: column;
   }
@@ -1106,5 +1248,9 @@ select:focus {
 
   .remove-bike-shop-btn {
     justify-self: start;
+  }
+
+  .donation-grid {
+    grid-template-columns: 1fr;
   }
 }
