@@ -180,14 +180,16 @@ let GPX_FILE = "";
 let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  appId: ""
+  apiKey: "AIzaSyBCfePd4yItDfIwovYby_vvSEPrtPR8ivI",
+  authDomain: "bikepack-planner.firebaseapp.com",
+  projectId: "bikepack-planner",
+  appId: "1:862215840535:web:2007383a2fef6f15278d52"
 };
 const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
 const ROUTE_PROFILE_BASE_WIDTH = 2400;
+const GLOBAL_LOCAL_ACCOUNTS_KEY = "bikepackfinisher-local-accounts-v1";
+const GLOBAL_LOCAL_AUTH_SESSION_KEY = "bikepackfinisher-local-session-v1";
 
 let resupplyPoints = [];
 
@@ -224,6 +226,7 @@ const authEmailInput = document.getElementById("auth-email");
 const authPasswordInput = document.getElementById("auth-password");
 const signUpBtn = document.getElementById("sign-up-btn");
 const signInBtn = document.getElementById("sign-in-btn");
+const googleSignInBtn = document.getElementById("google-sign-in-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
 const syncNowBtn = document.getElementById("sync-now-btn");
 const undoBtn = document.getElementById("undo-btn");
@@ -547,8 +550,9 @@ function applyRouteConfig(routeId) {
 
   STORAGE_KEY = `${route.storagePrefix}-plan-v1`;
   COMMENTS_KEY = `${route.storagePrefix}-comments-v1`;
-  LOCAL_ACCOUNTS_KEY = `${route.storagePrefix}-local-accounts-v1`;
-  LOCAL_AUTH_SESSION_KEY = `${route.storagePrefix}-local-session-v1`;
+  // Keep login/session global across all route pages.
+  LOCAL_ACCOUNTS_KEY = GLOBAL_LOCAL_ACCOUNTS_KEY;
+  LOCAL_AUTH_SESSION_KEY = GLOBAL_LOCAL_AUTH_SESSION_KEY;
   LOCAL_PROFILE_PREFIX = `${route.storagePrefix}-local-profile-v1:`;
   CUSTOM_STOPS_KEY = `${route.storagePrefix}-custom-resupply-stops-v1`;
   GPX_FILE = route.gpxFile;
@@ -757,19 +761,45 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function legacyRouteScopedAccountKeys() {
+  return Object.values(ROUTES).map((route) => `${route.storagePrefix}-local-accounts-v1`);
+}
+
+function legacyRouteScopedSessionKeys() {
+  return Object.values(ROUTES).map((route) => `${route.storagePrefix}-local-session-v1`);
+}
+
 function localProfileKey(email) {
   return `${LOCAL_PROFILE_PREFIX}${normalizeEmail(email)}`;
 }
 
 function loadLocalAccounts() {
-  const raw = localStorage.getItem(LOCAL_ACCOUNTS_KEY);
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
+  const parseAccounts = (raw) => {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const globalAccounts = parseAccounts(localStorage.getItem(LOCAL_ACCOUNTS_KEY));
+  const merged = { ...globalAccounts };
+
+  // Migrate any route-scoped legacy account stores into the global account store.
+  legacyRouteScopedAccountKeys().forEach((key) => {
+    if (key === LOCAL_ACCOUNTS_KEY) return;
+    const legacy = parseAccounts(localStorage.getItem(key));
+    if (!legacy || !Object.keys(legacy).length) return;
+    Object.assign(merged, legacy);
+  });
+
+  if (Object.keys(merged).length && JSON.stringify(merged) !== JSON.stringify(globalAccounts)) {
+    saveLocalAccounts(merged);
   }
+
+  return merged;
 }
 
 function saveLocalAccounts(accounts) {
@@ -777,7 +807,19 @@ function saveLocalAccounts(accounts) {
 }
 
 function getLocalSessionEmail() {
-  return normalizeEmail(localStorage.getItem(LOCAL_AUTH_SESSION_KEY) || "");
+  const fromGlobal = normalizeEmail(localStorage.getItem(LOCAL_AUTH_SESSION_KEY) || "");
+  if (fromGlobal) return fromGlobal;
+
+  // Migrate any route-scoped legacy session value.
+  for (const key of legacyRouteScopedSessionKeys()) {
+    if (key === LOCAL_AUTH_SESSION_KEY) continue;
+    const legacy = normalizeEmail(localStorage.getItem(key) || "");
+    if (legacy) {
+      setLocalSessionEmail(legacy);
+      return legacy;
+    }
+  }
+  return "";
 }
 
 function setLocalSessionEmail(email) {
@@ -786,6 +828,9 @@ function setLocalSessionEmail(email) {
 
 function clearLocalSessionEmail() {
   localStorage.removeItem(LOCAL_AUTH_SESSION_KEY);
+  legacyRouteScopedSessionKeys().forEach((key) => {
+    if (key !== LOCAL_AUTH_SESSION_KEY) localStorage.removeItem(key);
+  });
 }
 
 function saveLocalProfileWithFallback(email, payload) {
@@ -4258,6 +4303,37 @@ signInBtn.addEventListener("click", async () => {
     setCloudStatus(`Sign in failed: ${error.message}`);
   }
 });
+
+if (googleSignInBtn) {
+  googleSignInBtn.addEventListener("click", async () => {
+    if (localAuthMode) {
+      setCloudStatus("Google sign-in needs Firebase cloud auth enabled.");
+      return;
+    }
+    if (!firebaseAuth || !window.firebase || !firebase.auth?.GoogleAuthProvider) {
+      setCloudStatus("Google sign-in is not configured yet.");
+      return;
+    }
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await firebaseAuth.signInWithPopup(provider);
+      const email = firebaseAuth.currentUser?.email || "your account";
+      setCloudStatus(`Signed in with Google as ${email}.`);
+    } catch (error) {
+      const code = String(error?.code || "");
+      if (code.includes("popup-closed-by-user")) {
+        setCloudStatus("Google sign-in cancelled.");
+        return;
+      }
+      if (code.includes("popup-blocked")) {
+        setCloudStatus("Popup blocked. Allow popups for this site and try again.");
+        return;
+      }
+      setCloudStatus(`Google sign-in failed: ${error?.message || "Unknown error"}`);
+    }
+  });
+}
 
 signOutBtn.addEventListener("click", async () => {
   if (localAuthMode) {

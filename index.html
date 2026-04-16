@@ -39,6 +39,7 @@
               <div class="button-row">
                 <button id="sign-up-btn" class="btn" type="button">Sign Up</button>
                 <button id="sign-in-btn" class="btn btn-primary" type="button">Sign In</button>
+                <button id="google-sign-in-btn" class="btn" type="button">Sign In with Google</button>
                 <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
                 <button id="undo-btn" class="btn btn-accent" type="button">Undo</button>
                 <button id="sync-now-btn" class="btn" type="button">Sync Now</button>
@@ -457,8 +458,11 @@
     </template>
 
     <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="vendor/xlsx/xlsx.full.min.js"></script>
-    <script src="script.js?v=49"></script>
+    <script src="script.js?v=53"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
