@@ -242,6 +242,7 @@ const siteTitle = document.querySelector(".site-title");
 
 const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
 const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
+let activeTabName = "planner";
 
 const markerList = document.getElementById("marker-list");
 const mapSubhead = document.getElementById("map-subhead");
@@ -250,6 +251,10 @@ const mapSectionElevation = document.getElementById("map-section-elevation");
 const mapSectionProfile = document.getElementById("map-section-profile");
 const mapSectionProfileMeta = document.getElementById("map-section-profile-meta");
 const mapSectionComments = document.getElementById("map-section-comments");
+const mapLinkedPlannerPanel = document.getElementById("map-linked-planner-panel");
+const mapLinkedPlannerTitle = document.getElementById("map-linked-planner-title");
+const mapLinkedPlannerNote = document.getElementById("map-linked-planner-note");
+const mapLinkedPlannerContent = document.getElementById("map-linked-planner-content");
 const routeProfile = document.getElementById("route-profile");
 const routeProfileMeta = document.getElementById("route-profile-meta");
 const routeProfileScroll = document.getElementById("route-profile-scroll");
@@ -277,8 +282,12 @@ let resupplyLayer;
 let sectionLayer;
 let routeSections = [];
 let routeLine;
+let routeHoverLine;
+let mapHoverMarker = null;
+let mapHoverSnapshotEl = null;
 let trackCumulativeMiles = [];
 let trackCumulativeGainFt = [];
+let trackCumulativeLossFt = [];
 let dayMarkers = [];
 let resupplyMarkers = [];
 let dragGuideLayer;
@@ -297,6 +306,11 @@ let latestSnapshot = "";
 let restoringUndo = false;
 let customUploadedTrackPoints = [];
 let customUploadedFile = null;
+let routeProfileHoverLineEl = null;
+let routeProfileHoverDotEl = null;
+let routeProfileDefaultMetaText = "";
+let routeProfilePointForMile = null;
+let routeProfileBounds = null;
 
 function getRouteFromUrl() {
   const routeParam = new URLSearchParams(window.location.search).get("route");
@@ -483,10 +497,27 @@ function renderResupplyMarkers() {
   resupplyLayer.clearLayers();
   resupplyMarkers = [];
   resupplyPoints.forEach((point, index) => {
-    const marker = L.marker([point.lat, point.lon], { icon: makeResupplyIcon(), draggable: true })
+    let lat = Number(point.lat);
+    let lon = Number(point.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const snapped = pointForMile(Number(point.mile || 0));
+      lat = Number(snapped.lat);
+      lon = Number(snapped.lon);
+      resupplyPoints[index] = { ...point, lat, lon };
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    const marker = L.marker([lat, lon], { icon: makeResupplyIcon(), draggable: true })
       .addTo(resupplyLayer)
       .bindPopup(`<strong>${point.name}</strong><br/>Mile ${point.mile}<br/>${point.resupply}`);
+    safeBringToFront(marker);
     attachDragHandlers(marker, "resupply", index);
+    const jumpToPlanner = () => {
+      const dayIdx = dayIndexForMile(Number(point.mile || 0));
+      jumpToPlannerFromMap(dayIdx, index);
+    };
+    marker.on("click", jumpToPlanner);
+    marker.on("popupopen", jumpToPlanner);
     resupplyMarkers.push(marker);
   });
 }
@@ -821,6 +852,22 @@ function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
   return Math.max(0, Math.round(gainEnd - gainStart));
 }
 
+function gpxLossBetweenMiles(startMile, endMile, routeDistance) {
+  if (!trackCumulativeMiles.length || !trackCumulativeLossFt.length) {
+    const span = Math.max(0, endMile - startMile);
+    return Math.round(span * elevationLossFactor(endMile, routeDistance));
+  }
+
+  const totalTrackMiles = trackCumulativeMiles[trackCumulativeMiles.length - 1] || routeDistance || 0;
+  const clampedStart = Math.max(0, Math.min(totalTrackMiles, startMile));
+  const clampedEnd = Math.max(0, Math.min(totalTrackMiles, endMile));
+  if (clampedEnd <= clampedStart) return 0;
+
+  const lossStart = interpolateSeriesAtMile(clampedStart, trackCumulativeMiles, trackCumulativeLossFt);
+  const lossEnd = interpolateSeriesAtMile(clampedEnd, trackCumulativeMiles, trackCumulativeLossFt);
+  return Math.max(0, Math.round(lossEnd - lossStart));
+}
+
 function elevationFactor(cumulativeMiles, routeDistance) {
   const progress = routeDistance > 0 ? cumulativeMiles / routeDistance : 0;
 
@@ -831,6 +878,10 @@ function elevationFactor(cumulativeMiles, routeDistance) {
   return 88;
 }
 
+function elevationLossFactor(cumulativeMiles, routeDistance) {
+  return Math.round(elevationFactor(cumulativeMiles, routeDistance) * 0.82);
+}
+
 function recomputeDerivedFields() {
   const config = parseForm();
   if (!config || !plan.length) return;
@@ -839,6 +890,7 @@ function recomputeDerivedFields() {
   for (const day of plan) {
     if (day.type === "Rest") {
       day.gain = 0;
+      day.loss = 0;
       continue;
     }
 
@@ -847,6 +899,7 @@ function recomputeDerivedFields() {
     const dayEnd = Math.min(config.routeDistance, cumulativeMiles + rideMiles);
     cumulativeMiles = dayEnd;
     day.gain = gpxGainBetweenMiles(dayStart, dayEnd, config.routeDistance);
+    day.loss = gpxLossBetweenMiles(dayStart, dayEnd, config.routeDistance);
     day.town = nearestWaypoint(cumulativeMiles);
   }
 }
@@ -876,6 +929,7 @@ function buildPlan(config) {
       type: isRest ? "Rest" : "Ride",
       miles: rideMiles,
       gain: isRest ? 0 : Math.round(rideMiles * elevationFactor(cumulativeMiles, config.routeDistance)),
+      loss: isRest ? 0 : Math.round(rideMiles * elevationLossFactor(cumulativeMiles, config.routeDistance)),
       town: isRest ? "Recovery + laundry + bike check" : nearestWaypoint(cumulativeMiles),
       resupplyOptions1: isRest ? "Cafe + grocery + lodging" : "Market + gas station + cafe",
       resupplyHours1: isRest ? "Varies by town" : "6:00 AM - 9:00 PM",
@@ -903,6 +957,7 @@ function buildPlan(config) {
     if (lastRide) {
       lastRide.miles = Number((lastRide.miles + difference).toFixed(1));
       lastRide.gain = Math.round(lastRide.miles * elevationFactor(config.routeDistance, config.routeDistance));
+      lastRide.loss = Math.round(lastRide.miles * elevationLossFactor(config.routeDistance, config.routeDistance));
       lastRide.town = nearestWaypoint(config.routeDistance);
     }
   }
@@ -914,6 +969,7 @@ function renderMetrics(config, days) {
   const rideDays = days.filter((d) => d.type === "Ride");
   const totalMiles = rideDays.reduce((sum, d) => sum + Number(d.miles || 0), 0);
   const totalGain = rideDays.reduce((sum, d) => sum + Number(d.gain || 0), 0);
+  const totalLoss = rideDays.reduce((sum, d) => sum + Number(d.loss || 0), 0);
 
   if (plannerTotalRouteDistance) {
     const routeMiles = Number(config?.routeDistance || routeDistanceInput?.value || 0);
@@ -926,7 +982,8 @@ function renderMetrics(config, days) {
     ["Ride Days", `${rideDays.length}`],
     ["Rest Days", `${config.restDays}`],
     ["Avg on Ride Days", `${(totalMiles / Math.max(rideDays.length, 1)).toFixed(1)} mi`],
-    ["Total Planned Gain", `${totalGain.toLocaleString()} ft`]
+    ["Total Planned Gain", `${totalGain.toLocaleString()} ft`],
+    ["Total Planned Loss", `${totalLoss.toLocaleString()} ft`]
   ];
 
   metricList.innerHTML = "";
@@ -1002,6 +1059,7 @@ function normalizeDay(day) {
     resupplyDistance3: 0,
     shoppingList: day.shoppingList || "",
     calorieTarget: Number(day.calorieTarget || 0),
+    loss: Number(day.loss || 0),
     daysUntilNextResupply: Number(day.daysUntilNextResupply || 1),
     resupplyNotes: day.resupplyNotes || "",
     resupplyExtraOptions: extraOptions,
@@ -1035,6 +1093,7 @@ function applyCommentsArray(incomingComments) {
 
 function createDayCard(day, index) {
   const node = dayTemplate.content.firstElementChild.cloneNode(true);
+  node.dataset.dayIndex = String(index);
   const normalized = normalizeDay(day);
   const title = node.querySelector(".day-title");
   const date = node.querySelector(".day-date");
@@ -1047,12 +1106,14 @@ function createDayCard(day, index) {
 
   const milesInput = node.querySelector(".miles-input");
   const gainInput = node.querySelector(".gain-input");
+  const lossInput = node.querySelector(".loss-input");
   const townInput = node.querySelector(".town-input");
   const notesInput = node.querySelector(".notes-input");
   const distanceSoFarValue = node.querySelector(".day-distance-so-far-value");
 
   milesInput.value = normalized.miles;
   gainInput.value = normalized.gain;
+  lossInput.value = normalized.loss;
   townInput.value = normalized.town;
   notesInput.value = normalized.notes;
   if (distanceSoFarValue) {
@@ -1068,6 +1129,7 @@ function createDayCard(day, index) {
   if (day.type === "Rest") {
     milesInput.disabled = true;
     gainInput.disabled = true;
+    lossInput.disabled = true;
   }
 
   const sync = () => {
@@ -1075,6 +1137,7 @@ function createDayCard(day, index) {
       ...plan[index],
       miles: Number(milesInput.value || 0),
       gain: Number(gainInput.value || 0),
+      loss: Number(lossInput.value || 0),
       town: townInput.value,
       notes: notesInput.value
     };
@@ -1102,6 +1165,7 @@ function createDayCard(day, index) {
 
   [
     gainInput,
+    lossInput,
     townInput,
     notesInput
   ].forEach((input) => {
@@ -1138,6 +1202,8 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
     return document.createTextNode("");
   }
   const node = resupplyTemplate.content.firstElementChild.cloneNode(true);
+  node.dataset.dayIndex = String(dayIndex);
+  node.dataset.stopIndex = String(stopInfo?.stopIndex ?? "");
   const normalized = normalizeDay(day);
   node.querySelector(".resupply-title").textContent = `${stopInfo.point.name} Resupply`;
   node.querySelector(".resupply-subtitle").textContent = `Near mile ${stopInfo.point.mile.toFixed(1)} on Day ${day.id}`;
@@ -1425,6 +1491,111 @@ function renderPlan(days) {
   });
 }
 
+function dayIndexForMile(mile) {
+  let cumulative = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const day = plan[i];
+    if (!day || day.type === "Rest") continue;
+    cumulative += Number(day.miles || 0);
+    if (cumulative >= mile) return i;
+  }
+  return Math.max(0, plan.length - 1);
+}
+
+function segmentDistanceAtMile(mile) {
+  const targetMile = Math.max(0, Number(mile) || 0);
+
+  if (plan.length) {
+    const dayIdx = dayIndexForMile(targetMile);
+    const day = plan[dayIdx];
+    if (day && day.type !== "Rest") {
+      return Math.max(0, Number(day.miles || 0));
+    }
+  }
+
+  for (const stage of stageOptions) {
+    const start = Number(stage.startMile || 0);
+    const end = Number(stage.endMile || 0);
+    if (targetMile >= start && targetMile <= end) {
+      return Math.max(0, end - start);
+    }
+  }
+
+  return null;
+}
+
+function daysUntilNextResupplyForDay(targetDayIndex) {
+  const assignments = resupplyDayAssignments(plan);
+  const sortedDays = Array.from(assignments.keys()).sort((a, b) => a - b);
+  const currentIdx = sortedDays.findIndex((idx) => idx === targetDayIndex);
+  if (currentIdx < 0) return 1;
+  const nextDay = sortedDays[currentIdx + 1];
+  if (nextDay === undefined) return 1;
+  return Math.max(1, nextDay - targetDayIndex);
+}
+
+function highlightPlannerCard(target) {
+  if (!target) return;
+  document.querySelectorAll(".planner-focus").forEach((node) => node.classList.remove("planner-focus"));
+  target.classList.add("planner-focus");
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => {
+    target.classList.remove("planner-focus");
+  }, 1800);
+}
+
+function jumpToPlannerFromMap(dayIndex, stopIndex = null) {
+  activateTab("map");
+  setTimeout(() => {
+    if (!mapLinkedPlannerPanel || !mapLinkedPlannerContent) return;
+
+    if (!plan.length) {
+      const config = parseForm();
+      if (config) {
+        plan = buildPlan(config);
+        renderPlan(plan);
+        renderMetrics(config, plan);
+      }
+    }
+
+    const validDayIndex = Number.isInteger(dayIndex) ? dayIndex : 0;
+    const day = plan[validDayIndex];
+    mapLinkedPlannerPanel.hidden = false;
+    if (!day) {
+      mapLinkedPlannerTitle.textContent = "Selected Day Plan";
+      if (mapLinkedPlannerNote) {
+        mapLinkedPlannerNote.textContent = "Could not find a matching day yet. Build your plan first.";
+      }
+      mapLinkedPlannerContent.innerHTML = '<p class="empty-note">No linked day found for this marker yet.</p>';
+      return;
+    }
+
+    const stopPoint = Number.isInteger(stopIndex) && resupplyPoints[stopIndex] ? resupplyPoints[stopIndex] : null;
+    const dayLabel = `Day ${day.id}`;
+    mapLinkedPlannerTitle.textContent = stopPoint ? `${stopPoint.name} + ${dayLabel} Plan` : `${dayLabel} Plan`;
+    if (mapLinkedPlannerNote) {
+      mapLinkedPlannerNote.textContent = stopPoint
+        ? "Editing the selected resupply stop and its linked day plan from the map."
+        : "Editing the selected day plan from the map.";
+    }
+
+    mapLinkedPlannerContent.innerHTML = "";
+    mapLinkedPlannerContent.appendChild(createDayCard(day, validDayIndex));
+
+    if (stopPoint) {
+      mapLinkedPlannerContent.appendChild(
+        createResupplyCard(
+          day,
+          validDayIndex,
+          { point: stopPoint, stopIndex },
+          daysUntilNextResupplyForDay(validDayIndex)
+        )
+      );
+    }
+
+  }, 120);
+}
+
 async function pushCloudData() {
   if (!cloudReady()) return;
   if (localAuthMode) {
@@ -1640,6 +1811,11 @@ function optionalCsvValue(day, dayIndex, field, baselinePlan, numeric = false) {
   return valueStr === baselineStr ? "" : valueStr;
 }
 
+function optionalMapLinkFromField(day, dayIndex, field, baselinePlan) {
+  const address = String(optionalCsvValue(day, dayIndex, field, baselinePlan) || "").trim();
+  return address ? mapsSearchUrl(address) : "";
+}
+
 function extraOptionsText(day) {
   const items = Array.isArray(day?.resupplyExtraOptions) ? day.resupplyExtraOptions : [];
   return items
@@ -1710,15 +1886,18 @@ function exportStandardCsv(baselinePlan) {
     "Type",
     "Miles",
     "GainFt",
+    "LossFt",
     "TargetTown",
     "ResupplyOption1",
     "Hours1",
     "DistanceFromRouteMi1",
     "Address1",
+    "Address1MapLink",
     "ResupplyOption2",
     "Hours2",
     "DistanceFromRouteMi2",
     "Address2",
+    "Address2MapLink",
     "AdditionalResupplyOptions",
     "AdditionalBikeShops",
     "ShoppingList",
@@ -1731,15 +1910,18 @@ function exportStandardCsv(baselinePlan) {
     d.type,
     d.miles,
     d.gain,
+    d.loss || 0,
     d.town,
     optionalCsvValue(d, d.id - 1, "resupplyOptions1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyDistance1", baselinePlan, true),
     optionalCsvValue(d, d.id - 1, "resupplyAddress1", baselinePlan),
+    optionalMapLinkFromField(d, d.id - 1, "resupplyAddress1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyOptions2", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyHours2", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyDistance2", baselinePlan, true),
     optionalCsvValue(d, d.id - 1, "resupplyAddress2", baselinePlan),
+    optionalMapLinkFromField(d, d.id - 1, "resupplyAddress2", baselinePlan),
     optionalExtraOptionsText(d, d.id - 1, baselinePlan),
     optionalBikeShopsText(d, d.id - 1, baselinePlan),
     optionalCsvValue(d, d.id - 1, "shoppingList", baselinePlan),
@@ -1756,15 +1938,18 @@ function standardExportRows(baselinePlan) {
     "Type",
     "Miles",
     "GainFt",
+    "LossFt",
     "TargetTown",
     "ResupplyOption1",
     "Hours1",
     "DistanceFromRouteMi1",
     "Address1",
+    "Address1MapLink",
     "ResupplyOption2",
     "Hours2",
     "DistanceFromRouteMi2",
     "Address2",
+    "Address2MapLink",
     "AdditionalResupplyOptions",
     "AdditionalBikeShops",
     "ShoppingList",
@@ -1777,15 +1962,18 @@ function standardExportRows(baselinePlan) {
     d.type,
     d.miles,
     d.gain,
+    d.loss || 0,
     d.town,
     optionalCsvValue(d, d.id - 1, "resupplyOptions1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyDistance1", baselinePlan, true),
     optionalCsvValue(d, d.id - 1, "resupplyAddress1", baselinePlan),
+    optionalMapLinkFromField(d, d.id - 1, "resupplyAddress1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyOptions2", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyHours2", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyDistance2", baselinePlan, true),
     optionalCsvValue(d, d.id - 1, "resupplyAddress2", baselinePlan),
+    optionalMapLinkFromField(d, d.id - 1, "resupplyAddress2", baselinePlan),
     optionalExtraOptionsText(d, d.id - 1, baselinePlan),
     optionalBikeShopsText(d, d.id - 1, baselinePlan),
     optionalCsvValue(d, d.id - 1, "shoppingList", baselinePlan),
@@ -1807,6 +1995,7 @@ function exportDetailedDaysCsv(baselinePlan) {
     "DailyDistanceMi",
     "CumulativeDistanceMi",
     "ElevationGainFt",
+    "ElevationLossFt",
     "LocationOfStop",
     "ResuppliesReachedToday",
     "DaysUntilNextResupply",
@@ -1814,10 +2003,12 @@ function exportDetailedDaysCsv(baselinePlan) {
     "Hours1",
     "DistanceFromRouteMi1",
     "Address1",
+    "Address1MapLink",
     "ResupplyOption2",
     "Hours2",
     "DistanceFromRouteMi2",
     "Address2",
+    "Address2MapLink",
     "AdditionalResupplyOptions",
     "AdditionalBikeShops",
     "ShoppingList",
@@ -1837,6 +2028,7 @@ function exportDetailedDaysCsv(baselinePlan) {
       Number((d.endMile - d.startMile).toFixed(2)),
       Number(d.cumulativeMiles.toFixed(2)),
       d.gain,
+      d.loss || 0,
       d.town || "",
       dayStops,
       optionalCsvValue(d, d.id - 1, "daysUntilNextResupply", baselinePlan, true),
@@ -1844,10 +2036,12 @@ function exportDetailedDaysCsv(baselinePlan) {
       optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyDistance1", baselinePlan, true),
       optionalCsvValue(d, d.id - 1, "resupplyAddress1", baselinePlan),
+      optionalMapLinkFromField(d, d.id - 1, "resupplyAddress1", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyOptions2", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyHours2", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyDistance2", baselinePlan, true),
       optionalCsvValue(d, d.id - 1, "resupplyAddress2", baselinePlan),
+      optionalMapLinkFromField(d, d.id - 1, "resupplyAddress2", baselinePlan),
       optionalExtraOptionsText(d, d.id - 1, baselinePlan),
       optionalBikeShopsText(d, d.id - 1, baselinePlan),
       optionalCsvValue(d, d.id - 1, "shoppingList", baselinePlan),
@@ -1872,6 +2066,7 @@ function detailedDaysExportRows(baselinePlan) {
     "DailyDistanceMi",
     "CumulativeDistanceMi",
     "ElevationGainFt",
+    "ElevationLossFt",
     "LocationOfStop",
     "ResuppliesReachedToday",
     "DaysUntilNextResupply",
@@ -1879,10 +2074,12 @@ function detailedDaysExportRows(baselinePlan) {
     "Hours1",
     "DistanceFromRouteMi1",
     "Address1",
+    "Address1MapLink",
     "ResupplyOption2",
     "Hours2",
     "DistanceFromRouteMi2",
     "Address2",
+    "Address2MapLink",
     "AdditionalResupplyOptions",
     "AdditionalBikeShops",
     "ShoppingList",
@@ -1901,6 +2098,7 @@ function detailedDaysExportRows(baselinePlan) {
       Number((d.endMile - d.startMile).toFixed(2)),
       Number(d.cumulativeMiles.toFixed(2)),
       d.gain,
+      d.loss || 0,
       d.town || "",
       dayStops,
       optionalCsvValue(d, d.id - 1, "daysUntilNextResupply", baselinePlan, true),
@@ -1908,10 +2106,12 @@ function detailedDaysExportRows(baselinePlan) {
       optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyDistance1", baselinePlan, true),
       optionalCsvValue(d, d.id - 1, "resupplyAddress1", baselinePlan),
+      optionalMapLinkFromField(d, d.id - 1, "resupplyAddress1", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyOptions2", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyHours2", baselinePlan),
       optionalCsvValue(d, d.id - 1, "resupplyDistance2", baselinePlan, true),
       optionalCsvValue(d, d.id - 1, "resupplyAddress2", baselinePlan),
+      optionalMapLinkFromField(d, d.id - 1, "resupplyAddress2", baselinePlan),
       optionalExtraOptionsText(d, d.id - 1, baselinePlan),
       optionalBikeShopsText(d, d.id - 1, baselinePlan),
       optionalCsvValue(d, d.id - 1, "shoppingList", baselinePlan),
@@ -1937,10 +2137,12 @@ function exportResupplyOnlyCsv(baselinePlan) {
     "Hours1",
     "DistanceFromRouteMi1",
     "Address1",
+    "Address1MapLink",
     "ResupplyOption2",
     "Hours2",
     "DistanceFromRouteMi2",
     "Address2",
+    "Address2MapLink",
     "AdditionalResupplyOptions",
     "AdditionalBikeShops",
     "ShoppingList",
@@ -1968,10 +2170,12 @@ function exportResupplyOnlyCsv(baselinePlan) {
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyHours1", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyDistance1", baselinePlan, true),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyAddress1", baselinePlan),
+      optionalMapLinkFromField(day, (day.id || 1) - 1, "resupplyAddress1", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyOptions2", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyHours2", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyDistance2", baselinePlan, true),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyAddress2", baselinePlan),
+      optionalMapLinkFromField(day, (day.id || 1) - 1, "resupplyAddress2", baselinePlan),
       optionalExtraOptionsText(day, (day.id || 1) - 1, baselinePlan),
       optionalBikeShopsText(day, (day.id || 1) - 1, baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "shoppingList", baselinePlan),
@@ -1998,10 +2202,12 @@ function resupplyOnlyExportRows(baselinePlan) {
     "Hours1",
     "DistanceFromRouteMi1",
     "Address1",
+    "Address1MapLink",
     "ResupplyOption2",
     "Hours2",
     "DistanceFromRouteMi2",
     "Address2",
+    "Address2MapLink",
     "AdditionalResupplyOptions",
     "AdditionalBikeShops",
     "ShoppingList",
@@ -2029,10 +2235,12 @@ function resupplyOnlyExportRows(baselinePlan) {
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyHours1", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyDistance1", baselinePlan, true),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyAddress1", baselinePlan),
+      optionalMapLinkFromField(day, (day.id || 1) - 1, "resupplyAddress1", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyOptions2", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyHours2", baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyDistance2", baselinePlan, true),
       optionalCsvValue(day, (day.id || 1) - 1, "resupplyAddress2", baselinePlan),
+      optionalMapLinkFromField(day, (day.id || 1) - 1, "resupplyAddress2", baselinePlan),
       optionalExtraOptionsText(day, (day.id || 1) - 1, baselinePlan),
       optionalBikeShopsText(day, (day.id || 1) - 1, baselinePlan),
       optionalCsvValue(day, (day.id || 1) - 1, "shoppingList", baselinePlan),
@@ -2056,15 +2264,18 @@ function exportDayMatrixCsv(baselinePlan) {
     ["End Mile", (_, i) => Number(summaries[i].endMile.toFixed(2))],
     ["Daily Distance (mi)", (d, i) => Number((summaries[i].endMile - summaries[i].startMile).toFixed(2))],
     ["Elevation Gain (ft)", (d) => d.gain || 0],
+    ["Elevation Loss (ft)", (d) => d.loss || 0],
     ["Location of Stop", (d) => d.town || ""],
     ["Resupply Option 1", (d, i) => optionalCsvValue(d, i, "resupplyOptions1", baselinePlan)],
     ["Hours 1", (d, i) => optionalCsvValue(d, i, "resupplyHours1", baselinePlan)],
     ["Distance From Route 1 (mi)", (d, i) => optionalCsvValue(d, i, "resupplyDistance1", baselinePlan, true)],
     ["Address 1", (d, i) => optionalCsvValue(d, i, "resupplyAddress1", baselinePlan)],
+    ["Address 1 Map Link", (d, i) => optionalMapLinkFromField(d, i, "resupplyAddress1", baselinePlan)],
     ["Resupply Option 2", (d, i) => optionalCsvValue(d, i, "resupplyOptions2", baselinePlan)],
     ["Hours 2", (d, i) => optionalCsvValue(d, i, "resupplyHours2", baselinePlan)],
     ["Distance From Route 2 (mi)", (d, i) => optionalCsvValue(d, i, "resupplyDistance2", baselinePlan, true)],
     ["Address 2", (d, i) => optionalCsvValue(d, i, "resupplyAddress2", baselinePlan)],
+    ["Address 2 Map Link", (d, i) => optionalMapLinkFromField(d, i, "resupplyAddress2", baselinePlan)],
     ["Additional Resupply Options", (d, i) => optionalExtraOptionsText(d, i, baselinePlan)],
     ["Additional Bike Shops", (d, i) => optionalBikeShopsText(d, i, baselinePlan)],
     ["Shopping List", (d, i) => optionalCsvValue(d, i, "shoppingList", baselinePlan)],
@@ -2093,15 +2304,18 @@ function dayMatrixExportRows(baselinePlan) {
     ["End Mile", (_, i) => Number(summaries[i].endMile.toFixed(2))],
     ["Daily Distance (mi)", (d, i) => Number((summaries[i].endMile - summaries[i].startMile).toFixed(2))],
     ["Elevation Gain (ft)", (d) => d.gain || 0],
+    ["Elevation Loss (ft)", (d) => d.loss || 0],
     ["Location of Stop", (d) => d.town || ""],
     ["Resupply Option 1", (d, i) => optionalCsvValue(d, i, "resupplyOptions1", baselinePlan)],
     ["Hours 1", (d, i) => optionalCsvValue(d, i, "resupplyHours1", baselinePlan)],
     ["Distance From Route 1 (mi)", (d, i) => optionalCsvValue(d, i, "resupplyDistance1", baselinePlan, true)],
     ["Address 1", (d, i) => optionalCsvValue(d, i, "resupplyAddress1", baselinePlan)],
+    ["Address 1 Map Link", (d, i) => optionalMapLinkFromField(d, i, "resupplyAddress1", baselinePlan)],
     ["Resupply Option 2", (d, i) => optionalCsvValue(d, i, "resupplyOptions2", baselinePlan)],
     ["Hours 2", (d, i) => optionalCsvValue(d, i, "resupplyHours2", baselinePlan)],
     ["Distance From Route 2 (mi)", (d, i) => optionalCsvValue(d, i, "resupplyDistance2", baselinePlan, true)],
     ["Address 2", (d, i) => optionalCsvValue(d, i, "resupplyAddress2", baselinePlan)],
+    ["Address 2 Map Link", (d, i) => optionalMapLinkFromField(d, i, "resupplyAddress2", baselinePlan)],
     ["Additional Resupply Options", (d, i) => optionalExtraOptionsText(d, i, baselinePlan)],
     ["Additional Bike Shops", (d, i) => optionalBikeShopsText(d, i, baselinePlan)],
     ["Shopping List", (d, i) => optionalCsvValue(d, i, "shoppingList", baselinePlan)],
@@ -2140,26 +2354,29 @@ function exportExcel() {
   }
 }
 
+function activateTab(tabName) {
+  const wasAlreadyActive = activeTabName === tabName;
+  activeTabName = tabName;
+  tabButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tabName);
+  });
+
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.tabPanel === tabName);
+  });
+
+  if (tabName === "map" && map) {
+    setTimeout(() => {
+      map.invalidateSize();
+      ensureRouteLineVisible();
+      if (!wasAlreadyActive && routeLine) {
+        map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+      }
+    }, 40);
+  }
+}
+
 function setupTabs() {
-  const activateTab = (tabName) => {
-    tabButtons.forEach((button) => {
-      button.classList.toggle("active", button.dataset.tab === tabName);
-    });
-
-    tabPanels.forEach((panel) => {
-      panel.classList.toggle("active", panel.dataset.tabPanel === tabName);
-    });
-
-    if (tabName === "map" && map) {
-      setTimeout(() => {
-        map.invalidateSize();
-        if (routeLine) {
-          map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
-        }
-      }, 40);
-    }
-  };
-
   tabButtons.forEach((button) => {
     button.addEventListener("click", () => activateTab(button.dataset.tab));
   });
@@ -2206,9 +2423,32 @@ function interpolatePoint(a, b, target, startDistance, segmentDistance) {
 }
 
 function parseGpxTrack(xmlText) {
+  const regexFallbackPoints = () => {
+    const points = [];
+    const re = /<(trkpt|rtept)\b[^>]*\blat="([^"]+)"[^>]*\blon="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/gi;
+    let match;
+    while ((match = re.exec(xmlText))) {
+      const lat = Number(match[2]);
+      const lon = Number(match[3]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const eleMatch = /<ele>([^<]+)<\/ele>/i.exec(match[4] || "");
+      const eleRaw = eleMatch ? Number(eleMatch[1]) : Number.NaN;
+      points.push({
+        lat,
+        lon,
+        ele: Number.isFinite(eleRaw) ? eleRaw : null
+      });
+    }
+    return points;
+  };
+
   const parser = new DOMParser();
   const xml = parser.parseFromString(xmlText, "application/xml");
-  const points = Array.from(xml.getElementsByTagName("trkpt")).map((node) => {
+  const parseError = xml.getElementsByTagName("parsererror");
+  if (parseError && parseError.length) {
+    return regexFallbackPoints();
+  }
+  const parsePointNode = (node) => {
     const eleNode = node.getElementsByTagName("ele")[0];
     const ele = eleNode ? Number(eleNode.textContent) : Number.NaN;
     return {
@@ -2216,9 +2456,68 @@ function parseGpxTrack(xmlText) {
       lon: Number(node.getAttribute("lon")),
       ele: Number.isFinite(ele) ? ele : null
     };
-  });
+  };
+  const trackNodes = Array.from(xml.getElementsByTagName("trkpt"));
+  const routeNodes = Array.from(xml.getElementsByTagName("rtept"));
+  const sourceNodes = trackNodes.length ? trackNodes : routeNodes;
+  const points = sourceNodes.map(parsePointNode);
+  const normalized = points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
+  if (normalized.length >= 2) return normalized;
+  return regexFallbackPoints();
+}
 
-  return points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
+async function loadGpxTrackPoints(gpxFile) {
+  if (!gpxFile) return [];
+  const clean = String(gpxFile || "").replace(/^\.\//, "").trim();
+  const nested = `XcodeImport/www/${clean}`;
+  const encoded = clean
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const nestedEncoded = nested
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  const attemptUrls = Array.from(
+    new Set([
+      clean,
+      `./${clean}`,
+      `/${clean}`,
+      nested,
+      `./${nested}`,
+      `/${nested}`,
+      encoded,
+      `./${encoded}`,
+      `/${encoded}`,
+      nestedEncoded,
+      `./${nestedEncoded}`,
+      `/${nestedEncoded}`,
+      new URL(clean, window.location.href).toString(),
+      new URL(encoded, window.location.href).toString(),
+      new URL(nested, window.location.href).toString(),
+      new URL(nestedEncoded, window.location.href).toString()
+    ])
+  );
+
+  let lastError = "Unknown GPX load error";
+  for (const url of attemptUrls) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        lastError = `HTTP ${response.status} for ${url}`;
+        continue;
+      }
+      const xmlText = await response.text();
+      const points = parseGpxTrack(xmlText);
+      if (points.length >= 2) return points;
+      lastError = `Parsed 0 track points from ${url}`;
+    } catch (error) {
+      lastError = `${error?.message || "Fetch failed"} (${url})`;
+    }
+  }
+
+  throw new Error(lastError);
 }
 
 function buildTrackCumulativeMiles(trackPoints) {
@@ -2244,6 +2543,22 @@ function buildTrackCumulativeGainFt(trackPoints) {
     cumulativeGain[i] = cumulativeGain[i - 1] + (deltaFt > 3 ? deltaFt : 0);
   }
   return cumulativeGain;
+}
+
+function buildTrackCumulativeLossFt(trackPoints) {
+  if (!trackPoints.length) return [];
+  const cumulativeLoss = [0];
+  for (let i = 1; i < trackPoints.length; i++) {
+    const prevEle = trackPoints[i - 1].ele;
+    const nextEle = trackPoints[i].ele;
+    if (prevEle === null || nextEle === null) {
+      cumulativeLoss[i] = cumulativeLoss[i - 1];
+      continue;
+    }
+    const deltaFt = (nextEle - prevEle) * 3.28084;
+    cumulativeLoss[i] = cumulativeLoss[i - 1] + (deltaFt < -3 ? Math.abs(deltaFt) : 0);
+  }
+  return cumulativeLoss;
 }
 
 function nearestTrackPointAndMile(latlng) {
@@ -2442,6 +2757,10 @@ function renderRouteProfile() {
   if (!routeProfile || !routeProfileMeta) return;
   if (!gpxTrackPoints.length) {
     routeProfileMeta.textContent = "Elevation profile unavailable.";
+    routeProfileHoverLineEl = null;
+    routeProfileHoverDotEl = null;
+    routeProfilePointForMile = null;
+    routeProfileBounds = null;
     return;
   }
 
@@ -2463,6 +2782,7 @@ function renderRouteProfile() {
   const right = 2340;
   const top = 12;
   const bottom = 120;
+  routeProfileBounds = { left, right, top, bottom };
   const sampleMaxIndex = Math.max(profile.profileSamples.length - 1, 1);
 
   const pointOnProfileForMile = (mile) => {
@@ -2478,6 +2798,7 @@ function renderRouteProfile() {
     const y = top + ((maxEle - ele) / range) * (bottom - top);
     return { x, y, eleFt: Math.round(ele * 3.28084) };
   };
+  routeProfilePointForMile = pointOnProfileForMile;
 
   const points = profile.profileSamples
     .map((ele, index) => {
@@ -2528,7 +2849,7 @@ function renderRouteProfile() {
   ].join("");
 
   routeProfileMeta.textContent = `Min ${profile.minEleFt.toLocaleString()} ft • Max ${profile.maxEleFt.toLocaleString()} ft`;
-  const defaultMeta = routeProfileMeta.textContent;
+  routeProfileDefaultMetaText = routeProfileMeta.textContent;
 
   const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
   hoverLine.setAttribute("x1", "60");
@@ -2539,6 +2860,7 @@ function renderRouteProfile() {
   hoverLine.setAttribute("stroke-width", "1");
   hoverLine.setAttribute("visibility", "hidden");
   routeProfile.appendChild(hoverLine);
+  routeProfileHoverLineEl = hoverLine;
 
   const hoverDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   hoverDot.setAttribute("cx", "60");
@@ -2549,6 +2871,7 @@ function renderRouteProfile() {
   hoverDot.setAttribute("stroke-width", "0.8");
   hoverDot.setAttribute("visibility", "hidden");
   routeProfile.appendChild(hoverDot);
+  routeProfileHoverDotEl = hoverDot;
 
   routeProfile.onmousemove = (event) => {
     const ctm = routeProfile.getScreenCTM();
@@ -2560,25 +2883,129 @@ function renderRouteProfile() {
     const clampedX = Math.max(left, Math.min(right, local.x));
     const ratio = (clampedX - left) / (right - left);
     const mile = ratio * profile.totalDistanceMi;
-    const chartPoint = pointOnProfileForMile(mile);
-    const clampedY = Math.max(top, Math.min(bottom, chartPoint.y));
-
-    hoverLine.setAttribute("x1", clampedX.toFixed(2));
-    hoverLine.setAttribute("x2", clampedX.toFixed(2));
-    hoverLine.setAttribute("visibility", "visible");
-    hoverDot.setAttribute("cx", clampedX.toFixed(2));
-    hoverDot.setAttribute("cy", clampedY.toFixed(2));
-    hoverDot.setAttribute("visibility", "visible");
-    routeProfileMeta.textContent = `Mile ${mile.toFixed(1)} / ${profile.totalDistanceMi.toFixed(1)} • Elevation ${chartPoint.eleFt.toLocaleString()} ft`;
+    syncRouteProfileHoverByMile(mile, true);
   };
 
   routeProfile.onmouseleave = () => {
-    hoverLine.setAttribute("visibility", "hidden");
-    hoverDot.setAttribute("visibility", "hidden");
-    routeProfileMeta.textContent = defaultMeta;
+    hideMapHoverMarker();
+    clearRouteProfileHover();
   };
 
   applyRouteProfileZoom(true);
+}
+
+function syncRouteProfileHoverByMile(mile, updateMeta = false, metaPrefix = "") {
+  if (
+    !routeProfileHoverLineEl ||
+    !routeProfileHoverDotEl ||
+    !routeProfilePointForMile ||
+    !routeProfileBounds ||
+    !trackCumulativeMiles.length
+  ) {
+    return;
+  }
+
+  const total = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
+  const clampedMile = Math.max(0, Math.min(total, Number(mile) || 0));
+  const chartPoint = routeProfilePointForMile(clampedMile);
+  const clampedX = Math.max(routeProfileBounds.left, Math.min(routeProfileBounds.right, chartPoint.x));
+  const clampedY = Math.max(routeProfileBounds.top, Math.min(routeProfileBounds.bottom, chartPoint.y));
+
+  routeProfileHoverLineEl.setAttribute("x1", clampedX.toFixed(2));
+  routeProfileHoverLineEl.setAttribute("x2", clampedX.toFixed(2));
+  routeProfileHoverLineEl.setAttribute("visibility", "visible");
+  routeProfileHoverDotEl.setAttribute("cx", clampedX.toFixed(2));
+  routeProfileHoverDotEl.setAttribute("cy", clampedY.toFixed(2));
+  routeProfileHoverDotEl.setAttribute("visibility", "visible");
+
+  if (updateMeta && routeProfileMeta) {
+    const prefix = metaPrefix ? `${metaPrefix} • ` : "";
+    routeProfileMeta.textContent = `${prefix}Mile ${clampedMile.toFixed(1)} / ${total.toFixed(1)} • Elevation ${chartPoint.eleFt.toLocaleString()} ft`;
+  }
+}
+
+function clearRouteProfileHover() {
+  if (routeProfileHoverLineEl) routeProfileHoverLineEl.setAttribute("visibility", "hidden");
+  if (routeProfileHoverDotEl) routeProfileHoverDotEl.setAttribute("visibility", "hidden");
+  if (routeProfileMeta) routeProfileMeta.textContent = routeProfileDefaultMetaText || routeProfileMeta.textContent;
+}
+
+function showMapHoverMarker(point) {
+  if (!map || !point) return;
+  const latlng = [point.lat, point.lon];
+  if (!mapHoverMarker) {
+    mapHoverMarker = L.circleMarker(latlng, {
+      radius: 5,
+      color: "#1f2933",
+      weight: 2,
+      fillColor: "#ffffff",
+      fillOpacity: 0.95,
+      opacity: 1,
+      interactive: false,
+      pane: "guide-pane"
+    }).addTo(map);
+  } else {
+    mapHoverMarker.setLatLng(latlng);
+    if (!map.hasLayer(mapHoverMarker)) mapHoverMarker.addTo(map);
+  }
+  safeBringToFront(mapHoverMarker);
+}
+
+function hideMapHoverMarker() {
+  if (!map || !mapHoverMarker) return;
+  if (map.hasLayer(mapHoverMarker)) map.removeLayer(mapHoverMarker);
+}
+
+function ensureMapHoverSnapshot() {
+  if (mapHoverSnapshotEl) return mapHoverSnapshotEl;
+  const mapElement = document.getElementById("route-map");
+  if (!mapElement) return null;
+  const box = document.createElement("div");
+  box.className = "map-hover-snapshot";
+  box.style.display = "none";
+  mapElement.appendChild(box);
+  mapHoverSnapshotEl = box;
+  return box;
+}
+
+function showMapHoverSnapshot(latlng, data) {
+  if (!map || !latlng || !data) return;
+  const box = ensureMapHoverSnapshot();
+  if (!box) return;
+
+  const title = data.title || "Route";
+  const fromBanff = Number(data.fromBanff || 0);
+  const elevFt = Number.isFinite(data.elevFt) ? Number(data.elevFt) : null;
+  const sectionMile = Number.isFinite(data.sectionMile) ? Number(data.sectionMile) : null;
+  const sectionTotal = Number.isFinite(data.sectionTotal) ? Number(data.sectionTotal) : null;
+  const segmentDistance = Number.isFinite(data.segmentDistance) ? Number(data.segmentDistance) : null;
+  const elevText = elevFt === null ? "Elevation: unavailable" : `Elevation: ${Math.round(elevFt).toLocaleString()} ft`;
+  const sectionText =
+    sectionMile !== null && sectionTotal !== null ? `<div>Section: ${sectionMile.toFixed(1)} / ${sectionTotal.toFixed(1)} mi</div>` : "";
+  const segmentText = segmentDistance !== null ? `<div>Segment distance: ${segmentDistance.toFixed(1)} mi</div>` : "";
+
+  box.innerHTML = `<strong>${title}</strong><div>From Banff: ${fromBanff.toFixed(1)} mi</div><div>${elevText}</div>${segmentText}${sectionText}`;
+
+  const pt = map.latLngToContainerPoint(latlng);
+  const mapWidth = map.getSize().x;
+  const mapHeight = map.getSize().y;
+  const cardW = 230;
+  const cardH = 86;
+  let left = pt.x + 14;
+  let top = pt.y - 14;
+  if (left + cardW > mapWidth - 8) left = pt.x - cardW - 14;
+  if (left < 8) left = 8;
+  if (top + cardH > mapHeight - 8) top = mapHeight - cardH - 8;
+  if (top < 8) top = 8;
+
+  box.style.left = `${left}px`;
+  box.style.top = `${top}px`;
+  box.style.display = "block";
+}
+
+function hideMapHoverSnapshot() {
+  if (!mapHoverSnapshotEl) return;
+  mapHoverSnapshotEl.style.display = "none";
 }
 
 function applyRouteProfileZoom(preserveScroll) {
@@ -2643,6 +3070,7 @@ function buildResupplySections(trackPoints) {
 
   const sections = [];
   let cursor = 0;
+  const trackMilesAbs = buildTrackCumulativeMiles(trackPoints);
 
   for (let i = 0; i < resupplyPoints.length - 1; i++) {
     const start = resupplyPoints[i];
@@ -2656,21 +3084,23 @@ function buildResupplySections(trackPoints) {
     if (points.length < 2) continue;
 
     const elevation = computeSectionElevation(points);
-    const cumulativeMiles = [0];
-    for (let p = 1; p < points.length; p++) {
-      cumulativeMiles[p] = cumulativeMiles[p - 1] + haversineMiles(points[p - 1], points[p]);
-    }
+    const absoluteMiles = trackMilesAbs.slice(startIndex, endIndex + 1);
+    const startTrackMile = absoluteMiles[0] || 0;
+    const cumulativeMiles = absoluteMiles.map((mile) => Math.max(0, mile - startTrackMile));
     const sectionDistanceMi = cumulativeMiles[cumulativeMiles.length - 1] || 0;
 
     sections.push({
       name: `${start.name} to ${end.name}`,
       startMile,
       endMile,
+      startTrackMile,
+      endTrackMile: absoluteMiles[absoluteMiles.length - 1] || startTrackMile,
       elevationGainFt: elevation.elevationGainFt,
       minEleFt: elevation.minEleFt,
       maxEleFt: elevation.maxEleFt,
       totalDistanceMi: elevation.totalDistanceMi,
       sectionDistanceMi,
+      absoluteMiles,
       cumulativeMiles,
       profileSamples: elevation.profileSamples,
       points
@@ -2685,9 +3115,10 @@ function nearestSectionPoint(section, latlng) {
   let bestIndex = 0;
   let bestScore = Infinity;
   for (let i = 0; i < section.points.length; i++) {
-    const dLat = section.points[i].lat - latlng.lat;
-    const dLon = section.points[i].lon - latlng.lng;
-    const score = dLat * dLat + dLon * dLon;
+    const score = haversineMiles(
+      { lat: section.points[i].lat, lon: section.points[i].lon },
+      { lat: latlng.lat, lon: latlng.lng }
+    );
     if (score < bestScore) {
       bestScore = score;
       bestIndex = i;
@@ -2888,19 +3319,31 @@ function drawSectionOverlays() {
       section.points.map((point) => [point.lat, point.lon]),
       {
         color: selectedSectionName === section.name ? "#eb5e28" : "#2f7a62",
-        weight: selectedSectionName === section.name ? 8 : 6,
-        opacity: selectedSectionName === section.name ? 0.85 : 0.45
+        weight: selectedSectionName === section.name ? 6 : 4,
+        opacity: selectedSectionName === section.name ? 0.75 : 0.3,
+        pane: "section-pane"
       }
     )
       .addTo(sectionLayer);
+    safeBringToBack(sectionLine);
 
     sectionLine
       .bindTooltip(section.name, { sticky: true })
       .on("mousemove", (event) => {
         const nearestIndex = nearestSectionPoint(section, event.latlng);
         const nearestPoint = section.points[nearestIndex];
-        const sectionMile = section.cumulativeMiles[nearestIndex] || 0;
-        const fromBanff = Number(section.startMile) + sectionMile;
+        const fromBanff = section.absoluteMiles?.[nearestIndex] ?? section.startTrackMile ?? 0;
+        const sectionMile = Math.max(0, fromBanff - (section.startTrackMile || 0));
+        showMapHoverMarker(nearestPoint);
+        showMapHoverSnapshot(event.latlng, {
+          title: section.name,
+          fromBanff,
+          elevFt: nearestPoint.ele === null ? null : nearestPoint.ele * 3.28084,
+          segmentDistance: section.sectionDistanceMi,
+          sectionMile,
+          sectionTotal: section.sectionDistanceMi
+        });
+        syncRouteProfileHoverByMile(fromBanff, true, section.name);
         const elevText =
           nearestPoint.ele === null ? "Elevation: unavailable" : `Elevation: ${Math.round(nearestPoint.ele * 3.28084).toLocaleString()} ft`;
         const content =
@@ -2908,9 +3351,17 @@ function drawSectionOverlays() {
           `<br/>Section: ${sectionMile.toFixed(1)} / ${section.sectionDistanceMi.toFixed(1)} mi`;
         sectionLine.setTooltipContent(content);
       })
+      .on("mouseout", () => {
+        hideMapHoverMarker();
+        hideMapHoverSnapshot();
+        clearRouteProfileHover();
+      })
       .on("click", () => {
         renderMapSectionComments(section.name);
         drawSectionOverlays();
+        const sectionStartMile = Number(section.startMile || 0);
+        const dayIdx = dayIndexForMile(sectionStartMile);
+        jumpToPlannerFromMap(dayIdx);
       });
   });
 }
@@ -2961,6 +3412,24 @@ function makeDayIcon() {
   });
 }
 
+function safeBringToFront(layer) {
+  if (!layer || typeof layer.bringToFront !== "function") return;
+  try {
+    layer.bringToFront();
+  } catch {
+    // no-op
+  }
+}
+
+function safeBringToBack(layer) {
+  if (!layer || typeof layer.bringToBack !== "function") return;
+  try {
+    layer.bringToBack();
+  } catch {
+    // no-op
+  }
+}
+
 function setDragButtonState() {
   if (!dragModeBtn) return;
   dragModeBtn.textContent = dragModeEnabled ? "Drag Mode: On" : "Drag Mode: Off";
@@ -2992,7 +3461,7 @@ function attachDragHandlers(marker, type, index) {
           [latlng.lat, latlng.lng],
           [nearest.point.lat, nearest.point.lon]
         ],
-        { color: "#c62828", weight: 2, dashArray: "4 4", opacity: 0.85 }
+        { color: "#c62828", weight: 2, dashArray: "4 4", opacity: 0.85, pane: "guide-pane" }
       ).addTo(map);
     } else {
       marker._dragGuide.setLatLngs([
@@ -3044,15 +3513,33 @@ function renderMarkerList() {
   if (!markerList) return;
   markerList.innerHTML = "";
 
+  if (!stageOptions.length) {
+    const stageCount = Math.max(2, Math.min(120, Number(totalDaysInput.value || 2)));
+    const total = Number(routeDistanceInput.value || 0);
+    const rough = [];
+    let start = 0;
+    for (let i = 1; i <= stageCount; i++) {
+      const end = i === stageCount ? total : (total * i) / stageCount;
+      rough.push({
+        stage: i,
+        startMile: start.toFixed(1),
+        endMile: end.toFixed(1)
+      });
+      start = end;
+    }
+    stageOptions = rough;
+  }
+
   stageOptions.forEach((day, idx) => {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>Day ${day.stage}</strong><p class="marker-mile">${day.startMile}-${day.endMile} miles</p>`;
+    item.innerHTML = `<strong>Day ${day.stage}</strong><p class="marker-mile">${Number(day.startMile || 0).toFixed(1)}-${Number(day.endMile || 0).toFixed(1)} miles</p>`;
     item.addEventListener("click", () => {
       if (!map) return;
       const marker = dayMarkers[idx];
       if (!marker) return;
       map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 10), { duration: 0.55 });
       marker.openPopup();
+      jumpToPlannerFromMap(idx);
     });
     markerList.appendChild(item);
   });
@@ -3066,6 +3553,8 @@ function renderMarkerList() {
       if (!marker) return;
       map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 10), { duration: 0.55 });
       marker.openPopup();
+      const dayIdx = dayIndexForMile(Number(point.mile || 0));
+      jumpToPlannerFromMap(dayIdx, idx);
     });
     markerList.appendChild(item);
   });
@@ -3096,6 +3585,90 @@ function applyDragModeToMarkers() {
   setDragButtonState();
 }
 
+function getTrackCoords(trackPoints) {
+  return (trackPoints || [])
+    .map((point) => [Number(point.lat), Number(point.lon)])
+    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+}
+
+function drawMainRouteLine(trackPoints) {
+  if (!map) return null;
+  const coords = getTrackCoords(trackPoints);
+  if (coords.length < 2) return null;
+  if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
+  routeLine = L.polyline(coords, {
+    color: "#c62828",
+    weight: 3,
+    opacity: 0.95,
+    pane: "route-pane"
+  }).addTo(map);
+  routeHoverLine = L.polyline(coords, {
+    color: "#c62828",
+    weight: 30,
+    opacity: 0.01,
+    pane: "guide-pane",
+    interactive: true
+  }).addTo(map);
+  routeHoverLine.on("mousemove", (event) => {
+    const nearest = nearestTrackPointAndMile(event.latlng);
+    if (!nearest) return;
+    showMapHoverMarker(nearest.point);
+    showMapHoverSnapshot(event.latlng, {
+      title: "Route",
+      fromBanff: nearest.mile,
+      elevFt: nearest.point?.ele === null ? null : nearest.point?.ele * 3.28084,
+      segmentDistance: segmentDistanceAtMile(nearest.mile)
+    });
+    syncRouteProfileHoverByMile(nearest.mile, true, "Route");
+  });
+  routeHoverLine.on("mouseout", () => {
+    hideMapHoverMarker();
+    hideMapHoverSnapshot();
+    clearRouteProfileHover();
+  });
+  safeBringToFront(routeLine);
+  safeBringToFront(routeHoverLine);
+  return routeLine;
+}
+
+function drawFallbackRouteLine(trackPoints, shouldFitBounds) {
+  if (!map) return null;
+  const coords = getTrackCoords(trackPoints);
+  if (coords.length < 2) return null;
+  const fallbackLine = L.polyline(coords, {
+    color: "#c62828",
+    weight: 3,
+    opacity: 0.95,
+    pane: "route-pane"
+  }).addTo(map);
+  if (shouldFitBounds && fallbackLine.getBounds && fallbackLine.getBounds().isValid()) {
+    map.fitBounds(fallbackLine.getBounds(), { padding: [30, 30] });
+  }
+  return fallbackLine;
+}
+
+function ensureMapPanes() {
+  if (!map) return;
+  if (!map.getPane("section-pane")) {
+    const pane = map.createPane("section-pane");
+    pane.style.zIndex = "420";
+  }
+  if (!map.getPane("route-pane")) {
+    const pane = map.createPane("route-pane");
+    pane.style.zIndex = "430";
+  }
+  if (!map.getPane("guide-pane")) {
+    const pane = map.createPane("guide-pane");
+    pane.style.zIndex = "440";
+  }
+}
+
+function ensureRouteLineVisible() {
+  if (!map || gpxTrackPoints.length < 2) return;
+  if (routeLine && map.hasLayer(routeLine)) return;
+  drawMainRouteLine(gpxTrackPoints);
+}
+
 function applyTrackToMap(trackPoints, options = {}) {
   if (!map || !trackPoints.length) return;
   const { fitBounds = true, rebuildPlan = false } = options;
@@ -3103,8 +3676,12 @@ function applyTrackToMap(trackPoints, options = {}) {
   gpxTrackPoints = trackPoints;
   trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
   trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+  trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
 
   if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
+  if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
+  hideMapHoverMarker();
+  hideMapHoverSnapshot();
   if (stageLayer) stageLayer.clearLayers();
   if (resupplyLayer) resupplyLayer.clearLayers();
   if (sectionLayer) sectionLayer.clearLayers();
@@ -3112,12 +3689,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   dayMarkers = [];
   resupplyMarkers = [];
 
-  const coords = gpxTrackPoints.map((point) => [point.lat, point.lon]);
-  routeLine = L.polyline(coords, {
-    color: "#1d7f5b",
-    weight: 3,
-    opacity: 0.85
-  }).addTo(map);
+  drawMainRouteLine(gpxTrackPoints);
 
   const gpxTotals = buildEvenStages(gpxTrackPoints, 2);
   if (gpxTotals.totalMiles > 0) {
@@ -3127,10 +3699,16 @@ function applyTrackToMap(trackPoints, options = {}) {
   renderResupplyMarkers();
   routeSections = buildResupplySections(gpxTrackPoints);
   renderRouteProfile();
-  drawSectionOverlays();
-  renderMapSectionComments("");
+  try {
+    drawSectionOverlays();
+    renderMapSectionComments("");
+  } catch (error) {
+    if (mapSubhead) {
+      mapSubhead.textContent = `Route loaded, but section render failed: ${error?.message || "Unknown error"}`;
+    }
+  }
 
-  if (fitBounds) {
+  if (fitBounds && routeLine) {
     map.fitBounds(routeLine.getBounds(), {
       padding: [30, 30]
     });
@@ -3146,7 +3724,13 @@ function applyTrackToMap(trackPoints, options = {}) {
     }
   }
 
-  updateStagesFromInput();
+  try {
+    updateStagesFromInput();
+  } catch (error) {
+    if (mapSubhead) {
+      mapSubhead.textContent = `Route loaded, but day marker render failed: ${error?.message || "Unknown error"}`;
+    }
+  }
   if (plan.length) {
     recomputeDerivedFields();
     const config = parseForm();
@@ -3160,12 +3744,23 @@ function applyTrackToMap(trackPoints, options = {}) {
 async function initMap() {
   const mapElement = document.getElementById("route-map");
   if (!mapElement || typeof L === "undefined") return;
+  mapboxFallbackActive = false;
+
+  if (map) {
+    try {
+      map.remove();
+    } catch {
+      // no-op
+    }
+    map = null;
+  }
 
   map = L.map("route-map", {
     zoomControl: true,
     minZoom: 4,
     maxZoom: 13
   });
+  ensureMapPanes();
   L.control.scale({ imperial: true, metric: false, maxWidth: 120 }).addTo(map);
 
   const mapboxLayer = L.tileLayer(
@@ -3192,7 +3787,9 @@ async function initMap() {
     mapboxFallbackActive = true;
     if (activeBaseLayer) map.removeLayer(activeBaseLayer);
     activeBaseLayer = osmLayer.addTo(map);
-    if (mapSubhead) {
+    const current = String(mapSubhead?.textContent || "");
+    const hasNonTileError = current.includes("error:") || current.includes("failed:");
+    if (mapSubhead && !hasNonTileError) {
       mapSubhead.textContent =
         "Mapbox tiles failed to load here, so this view switched to OpenStreetMap automatically.";
     }
@@ -3204,23 +3801,43 @@ async function initMap() {
   sectionLayer = L.layerGroup().addTo(map);
   dragGuideLayer = L.layerGroup().addTo(map);
 
+  let trackPoints = [];
+  let gpxLoadWarning = "";
   try {
-    let trackPoints = [];
     if (isCustomRouteActive() && customUploadedTrackPoints.length >= 2) {
       trackPoints = customUploadedTrackPoints;
     } else if (GPX_FILE) {
-      const response = await fetch(GPX_FILE);
-      if (!response.ok) throw new Error(`Failed GPX load: ${response.status}`);
-      const xmlText = await response.text();
-      trackPoints = parseGpxTrack(xmlText);
+      trackPoints = await loadGpxTrackPoints(GPX_FILE);
     }
+  } catch (error) {
+    gpxLoadWarning = error?.message ? `GPX load warning: ${error.message}` : "GPX load warning.";
+  }
 
-    if (trackPoints.length < 2) throw new Error("Not enough track points in GPX");
-    applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
-    if (isCustomRouteActive()) renderCustomStopEditor();
-  } catch {
+  if (trackPoints.length < 2) {
     markerList.innerHTML =
       `<li><p class="empty-note">Could not load GPX route file. ${isCustomRouteActive() ? "Upload a custom GPX in Plan tab." : `Check that ${GPX_FILE} is in the project root.`}</p></li>`;
+    if (mapSubhead) {
+      mapSubhead.textContent = gpxLoadWarning || "GPX load error: Not enough track points in GPX.";
+    }
+    setupCommentSections();
+    return;
+  }
+
+  try {
+    applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
+    if (isCustomRouteActive()) renderCustomStopEditor();
+    renderMarkerList();
+  } catch (error) {
+    if (mapSubhead) {
+      mapSubhead.textContent = `Map render error: ${error?.message || "Unknown error"}`;
+    }
+    // Safety fallback: draw the raw GPX polyline so route remains visible even if advanced rendering fails.
+    try {
+      drawFallbackRouteLine(trackPoints, true);
+    } catch {
+      // no-op
+    }
+    renderMarkerList();
   }
 
   setupCommentSections();
@@ -3246,14 +3863,26 @@ function updateStagesFromInput() {
   }
 
   stageLayer.clearLayers();
+  if (resupplyLayer && !resupplyMarkers.length) {
+    renderResupplyMarkers();
+  }
   dayMarkers.forEach((marker) => clearMarkerGuide(marker));
   dayMarkers = [];
 
   stageOptions.forEach((stage, index) => {
-    const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
+    const lat = Number(stage.lat);
+    const lon = Number(stage.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const marker = L.marker([lat, lon], { icon: makeDayIcon(), draggable: true })
       .addTo(stageLayer)
       .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
+    safeBringToFront(marker);
     attachDragHandlers(marker, "day", index);
+    const jumpToPlanner = () => {
+      jumpToPlannerFromMap(index);
+    };
+    marker.on("click", jumpToPlanner);
+    marker.on("popupopen", jumpToPlanner);
     dayMarkers.push(marker);
   });
 
