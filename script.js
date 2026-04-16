@@ -190,6 +190,7 @@ const MAPBOX_ACCESS_TOKEN = "";
 const ROUTE_PROFILE_BASE_WIDTH = 2400;
 const GLOBAL_LOCAL_ACCOUNTS_KEY = "bikepackfinisher-local-accounts-v1";
 const GLOBAL_LOCAL_AUTH_SESSION_KEY = "bikepackfinisher-local-session-v1";
+const USER_ROUTE_PROFILE_PREFIX = "bikepackfinisher-user-route-profile-v1:";
 
 let resupplyPoints = [];
 
@@ -761,6 +762,10 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function currentRouteId() {
+  return getRouteFromUrl();
+}
+
 function legacyRouteScopedAccountKeys() {
   return Object.values(ROUTES).map((route) => `${route.storagePrefix}-local-accounts-v1`);
 }
@@ -771,6 +776,41 @@ function legacyRouteScopedSessionKeys() {
 
 function localProfileKey(email) {
   return `${LOCAL_PROFILE_PREFIX}${normalizeEmail(email)}`;
+}
+
+function userRouteProfileKey(user, routeId = currentRouteId()) {
+  const identity = normalizeEmail(user?.email) || String(user?.uid || "").trim();
+  if (!identity) return "";
+  return `${USER_ROUTE_PROFILE_PREFIX}${identity}:${routeId}`;
+}
+
+function cacheSignedInRouteData(payload, user = authUser, routeId = currentRouteId()) {
+  const key = userRouteProfileKey(user, routeId);
+  if (!key) return;
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        ...payload,
+        routeId,
+        cachedAt: new Date().toISOString()
+      })
+    );
+  } catch {
+    // Ignore cache failures (storage quota, private mode, etc.).
+  }
+}
+
+function loadCachedSignedInRouteData(user = authUser, routeId = currentRouteId()) {
+  const key = userRouteProfileKey(user, routeId);
+  if (!key) return null;
+  const raw = localStorage.getItem(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 function loadLocalAccounts() {
@@ -1643,15 +1683,18 @@ function jumpToPlannerFromMap(dayIndex, stopIndex = null) {
 
 async function pushCloudData() {
   if (!cloudReady()) return;
+  const config = parseForm();
+  const payload = {
+    config,
+    plan,
+    comments,
+    updatedAt: new Date().toISOString()
+  };
+  cacheSignedInRouteData(payload);
+
   if (localAuthMode) {
     try {
-      const config = parseForm();
-      const result = saveLocalProfileWithFallback(authUser.email, {
-        config,
-        plan,
-        comments,
-        updatedAt: new Date().toISOString()
-      });
+      const result = saveLocalProfileWithFallback(authUser.email, payload);
       if (result.ok && result.degraded) {
         setCloudStatus(`Saved locally for ${authUser.email} (images trimmed to fit storage).`);
       } else if (result.ok) {
@@ -1665,14 +1708,8 @@ async function pushCloudData() {
     return;
   }
   try {
-    const config = parseForm();
     await firestoreDb.collection(PROFILE_COLLECTION).doc(authUser.uid).set(
-      {
-        config,
-        plan,
-        comments,
-        updatedAt: new Date().toISOString()
-      },
+      payload,
       { merge: true }
     );
     setCloudStatus(`Synced to cloud for ${authUser.email}`);
@@ -1691,17 +1728,20 @@ function scheduleCloudSync() {
 
 async function loadCloudData() {
   if (!cloudReady()) return;
+  const cached = loadCachedSignedInRouteData();
+
   if (localAuthMode) {
     try {
       const raw = localStorage.getItem(localProfileKey(authUser.email));
-      if (!raw) {
+      const data = raw ? JSON.parse(raw) : cached;
+      if (!data) {
         setCloudStatus(`Signed in as ${authUser.email}. No account data yet.`);
         return;
       }
-      const data = JSON.parse(raw);
       applyPlannerConfig(data.config);
       applyPlanArray(data.plan);
       applyCommentsArray(data.comments);
+      cacheSignedInRouteData(data);
       setCloudStatus(`Loaded local account data for ${authUser.email}`);
     } catch {
       setCloudStatus("Failed to load local account data.");
@@ -1711,17 +1751,34 @@ async function loadCloudData() {
   try {
     const snapshot = await firestoreDb.collection(PROFILE_COLLECTION).doc(authUser.uid).get();
     if (!snapshot.exists) {
-      setCloudStatus(`Signed in as ${authUser.email}. No cloud data yet.`);
+      if (cached) {
+        applyPlannerConfig(cached.config);
+        applyPlanArray(cached.plan);
+        applyCommentsArray(cached.comments);
+        resetUndoBaseline();
+        setCloudStatus(`Loaded cached account data for ${authUser.email}`);
+      } else {
+        setCloudStatus(`Signed in as ${authUser.email}. No cloud data yet.`);
+      }
       return;
     }
     const data = snapshot.data() || {};
     applyPlannerConfig(data.config);
     applyPlanArray(data.plan);
     applyCommentsArray(data.comments);
+    cacheSignedInRouteData(data);
     resetUndoBaseline();
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
   } catch {
-    setCloudStatus("Cloud load failed. Using local data.");
+    if (cached) {
+      applyPlannerConfig(cached.config);
+      applyPlanArray(cached.plan);
+      applyCommentsArray(cached.comments);
+      resetUndoBaseline();
+      setCloudStatus("Cloud load failed. Loaded cached account data.");
+    } else {
+      setCloudStatus("Cloud load failed. Using local data.");
+    }
   }
 }
 
