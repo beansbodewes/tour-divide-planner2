@@ -3860,13 +3860,11 @@ function applyTrackToMap(trackPoints, options = {}) {
     console.error("updateStagesFromInput failed:", error);
   }
 
+  // Always run a fallback profile pass shortly after map draw.
+  // This guarantees elevation renders even if an upstream render path silently fails.
   setTimeout(() => {
-    if (!routeProfileMeta) return;
-    const status = String(routeProfileMeta.textContent || "").toLowerCase();
-    if (status.includes("loading") || status.includes("rendering")) {
-      renderRouteProfileFallbackSimple();
-    }
-  }, 120);
+    renderRouteProfileFallbackSimple();
+  }, 180);
   if (plan.length) {
     recomputeDerivedFields();
     const config = parseForm();
