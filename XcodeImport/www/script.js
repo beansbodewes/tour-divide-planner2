@@ -449,9 +449,49 @@ function setViewMode(mode) {
 function gpxCandidates(fileName) {
   if (!fileName) return [];
   const encoded = encodeURI(fileName);
+  const basePath = (() => {
+    const path = window.location.pathname || "/";
+    if (path.endsWith("/")) return path;
+    const idx = path.lastIndexOf("/");
+    return idx >= 0 ? path.slice(0, idx + 1) : "/";
+  })();
   return Array.from(
-    new Set([fileName, `./${fileName}`, `/${fileName}`, encoded, `./${encoded}`, `/${encoded}`])
+    new Set([
+      fileName,
+      `./${fileName}`,
+      `/${fileName}`,
+      encoded,
+      `./${encoded}`,
+      `/${encoded}`,
+      `${basePath}${fileName}`,
+      `${basePath}${encoded}`,
+      `XcodeImport/www/${fileName}`,
+      `XcodeImport/www/${encoded}`,
+      `/XcodeImport/www/${fileName}`,
+      `/XcodeImport/www/${encoded}`
+    ])
   );
+}
+
+async function loadGpxTrackPoints(fileName) {
+  const candidates = gpxCandidates(fileName);
+  let lastError = "Unknown GPX load failure";
+  for (const path of candidates) {
+    try {
+      const response = await fetch(path, { cache: "no-store" });
+      if (!response.ok) {
+        lastError = `${path} -> HTTP ${response.status}`;
+        continue;
+      }
+      const xmlText = await response.text();
+      const parsed = parseGpxTrack(xmlText);
+      if (parsed.length >= 2) return parsed;
+      lastError = `${path} -> parsed ${parsed.length} track points`;
+    } catch (error) {
+      lastError = `${path} -> ${error instanceof Error ? error.message : "fetch error"}`;
+    }
+  }
+  throw new Error(lastError);
 }
 
 function formatHomeMiles(miles) {
@@ -484,25 +524,17 @@ async function loadHomeMetrics(routeId) {
   }
 
   const pending = (async () => {
-    const candidates = gpxCandidates(route.gpxFile);
-    for (const path of candidates) {
-      try {
-        const response = await fetch(path, { cache: "no-store" });
-        if (!response.ok) continue;
-        const xmlText = await response.text();
-        const points = parseGpxTrack(xmlText);
-        if (points.length < 2) continue;
-        const cumulativeMiles = buildTrackCumulativeMiles(points);
-        const cumulativeGainFt = buildTrackCumulativeGainFt(points);
-        return {
-          distanceMiles: cumulativeMiles[cumulativeMiles.length - 1] || Number(route.defaultDistance || 0),
-          gainFt: cumulativeGainFt[cumulativeGainFt.length - 1] || null
-        };
-      } catch {
-        // Try next candidate path.
-      }
+    try {
+      const points = await loadGpxTrackPoints(route.gpxFile);
+      const cumulativeMiles = buildTrackCumulativeMiles(points);
+      const cumulativeGainFt = buildTrackCumulativeGainFt(points);
+      return {
+        distanceMiles: cumulativeMiles[cumulativeMiles.length - 1] || Number(route.defaultDistance || 0),
+        gainFt: cumulativeGainFt[cumulativeGainFt.length - 1] || null
+      };
+    } catch {
+      return fallbackHomeMetrics(route);
     }
-    return fallbackHomeMetrics(route);
   })();
 
   homeRouteMetricsCache.set(routeId, pending);
@@ -2917,6 +2949,7 @@ function computeSectionElevation(points) {
 
 function renderRouteProfile() {
   if (!routeProfile || !routeProfileMeta) return;
+  routeProfileMeta.textContent = "Rendering elevation profile...";
   if (!gpxTrackPoints.length) {
     routeProfileMeta.textContent = "Elevation profile unavailable.";
     routeProfileHoverLineEl = null;
@@ -2972,12 +3005,15 @@ function renderRouteProfile() {
 
   const resupplyIcons = resupplyPoints
     .map((point) => {
-      const chartPoint = pointOnProfileForMile(point.mile);
+      const stopMile = Number(point?.mile);
+      if (!Number.isFinite(stopMile)) return "";
+      const chartPoint = pointOnProfileForMile(stopMile);
+      const stopName = String(point?.name || "Resupply");
       return (
         `<text x="${chartPoint.x.toFixed(2)}" y="${(chartPoint.y + 3.6).toFixed(
           2
         )}" text-anchor="middle" font-size="8.8">🍔` +
-        `<title>${point.name} resupply - Mile ${point.mile.toFixed(1)} - Elev ${chartPoint.eleFt.toLocaleString()} ft</title>` +
+        `<title>${stopName} resupply - Mile ${stopMile.toFixed(1)} - Elev ${chartPoint.eleFt.toLocaleString()} ft</title>` +
         "</text>"
       );
     })
@@ -2985,7 +3021,8 @@ function renderRouteProfile() {
 
   const campIcons = stageOptions
     .map((stage) => {
-      const endMile = Number(stage.endMile) || 0;
+      const endMile = Number(stage?.endMile);
+      if (!Number.isFinite(endMile)) return "";
       const chartPoint = pointOnProfileForMile(endMile);
       const baseY = chartPoint.y + 5;
       const tipY = chartPoint.y - 5;
@@ -3089,6 +3126,58 @@ function clearRouteProfileHover() {
   if (routeProfileHoverLineEl) routeProfileHoverLineEl.setAttribute("visibility", "hidden");
   if (routeProfileHoverDotEl) routeProfileHoverDotEl.setAttribute("visibility", "hidden");
   if (routeProfileMeta) routeProfileMeta.textContent = routeProfileDefaultMetaText || routeProfileMeta.textContent;
+}
+
+function renderRouteProfileFallbackSimple() {
+  if (!routeProfile || !routeProfileMeta || !gpxTrackPoints.length) return;
+  try {
+    const withEle = gpxTrackPoints.filter((p) => Number.isFinite(p?.ele));
+    if (withEle.length < 2) {
+      routeProfileMeta.textContent = "Elevation profile unavailable (no elevation data in GPX).";
+      return;
+    }
+
+    const left = 60;
+    const right = 2340;
+    const top = 12;
+    const bottom = 120;
+
+    const cumulative = buildTrackCumulativeMiles(withEle);
+    const totalMiles = cumulative[cumulative.length - 1] || 0;
+    if (totalMiles <= 0) {
+      routeProfileMeta.textContent = "Elevation profile unavailable (distance calc failed).";
+      return;
+    }
+
+    const eleValues = withEle.map((p) => Number(p.ele));
+    const minEle = Math.min(...eleValues);
+    const maxEle = Math.max(...eleValues);
+    const range = Math.max(1, maxEle - minEle);
+
+    const points = withEle
+      .map((p, i) => {
+        const x = left + (cumulative[i] / totalMiles) * (right - left);
+        const y = top + ((maxEle - p.ele) / range) * (bottom - top);
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+
+    routeProfile.innerHTML = [
+      '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
+      '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
+      '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
+      `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>`
+    ].join("");
+
+    routeProfileMeta.textContent =
+      `Min ${Math.round(minEle * 3.28084).toLocaleString()} ft • Max ${Math.round(maxEle * 3.28084).toLocaleString()} ft`;
+    routeProfileDefaultMetaText = routeProfileMeta.textContent;
+    routeProfileHoverLineEl = null;
+    routeProfileHoverDotEl = null;
+  } catch (error) {
+    console.error("renderRouteProfileFallbackSimple failed:", error);
+    routeProfileMeta.textContent = "Elevation profile unavailable (fallback render error).";
+  }
 }
 
 function showMapHoverMarker(point) {
@@ -3713,11 +3802,33 @@ function applyTrackToMap(trackPoints, options = {}) {
     routeDistanceInput.value = String(Math.round(gpxTotals.totalMiles));
   }
 
-  renderResupplyMarkers();
-  routeSections = buildResupplySections(gpxTrackPoints);
-  renderRouteProfile();
-  drawSectionOverlays();
-  renderMapSectionComments("");
+  try {
+    renderResupplyMarkers();
+  } catch (error) {
+    console.error("renderResupplyMarkers failed:", error);
+  }
+  try {
+    routeSections = buildResupplySections(gpxTrackPoints);
+  } catch (error) {
+    console.error("buildResupplySections failed:", error);
+    routeSections = [];
+  }
+  try {
+    renderRouteProfile();
+  } catch (error) {
+    console.error("renderRouteProfile failed:", error);
+    if (routeProfileMeta) routeProfileMeta.textContent = "Elevation profile unavailable (render error).";
+  }
+  try {
+    drawSectionOverlays();
+  } catch (error) {
+    console.error("drawSectionOverlays failed:", error);
+  }
+  try {
+    renderMapSectionComments("");
+  } catch (error) {
+    console.error("renderMapSectionComments failed:", error);
+  }
 
   if (fitBounds) {
     try {
@@ -3743,7 +3854,19 @@ function applyTrackToMap(trackPoints, options = {}) {
     }
   }
 
-  updateStagesFromInput();
+  try {
+    updateStagesFromInput();
+  } catch (error) {
+    console.error("updateStagesFromInput failed:", error);
+  }
+
+  setTimeout(() => {
+    if (!routeProfileMeta) return;
+    const status = String(routeProfileMeta.textContent || "").toLowerCase();
+    if (status.includes("loading") || status.includes("rendering")) {
+      renderRouteProfileFallbackSimple();
+    }
+  }, 120);
   if (plan.length) {
     recomputeDerivedFields();
     const config = parseForm();
@@ -3807,38 +3930,7 @@ async function initMap() {
     if (isCustomRouteActive() && customUploadedTrackPoints.length >= 2) {
       trackPoints = customUploadedTrackPoints;
     } else if (GPX_FILE) {
-      const candidates = Array.from(
-        new Set([
-          GPX_FILE,
-          `./${GPX_FILE}`,
-          `/${GPX_FILE}`,
-          encodeURI(GPX_FILE),
-          `./${encodeURI(GPX_FILE)}`,
-          `/${encodeURI(GPX_FILE)}`
-        ])
-      );
-      let lastError = "Unknown GPX load failure";
-      for (const path of candidates) {
-        try {
-          const response = await fetch(path, { cache: "no-store" });
-          if (!response.ok) {
-            lastError = `${path} -> HTTP ${response.status}`;
-            continue;
-          }
-          const xmlText = await response.text();
-          const parsed = parseGpxTrack(xmlText);
-          if (parsed.length >= 2) {
-            trackPoints = parsed;
-            break;
-          }
-          lastError = `${path} -> parsed ${parsed.length} track points`;
-        } catch (error) {
-          lastError = `${path} -> ${error instanceof Error ? error.message : "fetch error"}`;
-        }
-      }
-      if (trackPoints.length < 2) {
-        throw new Error(lastError);
-      }
+      trackPoints = await loadGpxTrackPoints(GPX_FILE);
     }
     if (trackPoints.length < 2) throw new Error("Not enough track points in GPX");
   } catch (error) {
