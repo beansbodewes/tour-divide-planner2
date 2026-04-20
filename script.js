@@ -297,7 +297,9 @@ let sectionLayer;
 let routeSections = [];
 let routeLine;
 let routeHoverLine;
+let routeLineHalo;
 let mapHoverMarker = null;
+let mapHoverSnapshotEl = null;
 let trackCumulativeMiles = [];
 let trackCumulativeGainFt = [];
 let dayMarkers = [];
@@ -472,6 +474,127 @@ function gpxCandidates(fileName) {
       `/XcodeImport/www/${encoded}`
     ])
   );
+}
+
+function getRequestedStageCount() {
+  const raw = Number(totalDaysInput?.value);
+  if (Number.isFinite(raw) && raw >= 2) {
+    return Math.max(2, Math.min(120, Math.round(raw)));
+  }
+  const activeRoute = ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID];
+  const fallback = Number(activeRoute?.defaultDays || 20);
+  return Math.max(2, Math.min(120, fallback));
+}
+
+function ensureRouteResupplyDefaults() {
+  if (Array.isArray(resupplyPoints) && resupplyPoints.length) return;
+  const activeRoute = ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID];
+  const fallbackStops = Array.isArray(activeRoute?.resupplyPoints) ? activeRoute.resupplyPoints : [];
+  if (!fallbackStops.length) return;
+  resupplyPoints = fallbackStops.map((point) => ({ ...point }));
+}
+
+function hardRebuildMapUi() {
+  if (!map || !gpxTrackPoints.length || !stageLayer || !resupplyLayer) return;
+  ensureRouteResupplyDefaults();
+
+  if (!trackCumulativeMiles.length) {
+    trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
+  }
+  if (!trackCumulativeGainFt.length) {
+    trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+  }
+
+  const stageCount = getRequestedStageCount();
+  stageOptions = buildEvenStages(gpxTrackPoints, stageCount).stages;
+
+  const displayPoints = sampleTrackForDisplay(gpxTrackPoints, 3200);
+  const coords = displayPoints.map((point) => [point.lat, point.lon]);
+  if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
+  if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
+  if (routeLineHalo && map.hasLayer(routeLineHalo)) map.removeLayer(routeLineHalo);
+  routeLineHalo = L.polyline(coords, {
+    pane: "routePane",
+    color: "#fffefb",
+    weight: 8,
+    opacity: 0.98,
+    interactive: false,
+    smoothFactor: 0.1,
+    noClip: true
+  }).addTo(map);
+  routeLine = L.polyline(coords, {
+    pane: "routePane",
+    color: "#c62828",
+    weight: 4,
+    opacity: 1,
+    interactive: false,
+    smoothFactor: 0.1,
+    noClip: true
+  }).addTo(map);
+  routeHoverLine = L.polyline(coords, {
+    pane: "routeHoverPane",
+    color: "#000000",
+    weight: 36,
+    opacity: 0,
+    interactive: true,
+    smoothFactor: 0.1,
+    noClip: true
+  }).addTo(map);
+  routeHoverLine.on("mousemove", (event) => {
+    const nearest = nearestTrackPointAndMile(event.latlng);
+    if (!nearest) return;
+    showMapHoverMarker(nearest.point);
+    syncRouteProfileHoverByMile(nearest.mile, true, "Route");
+    const elevFt = nearest.point.ele === null ? null : Math.round(nearest.point.ele * 3.28084);
+    const total = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
+    showMapHoverSnapshot(
+      `<strong>Route Position</strong>` +
+        `<div>Elevation: ${elevFt === null ? "unavailable" : `${elevFt.toLocaleString()} ft`}</div>` +
+        `<div>From Banff: ${nearest.mile.toFixed(1)} mi</div>` +
+        `<div>Route Total: ${total.toFixed(1)} mi</div>`,
+      nearest.point
+    );
+  });
+  routeHoverLine.on("mouseout", () => {
+    hideMapHoverMarker();
+    hideMapHoverSnapshot();
+    clearRouteProfileHover();
+  });
+  routeLineHalo.bringToFront();
+  routeLine.bringToFront();
+  try {
+    const bounds = routeLine.getBounds();
+    if (bounds && bounds.isValid && bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }
+  } catch {
+    const first = gpxTrackPoints[0];
+    if (first && Number.isFinite(first.lat) && Number.isFinite(first.lon)) {
+      map.setView([first.lat, first.lon], 6);
+    }
+  }
+
+  stageLayer.clearLayers();
+  dayMarkers.forEach((marker) => clearMarkerGuide(marker));
+  dayMarkers = [];
+  stageOptions.forEach((stage, index) => {
+    const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
+      .addTo(stageLayer)
+      .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
+    marker.on("click", () => {
+      if (!plan.length) return;
+      setMapPlanSelection({ dayIndex: index });
+    });
+    attachDragHandlers(marker, "day", index);
+    dayMarkers.push(marker);
+  });
+
+  renderResupplyMarkers();
+  routeSections = buildResupplySections(gpxTrackPoints);
+  drawSectionOverlays();
+  renderRouteProfile();
+  renderMarkerList();
+  applyDragModeToMarkers();
 }
 
 async function loadGpxTrackPoints(fileName) {
@@ -2658,6 +2781,8 @@ function setupTabs() {
     if (tabName === "map" && map) {
       setTimeout(() => {
         map.invalidateSize();
+        ensureMapArtifacts();
+        hardRebuildMapUi();
         if (routeLine) {
           try {
             const bounds = routeLine.getBounds();
@@ -2669,6 +2794,18 @@ function setupTabs() {
           }
         }
       }, 40);
+      setTimeout(() => {
+        try {
+          if (routeLine) {
+            const bounds = routeLine.getBounds();
+            if (bounds && bounds.isValid && bounds.isValid()) {
+              map.fitBounds(bounds, { padding: [30, 30] });
+            }
+          }
+        } catch {
+          // noop
+        }
+      }, 350);
     }
   };
 
@@ -2731,6 +2868,21 @@ function parseGpxTrack(xmlText) {
   });
 
   return points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
+}
+
+function sampleTrackForDisplay(points, maxPoints = 3200) {
+  if (!Array.isArray(points) || points.length <= maxPoints) return points;
+  const result = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i++) {
+    const index = Math.round(i * step);
+    result.push(points[Math.max(0, Math.min(points.length - 1, index))]);
+  }
+  if (result[0] !== points[0]) result[0] = points[0];
+  if (result[result.length - 1] !== points[points.length - 1]) {
+    result[result.length - 1] = points[points.length - 1];
+  }
+  return result;
 }
 
 function buildTrackCumulativeMiles(trackPoints) {
@@ -2963,7 +3115,7 @@ function renderRouteProfile() {
   }
 
   if (!stageOptions.length) {
-    const stageCount = Math.max(2, Math.min(120, Number(totalDaysInput.value || 2)));
+    const stageCount = getRequestedStageCount();
     stageOptions = buildEvenStages(gpxTrackPoints, stageCount).stages;
   }
 
@@ -3199,20 +3351,8 @@ function startMapRenderWatchdog() {
     const markerEmpty = Boolean(markerList) && markerList.children.length === 0;
     const stagesMissing = !stageOptions.length;
 
-    if (hasTrack && loadingProfile) {
-      renderRouteProfileFallbackSimple();
-    }
-    if (hasTrack && (markerEmpty || stagesMissing)) {
-      try {
-        updateStagesFromInput();
-      } catch (error) {
-        console.error("watchdog updateStagesFromInput failed:", error);
-      }
-      try {
-        renderMarkerList();
-      } catch (error) {
-        console.error("watchdog renderMarkerList failed:", error);
-      }
+    if (hasTrack && (loadingProfile || markerEmpty || stagesMissing)) {
+      ensureMapArtifacts();
     }
 
     const profileReady = !loadingProfile;
@@ -3224,11 +3364,118 @@ function startMapRenderWatchdog() {
   }, 500);
 }
 
+function ensureMapArtifacts() {
+  if (!map || !gpxTrackPoints.length) return;
+  ensureRouteResupplyDefaults();
+
+  try {
+    if (!trackCumulativeMiles.length) {
+      trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
+    }
+    if (!trackCumulativeGainFt.length) {
+      trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+    }
+  } catch (error) {
+    console.error("ensureMapArtifacts cumulative build failed:", error);
+  }
+
+  try {
+    const needsStages = !stageOptions.length || !dayMarkers.length;
+    if (needsStages && stageLayer) {
+      const stageCount = getRequestedStageCount();
+      stageOptions = buildEvenStages(gpxTrackPoints, stageCount).stages;
+      stageLayer.clearLayers();
+      dayMarkers.forEach((marker) => clearMarkerGuide(marker));
+      dayMarkers = [];
+      stageOptions.forEach((stage, index) => {
+        const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
+          .addTo(stageLayer)
+          .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
+        marker.on("click", () => {
+          if (!plan.length) return;
+          setMapPlanSelection({ dayIndex: index });
+        });
+        attachDragHandlers(marker, "day", index);
+        dayMarkers.push(marker);
+      });
+      applyDragModeToMarkers();
+    }
+  } catch (error) {
+    console.error("ensureMapArtifacts stage rebuild failed:", error);
+  }
+
+  try {
+    if (resupplyLayer && (!resupplyMarkers.length || resupplyLayer.getLayers().length === 0)) {
+      renderResupplyMarkers();
+      applyDragModeToMarkers();
+    }
+  } catch (error) {
+    console.error("ensureMapArtifacts resupply rebuild failed:", error);
+  }
+
+  try {
+    if (!routeSections.length) {
+      routeSections = buildResupplySections(gpxTrackPoints);
+    }
+    drawSectionOverlays();
+  } catch (error) {
+    console.error("ensureMapArtifacts section rebuild failed:", error);
+  }
+
+  try {
+    renderRouteProfile();
+  } catch (error) {
+    console.error("ensureMapArtifacts full profile render failed:", error);
+  }
+
+  try {
+    const profileLooksEmpty =
+      !routeProfile ||
+      !routeProfile.children ||
+      routeProfile.children.length === 0 ||
+      (routeProfileMeta && /loading|rendering/i.test(String(routeProfileMeta.textContent || "")));
+    if (profileLooksEmpty) {
+      renderRouteProfileFallbackSimple();
+    }
+  } catch (error) {
+    console.error("ensureMapArtifacts fallback profile render failed:", error);
+  }
+
+  try {
+    if (markerList && markerList.children.length === 0) {
+      renderMarkerList();
+    }
+    if (markerList && markerList.children.length === 0) {
+      hardRebuildMapUi();
+    }
+    if (markerList && markerList.children.length === 0) {
+      markerList.innerHTML = '<li><p class="empty-note">Still rebuilding markers. Click Plan, then Map once.</p></li>';
+    }
+  } catch (error) {
+    console.error("ensureMapArtifacts marker list render failed:", error);
+  }
+
+  try {
+    const summary =
+      `GPX ${gpxTrackPoints.length} pts • Days ${stageOptions.length} (${dayMarkers.length} icons) • ` +
+      `Resupplies ${resupplyPoints.length} (${resupplyMarkers.length} icons) • List ${markerList ? markerList.children.length : 0}`;
+    if (mapSubhead) {
+      const baseText = mapboxFallbackActive
+        ? "Mapbox tiles failed to load here, so this view switched to OpenStreetMap automatically."
+        : "Loaded from your GPX file with evenly spaced days.";
+      mapSubhead.textContent = `${baseText} ${summary}`;
+    }
+  } catch (error) {
+    console.error("ensureMapArtifacts summary render failed:", error);
+  }
+}
+
 function showMapHoverMarker(point) {
   if (!map || !point) return;
   const latlng = [point.lat, point.lon];
   if (!mapHoverMarker) {
     mapHoverMarker = L.circleMarker(latlng, {
+      pane: "hoverMarkerPane",
       radius: 5,
       color: "#1f2933",
       weight: 2,
@@ -3247,6 +3494,37 @@ function showMapHoverMarker(point) {
 function hideMapHoverMarker() {
   if (!map || !mapHoverMarker) return;
   if (map.hasLayer(mapHoverMarker)) map.removeLayer(mapHoverMarker);
+}
+
+function ensureMapHoverSnapshotEl() {
+  if (mapHoverSnapshotEl) return mapHoverSnapshotEl;
+  const mapEl = document.getElementById("route-map");
+  if (!mapEl) return null;
+  const box = document.createElement("div");
+  box.className = "map-hover-snapshot";
+  box.style.display = "none";
+  mapEl.appendChild(box);
+  mapHoverSnapshotEl = box;
+  return mapHoverSnapshotEl;
+}
+
+function showMapHoverSnapshot(content, latlng) {
+  const box = ensureMapHoverSnapshotEl();
+  const mapEl = document.getElementById("route-map");
+  if (!box || !mapEl || !map || !latlng) return;
+  box.innerHTML = content;
+  box.style.display = "block";
+
+  const p = map.latLngToContainerPoint([latlng.lat, latlng.lon]);
+  const x = Math.max(8, Math.min(mapEl.clientWidth - 248, p.x + 12));
+  const y = Math.max(8, Math.min(mapEl.clientHeight - 120, p.y + 12));
+  box.style.left = `${x}px`;
+  box.style.top = `${y}px`;
+}
+
+function hideMapHoverSnapshot() {
+  if (!mapHoverSnapshotEl) return;
+  mapHoverSnapshotEl.style.display = "none";
 }
 
 function applyRouteProfileZoom(preserveScroll) {
@@ -3565,6 +3843,7 @@ function drawSectionOverlays() {
     const sectionLine = L.polyline(
       section.points.map((point) => [point.lat, point.lon]),
       {
+        pane: "sectionPane",
         color: selectedSectionName === section.name ? "#eb5e28" : "#2f7a62",
         weight: selectedSectionName === section.name ? 7 : 4,
         opacity: selectedSectionName === section.name ? 0.8 : 0.28
@@ -3581,15 +3860,24 @@ function drawSectionOverlays() {
         const sectionMile = fromBanff - (section.startTrackMile ?? 0);
         showMapHoverMarker(nearestPoint);
         syncRouteProfileHoverByMile(fromBanff, true, section.name);
+        const elevationFt = nearestPoint.ele === null ? null : Math.round(nearestPoint.ele * 3.28084);
         const elevText =
-          nearestPoint.ele === null ? "Elevation: unavailable" : `Elevation: ${Math.round(nearestPoint.ele * 3.28084).toLocaleString()} ft`;
+          elevationFt === null ? "Elevation: unavailable" : `Elevation: ${elevationFt.toLocaleString()} ft`;
         const content =
           `${section.name}<br/>${elevText}<br/>From Banff: ${fromBanff.toFixed(1)} mi` +
           `<br/>Section: ${sectionMile.toFixed(1)} / ${section.sectionDistanceMi.toFixed(1)} mi`;
         sectionLine.setTooltipContent(content);
+        showMapHoverSnapshot(
+          `<strong>${section.name}</strong>` +
+            `<div>${elevText}</div>` +
+            `<div>From Banff: ${fromBanff.toFixed(1)} mi</div>` +
+            `<div>Section: ${sectionMile.toFixed(1)} / ${section.sectionDistanceMi.toFixed(1)} mi</div>`,
+          nearestPoint
+        );
       })
       .on("mouseout", () => {
         hideMapHoverMarker();
+        hideMapHoverSnapshot();
         clearRouteProfileHover();
       })
       .on("click", () => {
@@ -3598,8 +3886,8 @@ function drawSectionOverlays() {
       });
   });
 
+  if (routeLineHalo) routeLineHalo.bringToFront();
   if (routeLine) routeLine.bringToFront();
-  if (routeHoverLine) routeHoverLine.bringToFront();
 }
 
 function setupCommentSections() {
@@ -3729,6 +4017,11 @@ function attachDragHandlers(marker, type, index) {
 
 function renderMarkerList() {
   if (!markerList) return;
+  ensureRouteResupplyDefaults();
+  if (!stageOptions.length && gpxTrackPoints.length) {
+    const stageCount = getRequestedStageCount();
+    stageOptions = buildEvenStages(gpxTrackPoints, stageCount).stages;
+  }
   markerList.innerHTML = "";
 
   stageOptions.forEach((day, idx) => {
@@ -3762,6 +4055,12 @@ function renderMarkerList() {
     });
     markerList.appendChild(item);
   });
+
+  if (markerList.children.length === 0) {
+    const item = document.createElement("li");
+    item.innerHTML = '<p class="empty-note">No day/resupply markers built yet. Rebuilding now.</p>';
+    markerList.appendChild(item);
+  }
 }
 
 function syncPlanMilesFromStageOptions() {
@@ -3804,6 +4103,7 @@ function applyTrackToMap(trackPoints, options = {}) {
 
   if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
   if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
+  if (routeLineHalo && map.hasLayer(routeLineHalo)) map.removeLayer(routeLineHalo);
   hideMapHoverMarker();
   if (stageLayer) stageLayer.clearLayers();
   if (resupplyLayer) resupplyLayer.clearLayers();
@@ -3812,20 +4112,32 @@ function applyTrackToMap(trackPoints, options = {}) {
   dayMarkers = [];
   resupplyMarkers = [];
 
-  const coords = gpxTrackPoints.map((point) => [point.lat, point.lon]);
+  const displayPoints = sampleTrackForDisplay(gpxTrackPoints, 3200);
+  const coords = displayPoints.map((point) => [point.lat, point.lon]);
+  routeLineHalo = L.polyline(coords, {
+    pane: "routePane",
+    color: "#fffefb",
+    weight: 8,
+    opacity: 0.98,
+    interactive: false,
+    smoothFactor: 0.1,
+    noClip: true
+  }).addTo(map);
   routeLine = L.polyline(coords, {
+    pane: "routePane",
     color: "#c62828",
     weight: 4,
-    opacity: 0.95,
+    opacity: 1,
     interactive: false,
     smoothFactor: 0.1,
     noClip: true
   }).addTo(map);
 
   routeHoverLine = L.polyline(coords, {
-    color: "#c62828",
+    pane: "routeHoverPane",
+    color: "#000000",
     weight: 36,
-    opacity: 0.01,
+    opacity: 0,
     interactive: true,
     smoothFactor: 0.1,
     noClip: true
@@ -3836,14 +4148,24 @@ function applyTrackToMap(trackPoints, options = {}) {
     if (!nearest) return;
     showMapHoverMarker(nearest.point);
     syncRouteProfileHoverByMile(nearest.mile, true, "Route");
+    const elevFt = nearest.point.ele === null ? null : Math.round(nearest.point.ele * 3.28084);
+    const total = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
+    showMapHoverSnapshot(
+      `<strong>Route Position</strong>` +
+        `<div>Elevation: ${elevFt === null ? "unavailable" : `${elevFt.toLocaleString()} ft`}</div>` +
+        `<div>From Banff: ${nearest.mile.toFixed(1)} mi</div>` +
+        `<div>Route Total: ${total.toFixed(1)} mi</div>`,
+      nearest.point
+    );
   });
   routeHoverLine.on("mouseout", () => {
     hideMapHoverMarker();
+    hideMapHoverSnapshot();
     clearRouteProfileHover();
   });
 
+  routeLineHalo.bringToFront();
   routeLine.bringToFront();
-  routeHoverLine.bringToFront();
 
   const gpxTotals = buildEvenStages(gpxTrackPoints, 2);
   if (gpxTotals.totalMiles > 0) {
@@ -3911,7 +4233,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   // Always run a fallback profile pass shortly after map draw.
   // This guarantees elevation renders even if an upstream render path silently fails.
   setTimeout(() => {
-    renderRouteProfileFallbackSimple();
+    ensureMapArtifacts();
   }, 180);
   startMapRenderWatchdog();
   if (plan.length) {
@@ -3934,39 +4256,95 @@ async function initMap() {
     minZoom: 4,
     maxZoom: 13
   });
+  map.createPane("sectionPane");
+  map.getPane("sectionPane").style.zIndex = "430";
+  map.createPane("routePane");
+  map.getPane("routePane").style.zIndex = "450";
+  map.createPane("routeHoverPane");
+  map.getPane("routeHoverPane").style.zIndex = "460";
+  map.createPane("hoverMarkerPane");
+  map.getPane("hoverMarkerPane").style.zIndex = "700";
   L.control.scale({ imperial: true, metric: false, maxWidth: 120 }).addTo(map);
 
-  const mapboxLayer = L.tileLayer(
-    `https://api.mapbox.com/styles/v1/${MAPBOX_STYLE_ID}/tiles/256/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`,
-    {
+  const hasUsableMapboxToken = typeof MAPBOX_ACCESS_TOKEN === "string" && MAPBOX_ACCESS_TOKEN.startsWith("pk.");
+  const providers = [];
+  if (hasUsableMapboxToken) {
+    providers.push({
+      name: "Mapbox",
+      layer: L.tileLayer(
+        `https://api.mapbox.com/styles/v1/${MAPBOX_STYLE_ID}/tiles/256/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`,
+        {
+          tileSize: 256,
+          zoomOffset: 0,
+          attribution:
+            '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }
+      )
+    });
+  }
+  providers.push({
+    name: "OpenStreetMap",
+    layer: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       tileSize: 256,
       zoomOffset: 0,
       attribution:
-        '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }
-  );
-
-  const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    tileSize: 256,
-    zoomOffset: 0,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    })
+  });
+  providers.push({
+    name: "Carto",
+    layer: L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      tileSize: 256,
+      zoomOffset: 0,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO'
+    })
   });
 
-  let mapboxFailed = false;
-  mapboxLayer.on("tileerror", () => {
-    if (mapboxFailed) return;
-    mapboxFailed = true;
-    mapboxFallbackActive = true;
+  let providerIndex = 0;
+  const switchProvider = (nextIndex, reason = "") => {
+    if (nextIndex < 0 || nextIndex >= providers.length) return;
     if (activeBaseLayer) map.removeLayer(activeBaseLayer);
-    activeBaseLayer = osmLayer.addTo(map);
-    if (mapSubhead) {
-      mapSubhead.textContent =
-        "Mapbox tiles failed to load here, so this view switched to OpenStreetMap automatically.";
+    providerIndex = nextIndex;
+    const current = providers[providerIndex];
+    activeBaseLayer = current.layer.addTo(map);
+    mapboxFallbackActive = current.name !== "Mapbox";
+    if (mapSubhead && reason) {
+      mapSubhead.textContent = `${reason} Using ${current.name} tiles.`;
     }
-  });
+    wireProviderHealth(current.layer);
+  };
 
-  activeBaseLayer = mapboxLayer.addTo(map);
+  let tileHealthTimer = null;
+  const wireProviderHealth = (layer) => {
+    let tileLoaded = false;
+    let tileErrors = 0;
+    layer.on("tileload", () => {
+      tileLoaded = true;
+      if (tileHealthTimer) {
+        clearTimeout(tileHealthTimer);
+        tileHealthTimer = null;
+      }
+    });
+    layer.on("tileerror", () => {
+      tileErrors += 1;
+      if (tileLoaded) return;
+      if (tileErrors < 3) return;
+      if (providerIndex < providers.length - 1) {
+        switchProvider(providerIndex + 1, "Tile loading failed.");
+      }
+    });
+    tileHealthTimer = setTimeout(() => {
+      if (!tileLoaded && providerIndex < providers.length - 1) {
+        switchProvider(providerIndex + 1, "Tiles timed out.");
+      }
+    }, 2500);
+  };
+
+  if (!hasUsableMapboxToken && mapSubhead) {
+    mapSubhead.textContent = "Mapbox token not set, so this view is using fallback tiles.";
+  }
+  switchProvider(0);
   stageLayer = L.layerGroup().addTo(map);
   resupplyLayer = L.layerGroup().addTo(map);
   sectionLayer = L.layerGroup().addTo(map);
@@ -3993,7 +4371,11 @@ async function initMap() {
 
   try {
     applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
+    hardRebuildMapUi();
     if (isCustomRouteActive()) renderCustomStopEditor();
+    setTimeout(() => ensureMapArtifacts(), 200);
+    setTimeout(() => ensureMapArtifacts(), 900);
+    setTimeout(() => ensureMapArtifacts(), 1800);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown map render error";
     console.error("Map render error after GPX load:", error);
@@ -4008,7 +4390,7 @@ async function initMap() {
 function updateStagesFromInput() {
   if (!gpxTrackPoints.length || !stageLayer) return;
 
-  const stageCount = Math.max(2, Math.min(120, Number(totalDaysInput.value || 2)));
+  const stageCount = getRequestedStageCount();
   let stageData = null;
   if (plan.length === stageCount) {
     stageData = buildStagesFromPlan(gpxTrackPoints, plan);
