@@ -5,7 +5,7 @@ const ROUTES = {
     label: "Tour Divide Race",
     plannerTitle: "Tour Divide Race Planner",
     gpxFile: "TourDivide2025_v2.gpx",
-    defaultDistance: 2745,
+    defaultDistance: 2679.2,
     defaultDays: 20,
     minDistance: 2000,
     maxDistance: 3200,
@@ -35,7 +35,7 @@ const ROUTES = {
     label: "Great Divide Touring Route",
     plannerTitle: "Great Divide Touring Route Planner",
     gpxFile: "Bikepacking-Route-GDMBR_V_TD_2017.gpx",
-    defaultDistance: 2745,
+    defaultDistance: 2664.6,
     defaultDays: 35,
     minDistance: 2000,
     maxDistance: 3200,
@@ -65,7 +65,7 @@ const ROUTES = {
     label: "Colorado Trail",
     plannerTitle: "Colorado Trail Planner",
     gpxFile: "Bikepacking-Route-Colorado-Trail_v2017_08.gpx",
-    defaultDistance: 527,
+    defaultDistance: 527.4,
     defaultDays: 15,
     minDistance: 300,
     maxDistance: 700,
@@ -89,7 +89,7 @@ const ROUTES = {
     label: "AZT 300",
     plannerTitle: "AZT 300 Planner",
     gpxFile: "AZT300_2026_v4.gpx",
-    defaultDistance: 300,
+    defaultDistance: 314.2,
     defaultDays: 10,
     minDistance: 240,
     maxDistance: 360,
@@ -110,7 +110,7 @@ const ROUTES = {
     label: "AZT 800",
     plannerTitle: "AZT 800 Planner",
     gpxFile: "AZT800_2026_v1.gpx",
-    defaultDistance: 800,
+    defaultDistance: 860.4,
     defaultDays: 20,
     minDistance: 650,
     maxDistance: 900,
@@ -135,7 +135,7 @@ const ROUTES = {
     label: "Peruvian Divide Trail",
     plannerTitle: "Peruvian Divide Trail Planner",
     gpxFile: "Peru_Great_Divide_Full_(Huaraz_to_Abancay)_22_07_2022.gpx",
-    defaultDistance: 998,
+    defaultDistance: 998.3,
     minDistance: 700,
     maxDistance: 1200,
     storagePrefix: "peruvian-divide-trail",
@@ -331,6 +331,7 @@ let routeProfileDefaultMetaText = "";
 let routeProfilePointForMile = null;
 let routeProfileBounds = null;
 let mapRenderWatchdogTimer = null;
+let activeRouteGpxDistanceMiles = null;
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
 const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
@@ -364,6 +365,15 @@ const HOME_ROUTE_DETAILS = {
     location: "Your uploaded route",
     ridingType: "Custom"
   }
+};
+
+const LEGACY_ROUTE_DISTANCES = {
+  tour_divide: 2745,
+  great_divide_route: 2745,
+  colorado_trail: 527,
+  azt_300: 300,
+  azt_800: 800,
+  peruvian_divide: 998
 };
 
 function getRouteFromUrl() {
@@ -620,7 +630,17 @@ async function loadGpxTrackPoints(fileName) {
 
 function formatHomeMiles(miles) {
   if (!Number.isFinite(miles) || miles <= 0) return "n/a";
-  return `${Math.round(miles).toLocaleString()} mi`;
+  return `${Number(miles).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1
+  })} mi`;
+}
+
+function formatMilesLikePlannerInput(miles) {
+  if (!Number.isFinite(miles) || miles <= 0) return "n/a";
+  const rounded = Math.round(Number(miles) * 10) / 10;
+  if (Number.isInteger(rounded)) return `${Math.trunc(rounded)} mi`;
+  return `${rounded.toFixed(1)} mi`;
 }
 
 function formatHomeGain(gainFt) {
@@ -1045,6 +1065,7 @@ function applyRouteConfig(routeId) {
   GPX_FILE = route.gpxFile;
   PROFILE_COLLECTION = route.profileCollection;
   CSV_FILENAME = route.csvName;
+  activeRouteGpxDistanceMiles = null;
   resupplyPoints = route.resupplyPoints.map((point) => ({ ...point }));
   const customStops = loadCustomResupplyStops();
   if (route.id === "custom_ride" && customStops.length) {
@@ -1438,12 +1459,13 @@ function renderMetrics(config, days) {
   const totalGain = rideDays.reduce((sum, d) => sum + Number(d.gain || 0), 0);
 
   if (plannerTotalRouteDistance) {
-    const routeMiles = Number(config?.routeDistance || routeDistanceInput?.value || 0);
-    plannerTotalRouteDistance.textContent = `${routeMiles.toLocaleString()} mi`;
+    const routeMiles = Number(activeRouteGpxDistanceMiles || config?.routeDistance || routeDistanceInput?.value || 0);
+    plannerTotalRouteDistance.textContent = formatMilesLikePlannerInput(routeMiles);
   }
 
+  const snapshotRouteMiles = Number(routeDistanceInput?.value || activeRouteGpxDistanceMiles || config.routeDistance);
   const items = [
-    ["Route", `${config.routeDistance} mi`],
+    ["Route", formatMilesLikePlannerInput(snapshotRouteMiles)],
     ["Race Days", `${config.totalDays}`],
     ["Ride Days", `${rideDays.length}`],
     ["Rest Days", `${config.restDays}`],
@@ -1533,11 +1555,19 @@ function normalizeDay(day) {
 
 function applyPlannerConfig(config) {
   if (!config || typeof config !== "object") return;
+  const routeId = getRouteFromUrl();
+  const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  const incomingDistance = Number(config.routeDistance);
+  let migratedDistance = incomingDistance;
+  const legacyDistance = Number(LEGACY_ROUTE_DISTANCES[routeId]);
+  if (Number.isFinite(incomingDistance) && Number.isFinite(legacyDistance) && nearlyEqual(incomingDistance, legacyDistance)) {
+    migratedDistance = Number(route.defaultDistance || incomingDistance);
+  }
   startDateInput.value = config.startDate || startDateInput.value;
   finishDateInput.value = config.finishDate || finishDateInput.value;
   totalDaysInput.value = config.totalDays || totalDaysInput.value;
   restDaysInput.value = config.restDays || restDaysInput.value;
-  routeDistanceInput.value = config.routeDistance || routeDistanceInput.value;
+  routeDistanceInput.value = String(migratedDistance || routeDistanceInput.value);
 }
 
 function applyPlanArray(incomingPlan) {
@@ -4096,6 +4126,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   gpxTrackPoints = trackPoints;
   trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
   trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+  activeRouteGpxDistanceMiles = Number((trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0).toFixed(1));
 
   // First-pass draw immediately from loaded GPX points.
   // If anything later fails, users still see an elevation profile.
@@ -4167,9 +4198,8 @@ function applyTrackToMap(trackPoints, options = {}) {
   routeLineHalo.bringToFront();
   routeLine.bringToFront();
 
-  const gpxTotals = buildEvenStages(gpxTrackPoints, 2);
-  if (gpxTotals.totalMiles > 0) {
-    routeDistanceInput.value = String(Math.round(gpxTotals.totalMiles));
+  if (activeRouteGpxDistanceMiles > 0) {
+    routeDistanceInput.value = String(activeRouteGpxDistanceMiles);
   }
 
   try {
@@ -4541,7 +4571,7 @@ resetBtn.addEventListener("click", () => {
   finishDateInput.value = addDays(startDateInput.value, defaultDays - 1);
   totalDaysInput.value = defaultDays;
   restDaysInput.value = 1;
-  routeDistanceInput.value = String(resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
+  routeDistanceInput.value = String(Number(activeRouteGpxDistanceMiles || activeRoute.defaultDistance || 0));
   plan = [];
   dayList.innerHTML = "";
   metricList.innerHTML = "";
