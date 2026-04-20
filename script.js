@@ -328,6 +328,7 @@ let routeProfileHoverDotEl = null;
 let routeProfileDefaultMetaText = "";
 let routeProfilePointForMile = null;
 let routeProfileBounds = null;
+let mapRenderWatchdogTimer = null;
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
 const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
@@ -3180,6 +3181,45 @@ function renderRouteProfileFallbackSimple() {
   }
 }
 
+function startMapRenderWatchdog() {
+  if (mapRenderWatchdogTimer) {
+    clearInterval(mapRenderWatchdogTimer);
+    mapRenderWatchdogTimer = null;
+  }
+
+  let attempts = 0;
+  mapRenderWatchdogTimer = setInterval(() => {
+    attempts += 1;
+    const hasTrack = gpxTrackPoints.length >= 2;
+    const loadingProfile = Boolean(routeProfileMeta) && /loading|rendering/i.test(String(routeProfileMeta.textContent || ""));
+    const markerEmpty = Boolean(markerList) && markerList.children.length === 0;
+    const stagesMissing = !stageOptions.length;
+
+    if (hasTrack && loadingProfile) {
+      renderRouteProfileFallbackSimple();
+    }
+    if (hasTrack && (markerEmpty || stagesMissing)) {
+      try {
+        updateStagesFromInput();
+      } catch (error) {
+        console.error("watchdog updateStagesFromInput failed:", error);
+      }
+      try {
+        renderMarkerList();
+      } catch (error) {
+        console.error("watchdog renderMarkerList failed:", error);
+      }
+    }
+
+    const profileReady = !loadingProfile;
+    const markersReady = !markerEmpty && stageOptions.length > 0;
+    if ((profileReady && markersReady) || attempts > 24) {
+      clearInterval(mapRenderWatchdogTimer);
+      mapRenderWatchdogTimer = null;
+    }
+  }, 500);
+}
+
 function showMapHoverMarker(point) {
   if (!map || !point) return;
   const latlng = [point.lat, point.lon];
@@ -3865,6 +3905,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   setTimeout(() => {
     renderRouteProfileFallbackSimple();
   }, 180);
+  startMapRenderWatchdog();
   if (plan.length) {
     recomputeDerivedFields();
     const config = parseForm();
