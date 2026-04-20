@@ -2949,10 +2949,12 @@ function computeSectionElevation(points) {
 }
 
 function renderRouteProfile() {
-  if (!routeProfile || !routeProfileMeta) return;
-  routeProfileMeta.textContent = "Rendering elevation profile...";
+  const profileSvgEl = routeProfile || document.getElementById("route-profile");
+  const profileMetaEl = routeProfileMeta || document.getElementById("route-profile-meta");
+  if (!profileSvgEl || !profileMetaEl) return;
+  profileMetaEl.textContent = "Rendering elevation profile...";
   if (!gpxTrackPoints.length) {
-    routeProfileMeta.textContent = "Elevation profile unavailable.";
+    profileMetaEl.textContent = "Elevation profile unavailable.";
     routeProfileHoverLineEl = null;
     routeProfileHoverDotEl = null;
     routeProfilePointForMile = null;
@@ -2967,7 +2969,7 @@ function renderRouteProfile() {
 
   const profile = computeSectionElevation(gpxTrackPoints);
   if (!profile.profileSamples.length) {
-    routeProfileMeta.textContent = "Elevation profile unavailable.";
+    profileMetaEl.textContent = "Elevation profile unavailable.";
     return;
   }
 
@@ -3039,7 +3041,7 @@ function renderRouteProfile() {
     })
     .join("");
 
-  routeProfile.innerHTML = [
+  profileSvgEl.innerHTML = [
     '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
     '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
     '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
@@ -3048,8 +3050,8 @@ function renderRouteProfile() {
     campIcons
   ].join("");
 
-  routeProfileMeta.textContent = `Min ${profile.minEleFt.toLocaleString()} ft • Max ${profile.maxEleFt.toLocaleString()} ft`;
-  routeProfileDefaultMetaText = routeProfileMeta.textContent;
+  profileMetaEl.textContent = `Min ${profile.minEleFt.toLocaleString()} ft • Max ${profile.maxEleFt.toLocaleString()} ft`;
+  routeProfileDefaultMetaText = profileMetaEl.textContent;
 
   const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
   hoverLine.setAttribute("x1", "60");
@@ -3059,7 +3061,7 @@ function renderRouteProfile() {
   hoverLine.setAttribute("stroke", "#b03030");
   hoverLine.setAttribute("stroke-width", "1");
   hoverLine.setAttribute("visibility", "hidden");
-  routeProfile.appendChild(hoverLine);
+  profileSvgEl.appendChild(hoverLine);
   routeProfileHoverLineEl = hoverLine;
 
   const hoverDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -3070,13 +3072,13 @@ function renderRouteProfile() {
   hoverDot.setAttribute("stroke", "#ffffff");
   hoverDot.setAttribute("stroke-width", "0.8");
   hoverDot.setAttribute("visibility", "hidden");
-  routeProfile.appendChild(hoverDot);
+  profileSvgEl.appendChild(hoverDot);
   routeProfileHoverDotEl = hoverDot;
 
-  routeProfile.onmousemove = (event) => {
-    const ctm = routeProfile.getScreenCTM();
+  profileSvgEl.onmousemove = (event) => {
+    const ctm = profileSvgEl.getScreenCTM();
     if (!ctm) return;
-    const svgPoint = routeProfile.createSVGPoint();
+    const svgPoint = profileSvgEl.createSVGPoint();
     svgPoint.x = event.clientX;
     svgPoint.y = event.clientY;
     const local = svgPoint.matrixTransform(ctm.inverse());
@@ -3086,7 +3088,7 @@ function renderRouteProfile() {
     syncRouteProfileHoverByMile(mile, true);
   };
 
-  routeProfile.onmouseleave = () => {
+  profileSvgEl.onmouseleave = () => {
     clearRouteProfileHover();
   };
 
@@ -3130,11 +3132,13 @@ function clearRouteProfileHover() {
 }
 
 function renderRouteProfileFallbackSimple() {
-  if (!routeProfile || !routeProfileMeta || !gpxTrackPoints.length) return;
+  const profileSvgEl = routeProfile || document.getElementById("route-profile");
+  const profileMetaEl = routeProfileMeta || document.getElementById("route-profile-meta");
+  if (!profileSvgEl || !profileMetaEl || !gpxTrackPoints.length) return;
   try {
     const withEle = gpxTrackPoints.filter((p) => Number.isFinite(p?.ele));
     if (withEle.length < 2) {
-      routeProfileMeta.textContent = "Elevation profile unavailable (no elevation data in GPX).";
+      profileMetaEl.textContent = "Elevation profile unavailable (no elevation data in GPX).";
       return;
     }
 
@@ -3146,7 +3150,7 @@ function renderRouteProfileFallbackSimple() {
     const cumulative = buildTrackCumulativeMiles(withEle);
     const totalMiles = cumulative[cumulative.length - 1] || 0;
     if (totalMiles <= 0) {
-      routeProfileMeta.textContent = "Elevation profile unavailable (distance calc failed).";
+      profileMetaEl.textContent = "Elevation profile unavailable (distance calc failed).";
       return;
     }
 
@@ -3163,21 +3167,21 @@ function renderRouteProfileFallbackSimple() {
       })
       .join(" ");
 
-    routeProfile.innerHTML = [
+    profileSvgEl.innerHTML = [
       '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
       '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
       '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
       `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>`
     ].join("");
 
-    routeProfileMeta.textContent =
+    profileMetaEl.textContent =
       `Min ${Math.round(minEle * 3.28084).toLocaleString()} ft • Max ${Math.round(maxEle * 3.28084).toLocaleString()} ft`;
-    routeProfileDefaultMetaText = routeProfileMeta.textContent;
+    routeProfileDefaultMetaText = profileMetaEl.textContent;
     routeProfileHoverLineEl = null;
     routeProfileHoverDotEl = null;
   } catch (error) {
     console.error("renderRouteProfileFallbackSimple failed:", error);
-    routeProfileMeta.textContent = "Elevation profile unavailable (fallback render error).";
+    profileMetaEl.textContent = "Elevation profile unavailable (fallback render error).";
   }
 }
 
@@ -3793,6 +3797,10 @@ function applyTrackToMap(trackPoints, options = {}) {
   gpxTrackPoints = trackPoints;
   trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
   trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+
+  // First-pass draw immediately from loaded GPX points.
+  // If anything later fails, users still see an elevation profile.
+  renderRouteProfileFallbackSimple();
 
   if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
   if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
