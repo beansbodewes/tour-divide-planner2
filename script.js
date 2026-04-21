@@ -308,6 +308,8 @@ let mapHoverMarker = null;
 let mapHoverSnapshotEl = null;
 let trackCumulativeMiles = [];
 let trackCumulativeGainFt = [];
+let trackCumulativeLossFt = [];
+let applyMapStyleImmediately = null;
 let dayMarkers = [];
 let resupplyMarkers = [];
 let dragGuideLayer;
@@ -342,7 +344,7 @@ let activeRouteGpxDistanceMiles = null;
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
 const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
-const MAP_STYLE_KEY = "bikepack-map-style-v1";
+const MAP_STYLE_KEY = "bikepack-map-style-v2";
 const MAPBOX_TOKEN_KEY = "bikepack-mapbox-token-v1";
 const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
 const MAP_HOVER_DRAW_MAX_POINTS = 12000;
@@ -444,7 +446,7 @@ function hasUsableMapboxToken() {
 
 function saveMapStylePreference(styleId) {
   try {
-    localStorage.setItem(MAP_STYLE_KEY, styleId || "auto");
+    localStorage.setItem(MAP_STYLE_KEY, styleId || "esriTopo");
   } catch {
     // Ignore localStorage write failures.
   }
@@ -452,9 +454,9 @@ function saveMapStylePreference(styleId) {
 
 function getMapStylePreference() {
   try {
-    return String(localStorage.getItem(MAP_STYLE_KEY) || "auto");
+    return String(localStorage.getItem(MAP_STYLE_KEY) || "esriTopo");
   } catch {
-    return "auto";
+    return "esriTopo";
   }
 }
 
@@ -566,6 +568,9 @@ function hardRebuildMapUi() {
   }
   if (!trackCumulativeGainFt.length) {
     trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+  }
+  if (!trackCumulativeLossFt.length) {
+    trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
   }
 
   const stageCount = getRequestedStageCount();
@@ -1419,6 +1424,22 @@ function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
   return Math.max(0, Math.round(gainEnd - gainStart));
 }
 
+function gpxLossBetweenMiles(startMile, endMile, routeDistance) {
+  if (!trackCumulativeMiles.length || !trackCumulativeLossFt.length) {
+    const span = Math.max(0, endMile - startMile);
+    return Math.round(span * elevationFactor(endMile, routeDistance) * 0.9);
+  }
+
+  const totalTrackMiles = trackCumulativeMiles[trackCumulativeMiles.length - 1] || routeDistance || 0;
+  const clampedStart = Math.max(0, Math.min(totalTrackMiles, startMile));
+  const clampedEnd = Math.max(0, Math.min(totalTrackMiles, endMile));
+  if (clampedEnd <= clampedStart) return 0;
+
+  const lossStart = interpolateSeriesAtMile(clampedStart, trackCumulativeMiles, trackCumulativeLossFt);
+  const lossEnd = interpolateSeriesAtMile(clampedEnd, trackCumulativeMiles, trackCumulativeLossFt);
+  return Math.max(0, Math.round(lossEnd - lossStart));
+}
+
 function elevationFactor(cumulativeMiles, routeDistance) {
   const progress = routeDistance > 0 ? cumulativeMiles / routeDistance : 0;
 
@@ -1429,14 +1450,13 @@ function elevationFactor(cumulativeMiles, routeDistance) {
   return 88;
 }
 
-function recomputeDerivedFields() {
-  const config = parseForm();
-  if (!config || !plan.length) return;
-
+function recomputeDerivedFieldsForDays(days, config) {
+  if (!config || !Array.isArray(days) || !days.length) return;
   let cumulativeMiles = 0;
-  for (const day of plan) {
+  for (const day of days) {
     if (day.type === "Rest") {
       day.gain = 0;
+      day.loss = 0;
       continue;
     }
 
@@ -1445,8 +1465,15 @@ function recomputeDerivedFields() {
     const dayEnd = Math.min(config.routeDistance, cumulativeMiles + rideMiles);
     cumulativeMiles = dayEnd;
     day.gain = gpxGainBetweenMiles(dayStart, dayEnd, config.routeDistance);
+    day.loss = gpxLossBetweenMiles(dayStart, dayEnd, config.routeDistance);
     day.town = nearestWaypoint(cumulativeMiles);
   }
+}
+
+function recomputeDerivedFields() {
+  const config = parseForm();
+  if (!config || !plan.length) return;
+  recomputeDerivedFieldsForDays(plan, config);
 }
 
 function buildPlan(config) {
@@ -1466,14 +1493,17 @@ function buildPlan(config) {
   for (let day = 0; day < config.totalDays; day++) {
     const isRest = restIndexes.has(day);
     const rideMiles = isRest ? 0 : Number(config.avgRideMiles.toFixed(1));
-    cumulativeMiles = Math.min(config.routeDistance, cumulativeMiles + rideMiles);
+    const dayStart = cumulativeMiles;
+    const dayEnd = Math.min(config.routeDistance, cumulativeMiles + rideMiles);
+    cumulativeMiles = dayEnd;
 
     nextPlan.push({
       id: day + 1,
       date: localDateString(new Date(start.getTime() + day * 86400000)),
       type: isRest ? "Rest" : "Ride",
       miles: rideMiles,
-      gain: isRest ? 0 : Math.round(rideMiles * elevationFactor(cumulativeMiles, config.routeDistance)),
+      gain: isRest ? 0 : gpxGainBetweenMiles(dayStart, dayEnd, config.routeDistance),
+      loss: isRest ? 0 : gpxLossBetweenMiles(dayStart, dayEnd, config.routeDistance),
       town: isRest ? "Recovery + laundry + bike check" : nearestWaypoint(cumulativeMiles),
       resupplyOptions1: isRest ? "Cafe + grocery + lodging" : "Market + gas station + cafe",
       resupplyHours1: isRest ? "Varies by town" : "6:00 AM - 9:00 PM",
@@ -1500,10 +1530,9 @@ function buildPlan(config) {
     const lastRide = [...nextPlan].reverse().find((day) => day.type === "Ride");
     if (lastRide) {
       lastRide.miles = Number((lastRide.miles + difference).toFixed(1));
-      lastRide.gain = Math.round(lastRide.miles * elevationFactor(config.routeDistance, config.routeDistance));
-      lastRide.town = nearestWaypoint(config.routeDistance);
     }
   }
+  recomputeDerivedFieldsForDays(nextPlan, config);
 
   return nextPlan;
 }
@@ -1512,6 +1541,7 @@ function renderMetrics(config, days) {
   const rideDays = days.filter((d) => d.type === "Ride");
   const totalMiles = rideDays.reduce((sum, d) => sum + Number(d.miles || 0), 0);
   const totalGain = rideDays.reduce((sum, d) => sum + Number(d.gain || 0), 0);
+  const totalLoss = rideDays.reduce((sum, d) => sum + Number(d.loss || 0), 0);
 
   if (plannerTotalRouteDistance) {
     const routeMiles = Number(activeRouteGpxDistanceMiles || config?.routeDistance || routeDistanceInput?.value || 0);
@@ -1525,7 +1555,8 @@ function renderMetrics(config, days) {
     ["Ride Days", `${rideDays.length}`],
     ["Rest Days", `${config.restDays}`],
     ["Avg on Ride Days", `${(totalMiles / Math.max(rideDays.length, 1)).toFixed(1)} mi`],
-    ["Total Planned Gain", `${totalGain.toLocaleString()} ft`]
+    ["Total Planned Gain", `${totalGain.toLocaleString()} ft`],
+    ["Total Planned Loss", `${totalLoss.toLocaleString()} ft`]
   ];
 
   metricList.innerHTML = "";
@@ -1603,6 +1634,7 @@ function normalizeDay(day) {
     calorieTarget: Number(day.calorieTarget || 0),
     daysUntilNextResupply: Number(day.daysUntilNextResupply || 1),
     resupplyNotes: day.resupplyNotes || "",
+    loss: Number(day.loss || 0),
     resupplyExtraOptions: extraOptions,
     resupplyBikeShops: bikeShops
   };
@@ -1642,6 +1674,7 @@ function enforceRouteDistanceBaseline() {
 function applyPlanArray(incomingPlan) {
   if (!Array.isArray(incomingPlan)) return;
   plan = incomingPlan.map(normalizeDay);
+  recomputeDerivedFields();
   renderPlan(plan);
   const config = parseForm();
   if (config) renderMetrics(config, plan);
@@ -1668,12 +1701,14 @@ function createDayCard(day, index) {
 
   const milesInput = node.querySelector(".miles-input");
   const gainInput = node.querySelector(".gain-input");
+  const lossInput = node.querySelector(".loss-input");
   const townInput = node.querySelector(".town-input");
   const notesInput = node.querySelector(".notes-input");
   const distanceSoFarValue = node.querySelector(".day-distance-so-far-value");
 
   milesInput.value = normalized.miles;
   gainInput.value = normalized.gain;
+  lossInput.value = normalized.loss;
   townInput.value = normalized.town;
   notesInput.value = normalized.notes;
   if (distanceSoFarValue) {
@@ -1689,6 +1724,7 @@ function createDayCard(day, index) {
   if (day.type === "Rest") {
     milesInput.disabled = true;
     gainInput.disabled = true;
+    lossInput.disabled = true;
   }
 
   const sync = () => {
@@ -1696,6 +1732,7 @@ function createDayCard(day, index) {
       ...plan[index],
       miles: Number(milesInput.value || 0),
       gain: Number(gainInput.value || 0),
+      loss: Number(lossInput.value || 0),
       town: townInput.value,
       notes: notesInput.value
     };
@@ -1723,6 +1760,7 @@ function createDayCard(day, index) {
 
   [
     gainInput,
+    lossInput,
     townInput,
     notesInput
   ].forEach((input) => {
@@ -2058,7 +2096,7 @@ function ensureMapPlanPanel() {
   if (!panel) {
     panel = document.createElement("section");
     panel.id = "map-plan-panel";
-    panel.className = "panel days";
+    panel.className = "panel map-plan-inline-panel";
     panel.hidden = true;
 
     const header = document.createElement("div");
@@ -2080,7 +2118,11 @@ function ensureMapPlanPanel() {
     header.appendChild(subhead);
     panel.appendChild(header);
     panel.appendChild(content);
-    markerPanel.parentElement.insertBefore(panel, markerPanel);
+    markerPanel.parentElement.insertBefore(panel, markerPanel.nextSibling);
+  }
+
+  if (panel.parentElement === markerPanel.parentElement) {
+    markerPanel.parentElement.insertBefore(panel, markerPanel.nextSibling);
   }
 
   mapPlanPanelEl = panel;
@@ -2440,6 +2482,7 @@ function exportStandardCsv(baselinePlan) {
     "Type",
     "Miles",
     "GainFt",
+    "LossFt",
     "TargetTown",
     "ResupplyOption1",
     "Hours1",
@@ -2461,6 +2504,7 @@ function exportStandardCsv(baselinePlan) {
     d.type,
     d.miles,
     d.gain,
+    d.loss || 0,
     d.town,
     optionalCsvValue(d, d.id - 1, "resupplyOptions1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
@@ -2486,6 +2530,7 @@ function standardExportRows(baselinePlan) {
     "Type",
     "Miles",
     "GainFt",
+    "LossFt",
     "TargetTown",
     "ResupplyOption1",
     "Hours1",
@@ -2507,6 +2552,7 @@ function standardExportRows(baselinePlan) {
     d.type,
     d.miles,
     d.gain,
+    d.loss || 0,
     d.town,
     optionalCsvValue(d, d.id - 1, "resupplyOptions1", baselinePlan),
     optionalCsvValue(d, d.id - 1, "resupplyHours1", baselinePlan),
@@ -2537,6 +2583,7 @@ function exportDetailedDaysCsv(baselinePlan) {
     "DailyDistanceMi",
     "CumulativeDistanceMi",
     "ElevationGainFt",
+    "ElevationLossFt",
     "LocationOfStop",
     "ResuppliesReachedToday",
     "DaysUntilNextResupply",
@@ -2567,6 +2614,7 @@ function exportDetailedDaysCsv(baselinePlan) {
       Number((d.endMile - d.startMile).toFixed(2)),
       Number(d.cumulativeMiles.toFixed(2)),
       d.gain,
+      d.loss || 0,
       d.town || "",
       dayStops,
       optionalCsvValue(d, d.id - 1, "daysUntilNextResupply", baselinePlan, true),
@@ -2602,6 +2650,7 @@ function detailedDaysExportRows(baselinePlan) {
     "DailyDistanceMi",
     "CumulativeDistanceMi",
     "ElevationGainFt",
+    "ElevationLossFt",
     "LocationOfStop",
     "ResuppliesReachedToday",
     "DaysUntilNextResupply",
@@ -2631,6 +2680,7 @@ function detailedDaysExportRows(baselinePlan) {
       Number((d.endMile - d.startMile).toFixed(2)),
       Number(d.cumulativeMiles.toFixed(2)),
       d.gain,
+      d.loss || 0,
       d.town || "",
       dayStops,
       optionalCsvValue(d, d.id - 1, "daysUntilNextResupply", baselinePlan, true),
@@ -2786,6 +2836,7 @@ function exportDayMatrixCsv(baselinePlan) {
     ["End Mile", (_, i) => Number(summaries[i].endMile.toFixed(2))],
     ["Daily Distance (mi)", (d, i) => Number((summaries[i].endMile - summaries[i].startMile).toFixed(2))],
     ["Elevation Gain (ft)", (d) => d.gain || 0],
+    ["Elevation Loss (ft)", (d) => d.loss || 0],
     ["Location of Stop", (d) => d.town || ""],
     ["Resupply Option 1", (d, i) => optionalCsvValue(d, i, "resupplyOptions1", baselinePlan)],
     ["Hours 1", (d, i) => optionalCsvValue(d, i, "resupplyHours1", baselinePlan)],
@@ -2823,6 +2874,7 @@ function dayMatrixExportRows(baselinePlan) {
     ["End Mile", (_, i) => Number(summaries[i].endMile.toFixed(2))],
     ["Daily Distance (mi)", (d, i) => Number((summaries[i].endMile - summaries[i].startMile).toFixed(2))],
     ["Elevation Gain (ft)", (d) => d.gain || 0],
+    ["Elevation Loss (ft)", (d) => d.loss || 0],
     ["Location of Stop", (d) => d.town || ""],
     ["Resupply Option 1", (d, i) => optionalCsvValue(d, i, "resupplyOptions1", baselinePlan)],
     ["Hours 1", (d, i) => optionalCsvValue(d, i, "resupplyHours1", baselinePlan)],
@@ -3018,6 +3070,22 @@ function buildTrackCumulativeGainFt(trackPoints) {
     cumulativeGain[i] = cumulativeGain[i - 1] + (deltaFt > 3 ? deltaFt : 0);
   }
   return cumulativeGain;
+}
+
+function buildTrackCumulativeLossFt(trackPoints) {
+  if (!trackPoints.length) return [];
+  const cumulativeLoss = [0];
+  for (let i = 1; i < trackPoints.length; i++) {
+    const prevEle = trackPoints[i - 1].ele;
+    const nextEle = trackPoints[i].ele;
+    if (prevEle === null || nextEle === null) {
+      cumulativeLoss[i] = cumulativeLoss[i - 1];
+      continue;
+    }
+    const deltaFt = (prevEle - nextEle) * 3.28084;
+    cumulativeLoss[i] = cumulativeLoss[i - 1] + (deltaFt > 3 ? deltaFt : 0);
+  }
+  return cumulativeLoss;
 }
 
 function nearestTrackPointAndMile(latlng) {
@@ -3484,6 +3552,9 @@ function ensureMapArtifacts() {
     }
     if (!trackCumulativeGainFt.length) {
       trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+    }
+    if (!trackCumulativeLossFt.length) {
+      trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
     }
   } catch (error) {
     console.error("ensureMapArtifacts cumulative build failed:", error);
@@ -4206,6 +4277,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   gpxTrackPoints = trackPoints;
   trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
   trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+  trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
   activeRouteGpxDistanceMiles = Number((trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0).toFixed(1));
 
   // First-pass draw immediately from loaded GPX points.
@@ -4471,6 +4543,12 @@ async function initMap() {
     }
     wireProviderHealth(current.id, activeBaseLayer);
   };
+  applyMapStyleImmediately = (providerId, reason = "") => {
+    const nextIndex = providerIndexById.get(providerId);
+    if (typeof nextIndex !== "number") return false;
+    switchProvider(nextIndex, reason);
+    return true;
+  };
 
   let tileHealthTimer = null;
   const wireProviderHealth = (providerId, layer) => {
@@ -4517,19 +4595,17 @@ async function initMap() {
       mapboxOption.textContent = hasMapbox ? "Mapbox Outdoors" : "Mapbox Outdoors (token needed)";
     }
     const preferredStyle = getMapStylePreference();
-    if (preferredStyle && (preferredStyle === "auto" || providerIndexById.has(preferredStyle))) {
+    if (preferredStyle && providerIndexById.has(preferredStyle)) {
       mapStyleSelect.value = preferredStyle;
     } else {
-      mapStyleSelect.value = "auto";
+      mapStyleSelect.value = "esriTopo";
     }
   }
 
   const preferredStyle = getMapStylePreference();
   let initialProviderId = "esriTopo";
-  if (preferredStyle && preferredStyle !== "auto" && providerIndexById.has(preferredStyle)) {
+  if (preferredStyle && providerIndexById.has(preferredStyle)) {
     initialProviderId = preferredStyle;
-  } else if (hasMapbox) {
-    initialProviderId = "mapbox";
   }
   const initialProviderIndex = providerIndexById.get(initialProviderId) ?? 0;
   if (!hasMapbox && mapSubhead) {
@@ -4719,6 +4795,7 @@ form.addEventListener("submit", (event) => {
   if (!config) return;
 
   plan = buildPlan(config);
+  recomputeDerivedFields();
   renderMetrics(config, plan);
   renderPlan(plan);
   persistPlan();
@@ -4893,11 +4970,19 @@ if (fitRouteBtn) {
 
 if (mapStyleSelect) {
   mapStyleSelect.addEventListener("change", () => {
-    const nextStyle = String(mapStyleSelect.value || "auto");
+    const nextStyle = String(mapStyleSelect.value || "esriTopo");
     saveMapStylePreference(nextStyle);
     if (!map || !activeBaseLayer) return;
-    // Keep this simple and reliable: reinitialize on style changes.
-    window.location.reload();
+    if (typeof applyMapStyleImmediately === "function" && applyMapStyleImmediately(nextStyle, "Map style changed.")) {
+      setTimeout(() => {
+        try {
+          map.invalidateSize();
+        } catch {
+          // No-op
+        }
+      }, 0);
+      return;
+    }
   });
 }
 

@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=19" />
+    <link rel="stylesheet" href="styles.css?v=23" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -401,7 +401,6 @@
               <button id="fit-route-btn" class="btn" type="button">Fit Route</button>
               <label class="map-style-label" for="map-style-select">Map style</label>
               <select id="map-style-select" class="map-style-select">
-                <option value="auto">Auto</option>
                 <option value="mapbox">Mapbox Outdoors</option>
                 <option value="esriTopo">Topo</option>
                 <option value="esriImagery">Satellite</option>
@@ -485,6 +484,10 @@
           <label>
             Gain (ft)
             <input type="number" class="gain-input" min="0" step="100" />
+          </label>
+          <label>
+            Loss (ft)
+            <input type="number" class="loss-input" min="0" step="100" />
           </label>
         </div>
         <p class="day-distance-so-far">Distance so far: <strong class="day-distance-so-far-value">0.0 mi</strong></p>
@@ -601,7 +604,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=57"></script>
+    <script src="script.js?v=66"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
