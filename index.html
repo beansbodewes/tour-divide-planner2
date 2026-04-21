@@ -44,8 +44,8 @@
               <div class="button-row">
                 <button id="sign-up-btn" class="btn" type="button">Sign Up</button>
                 <button id="sign-in-btn" class="btn btn-primary" type="button">Sign In</button>
+                <button id="sign-in-google-btn" class="btn" type="button">Sign In with Google</button>
                 <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
-                <button id="undo-btn" class="btn btn-accent" type="button">Undo</button>
                 <button id="sync-now-btn" class="btn" type="button">Sync Now</button>
               </div>
             </form>
@@ -399,6 +399,16 @@
             <div class="map-controls">
               <button id="drag-mode-btn" class="btn" type="button">Drag Mode: Off</button>
               <button id="fit-route-btn" class="btn" type="button">Fit Route</button>
+              <label class="map-style-label" for="map-style-select">Map style</label>
+              <select id="map-style-select" class="map-style-select">
+                <option value="auto">Auto</option>
+                <option value="mapbox">Mapbox Outdoors</option>
+                <option value="esriTopo">Topo</option>
+                <option value="esriImagery">Satellite</option>
+                <option value="osm">OpenStreetMap</option>
+                <option value="carto">Carto Light</option>
+              </select>
+              <button id="mapbox-token-btn" class="btn" type="button">Set Mapbox Token</button>
             </div>
             <aside id="map-section-box" class="map-section-box">
               <p class="map-section-kicker">Section Comments</p>
@@ -591,7 +601,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=52"></script>
+    <script src="script.js?v=57"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {

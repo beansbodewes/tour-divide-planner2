@@ -180,10 +180,13 @@ let GPX_FILE = "";
 let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  appId: ""
+  apiKey: "AIzaSyBCfePd4yItDfIwovYby_vvSEPrtPR8ivI",
+  authDomain: "bikepack-planner.firebaseapp.com",
+  projectId: "bikepack-planner",
+  storageBucket: "bikepack-planner.firebasestorage.app",
+  messagingSenderId: "862215840535",
+  appId: "1:862215840535:web:2007383a2fef6f15278d52",
+  measurementId: "G-5WKND9BS1M"
 };
 const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
@@ -224,6 +227,7 @@ const authEmailInput = document.getElementById("auth-email");
 const authPasswordInput = document.getElementById("auth-password");
 const signUpBtn = document.getElementById("sign-up-btn");
 const signInBtn = document.getElementById("sign-in-btn");
+const signInGoogleBtn = document.getElementById("sign-in-google-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
 const syncNowBtn = document.getElementById("sync-now-btn");
 const undoBtn = document.getElementById("undo-btn");
@@ -263,6 +267,8 @@ const routeProfileZoom = document.getElementById("route-profile-zoom");
 const routeProfileZoomLabel = document.getElementById("route-profile-zoom-label");
 const dragModeBtn = document.getElementById("drag-mode-btn");
 const fitRouteBtn = document.getElementById("fit-route-btn");
+const mapStyleSelect = document.getElementById("map-style-select");
+const mapboxTokenBtn = document.getElementById("mapbox-token-btn");
 
 const commentForm = document.getElementById("comment-form");
 const commentSectionSelect = document.getElementById("comment-section");
@@ -309,6 +315,7 @@ let dragModeEnabled = false;
 let selectedSectionName = "";
 let activeBaseLayer;
 let mapboxFallbackActive = false;
+let activeBaseMapName = "OpenStreetMap";
 let syncingMapAndPlan = false;
 let firebaseAuth = null;
 let firestoreDb = null;
@@ -335,6 +342,10 @@ let activeRouteGpxDistanceMiles = null;
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
 const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
+const MAP_STYLE_KEY = "bikepack-map-style-v1";
+const MAPBOX_TOKEN_KEY = "bikepack-mapbox-token-v1";
+const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
+const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
@@ -408,6 +419,48 @@ function customerServiceUrl(routeId) {
 function donationsUrl(routeId) {
   if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=donations`;
   return `${window.location.pathname}?route=${routeId}&view=donations`;
+}
+
+function getSavedMapboxToken() {
+  try {
+    return String(localStorage.getItem(MAPBOX_TOKEN_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function getMapboxToken() {
+  const saved = getSavedMapboxToken();
+  if (saved.startsWith("pk.")) return saved;
+  if (typeof MAPBOX_ACCESS_TOKEN === "string" && MAPBOX_ACCESS_TOKEN.startsWith("pk.")) {
+    return MAPBOX_ACCESS_TOKEN;
+  }
+  return "";
+}
+
+function hasUsableMapboxToken() {
+  return getMapboxToken().startsWith("pk.");
+}
+
+function saveMapStylePreference(styleId) {
+  try {
+    localStorage.setItem(MAP_STYLE_KEY, styleId || "auto");
+  } catch {
+    // Ignore localStorage write failures.
+  }
+}
+
+function getMapStylePreference() {
+  try {
+    return String(localStorage.getItem(MAP_STYLE_KEY) || "auto");
+  } catch {
+    return "auto";
+  }
+}
+
+function updateMapboxTokenButtonLabel() {
+  if (!mapboxTokenBtn) return;
+  mapboxTokenBtn.textContent = hasUsableMapboxToken() ? "Update Mapbox Token" : "Set Mapbox Token";
 }
 
 function setViewMode(mode) {
@@ -518,8 +571,10 @@ function hardRebuildMapUi() {
   const stageCount = getRequestedStageCount();
   stageOptions = buildEvenStages(gpxTrackPoints, stageCount).stages;
 
-  const displayPoints = sampleTrackForDisplay(gpxTrackPoints, 3200);
+  const displayPoints = getRouteDrawPoints(gpxTrackPoints);
+  const hoverPoints = getHoverDrawPoints(gpxTrackPoints);
   const coords = displayPoints.map((point) => [point.lat, point.lon]);
+  const hoverCoords = hoverPoints.map((point) => [point.lat, point.lon]);
   if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
   if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
   if (routeLineHalo && map.hasLayer(routeLineHalo)) map.removeLayer(routeLineHalo);
@@ -529,7 +584,7 @@ function hardRebuildMapUi() {
     weight: 8,
     opacity: 0.98,
     interactive: false,
-    smoothFactor: 0.1,
+    smoothFactor: 0,
     noClip: true
   }).addTo(map);
   routeLine = L.polyline(coords, {
@@ -538,16 +593,16 @@ function hardRebuildMapUi() {
     weight: 4,
     opacity: 1,
     interactive: false,
-    smoothFactor: 0.1,
+    smoothFactor: 0,
     noClip: true
   }).addTo(map);
-  routeHoverLine = L.polyline(coords, {
+  routeHoverLine = L.polyline(hoverCoords, {
     pane: "routeHoverPane",
     color: "#000000",
     weight: 36,
     opacity: 0,
     interactive: true,
-    smoothFactor: 0.1,
+    smoothFactor: 0.05,
     noClip: true
   }).addTo(map);
   routeHoverLine.on("mousemove", (event) => {
@@ -1570,6 +1625,20 @@ function applyPlannerConfig(config) {
   routeDistanceInput.value = String(migratedDistance || routeDistanceInput.value);
 }
 
+function enforceRouteDistanceBaseline() {
+  const routeId = getRouteFromUrl();
+  const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  const currentDistance = Number(routeDistanceInput?.value);
+  const legacyDistance = Number(LEGACY_ROUTE_DISTANCES[routeId]);
+  const correctedDistance = Number(activeRouteGpxDistanceMiles || route.defaultDistance || 0);
+  if (!Number.isFinite(currentDistance) || !Number.isFinite(correctedDistance) || correctedDistance <= 0) return false;
+  if (Number.isFinite(legacyDistance) && nearlyEqual(currentDistance, legacyDistance)) {
+    routeDistanceInput.value = String(correctedDistance);
+    return true;
+  }
+  return false;
+}
+
 function applyPlanArray(incomingPlan) {
   if (!Array.isArray(incomingPlan)) return;
   plan = incomingPlan.map(normalizeDay);
@@ -2142,6 +2211,7 @@ async function loadCloudData() {
       }
       const data = JSON.parse(raw);
       applyPlannerConfig(data.config);
+      enforceRouteDistanceBaseline();
       applyPlanArray(data.plan);
       applyCommentsArray(data.comments);
       setCloudStatus(`Loaded local account data for ${authUser.email}`);
@@ -2158,6 +2228,7 @@ async function loadCloudData() {
     }
     const data = snapshot.data() || {};
     applyPlannerConfig(data.config);
+    enforceRouteDistanceBaseline();
     applyPlanArray(data.plan);
     applyCommentsArray(data.comments);
     resetUndoBaseline();
@@ -2223,6 +2294,7 @@ function loadSavedPlan() {
       ...saved.config,
       finishDate: saved.config.finishDate || addDays(saved.config.startDate, saved.config.totalDays - 1)
     });
+    enforceRouteDistanceBaseline();
     applyPlanArray(saved.plan);
   } catch {
     localStorage.removeItem(STORAGE_KEY);
@@ -2913,6 +2985,14 @@ function sampleTrackForDisplay(points, maxPoints = 3200) {
     result[result.length - 1] = points[points.length - 1];
   }
   return result;
+}
+
+function getRouteDrawPoints(points) {
+  return sampleTrackForDisplay(points, MAP_ROUTE_DRAW_MAX_POINTS);
+}
+
+function getHoverDrawPoints(points) {
+  return sampleTrackForDisplay(points, MAP_HOVER_DRAW_MAX_POINTS);
 }
 
 function buildTrackCumulativeMiles(trackPoints) {
@@ -4143,15 +4223,17 @@ function applyTrackToMap(trackPoints, options = {}) {
   dayMarkers = [];
   resupplyMarkers = [];
 
-  const displayPoints = sampleTrackForDisplay(gpxTrackPoints, 3200);
+  const displayPoints = getRouteDrawPoints(gpxTrackPoints);
+  const hoverPoints = getHoverDrawPoints(gpxTrackPoints);
   const coords = displayPoints.map((point) => [point.lat, point.lon]);
+  const hoverCoords = hoverPoints.map((point) => [point.lat, point.lon]);
   routeLineHalo = L.polyline(coords, {
     pane: "routePane",
     color: "#fffefb",
     weight: 8,
     opacity: 0.98,
     interactive: false,
-    smoothFactor: 0.1,
+    smoothFactor: 0,
     noClip: true
   }).addTo(map);
   routeLine = L.polyline(coords, {
@@ -4160,17 +4242,17 @@ function applyTrackToMap(trackPoints, options = {}) {
     weight: 4,
     opacity: 1,
     interactive: false,
-    smoothFactor: 0.1,
+    smoothFactor: 0,
     noClip: true
   }).addTo(map);
 
-  routeHoverLine = L.polyline(coords, {
+  routeHoverLine = L.polyline(hoverCoords, {
     pane: "routeHoverPane",
     color: "#000000",
     weight: 36,
     opacity: 0,
     interactive: true,
-    smoothFactor: 0.1,
+    smoothFactor: 0.05,
     noClip: true
   }).addTo(map);
 
@@ -4296,57 +4378,102 @@ async function initMap() {
   map.getPane("hoverMarkerPane").style.zIndex = "700";
   L.control.scale({ imperial: true, metric: false, maxWidth: 120 }).addTo(map);
 
-  const hasUsableMapboxToken = typeof MAPBOX_ACCESS_TOKEN === "string" && MAPBOX_ACCESS_TOKEN.startsWith("pk.");
+  const mapboxToken = getMapboxToken();
+  const hasMapbox = mapboxToken.startsWith("pk.");
   const providers = [];
-  if (hasUsableMapboxToken) {
+  if (hasMapbox) {
     providers.push({
-      name: "Mapbox",
-      layer: L.tileLayer(
-        `https://api.mapbox.com/styles/v1/${MAPBOX_STYLE_ID}/tiles/256/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`,
-        {
-          tileSize: 256,
-          zoomOffset: 0,
-          attribution:
-            '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        }
-      )
+      id: "mapbox",
+      name: "Mapbox Outdoors",
+      layerFactory: () =>
+        L.tileLayer(
+          `https://api.mapbox.com/styles/v1/${MAPBOX_STYLE_ID}/tiles/256/{z}/{x}/{y}?access_token=${mapboxToken}`,
+          {
+            tileSize: 256,
+            zoomOffset: 0,
+            attribution:
+              '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          }
+        )
     });
   }
   providers.push({
-    name: "OpenStreetMap",
-    layer: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      tileSize: 256,
-      zoomOffset: 0,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    })
+    id: "esriTopo",
+    name: "Topo",
+    layerFactory: () =>
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        {
+          tileSize: 256,
+          zoomOffset: 0,
+          attribution: "Tiles &copy; Esri"
+        }
+      )
   });
   providers.push({
-    name: "Carto",
-    layer: L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-      tileSize: 256,
-      zoomOffset: 0,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO'
-    })
+    id: "esriImagery",
+    name: "Satellite",
+    layerFactory: () =>
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          tileSize: 256,
+          zoomOffset: 0,
+          attribution: "Tiles &copy; Esri"
+        }
+      )
+  });
+  providers.push({
+    id: "osm",
+    name: "OpenStreetMap",
+    layerFactory: () =>
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        tileSize: 256,
+        zoomOffset: 0,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      })
+  });
+  providers.push({
+    id: "carto",
+    name: "Carto Light",
+    layerFactory: () =>
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+        tileSize: 256,
+        zoomOffset: 0,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO'
+      })
   });
 
+  const providerIndexById = new Map(providers.map((provider, index) => [provider.id, index]));
+  const fallbackOrder = providers.map((provider) => provider.id);
   let providerIndex = 0;
   const switchProvider = (nextIndex, reason = "") => {
     if (nextIndex < 0 || nextIndex >= providers.length) return;
-    if (activeBaseLayer) map.removeLayer(activeBaseLayer);
+    if (activeBaseLayer) {
+      try {
+        map.removeLayer(activeBaseLayer);
+      } catch {
+        // Ignore remove errors when swapping base maps quickly.
+      }
+    }
     providerIndex = nextIndex;
     const current = providers[providerIndex];
-    activeBaseLayer = current.layer.addTo(map);
-    mapboxFallbackActive = current.name !== "Mapbox";
+    activeBaseLayer = current.layerFactory().addTo(map);
+    activeBaseMapName = current.name;
+    mapboxFallbackActive = current.id !== "mapbox";
+    if (mapStyleSelect && mapStyleSelect.value !== current.id) {
+      mapStyleSelect.value = current.id;
+    }
     if (mapSubhead && reason) {
       mapSubhead.textContent = `${reason} Using ${current.name} tiles.`;
     }
-    wireProviderHealth(current.layer);
+    wireProviderHealth(current.id, activeBaseLayer);
   };
 
   let tileHealthTimer = null;
-  const wireProviderHealth = (layer) => {
+  const wireProviderHealth = (providerId, layer) => {
     let tileLoaded = false;
     let tileErrors = 0;
     layer.on("tileload", () => {
@@ -4360,21 +4487,56 @@ async function initMap() {
       tileErrors += 1;
       if (tileLoaded) return;
       if (tileErrors < 3) return;
-      if (providerIndex < providers.length - 1) {
-        switchProvider(providerIndex + 1, "Tile loading failed.");
+      const currentOrderIndex = fallbackOrder.indexOf(providerId);
+      if (currentOrderIndex >= 0 && currentOrderIndex < fallbackOrder.length - 1) {
+        const nextId = fallbackOrder[currentOrderIndex + 1];
+        const nextIndex = providerIndexById.get(nextId);
+        if (typeof nextIndex === "number") {
+          switchProvider(nextIndex, "Tile loading failed.");
+        }
       }
     });
     tileHealthTimer = setTimeout(() => {
-      if (!tileLoaded && providerIndex < providers.length - 1) {
-        switchProvider(providerIndex + 1, "Tiles timed out.");
+      if (!tileLoaded) {
+        const currentOrderIndex = fallbackOrder.indexOf(providerId);
+        if (currentOrderIndex >= 0 && currentOrderIndex < fallbackOrder.length - 1) {
+          const nextId = fallbackOrder[currentOrderIndex + 1];
+          const nextIndex = providerIndexById.get(nextId);
+          if (typeof nextIndex === "number") {
+            switchProvider(nextIndex, "Tiles timed out.");
+          }
+        }
       }
     }, 2500);
   };
 
-  if (!hasUsableMapboxToken && mapSubhead) {
-    mapSubhead.textContent = "Mapbox token not set, so this view is using fallback tiles.";
+  if (mapStyleSelect) {
+    const mapboxOption = mapStyleSelect.querySelector('option[value="mapbox"]');
+    if (mapboxOption) {
+      mapboxOption.disabled = !hasMapbox;
+      mapboxOption.textContent = hasMapbox ? "Mapbox Outdoors" : "Mapbox Outdoors (token needed)";
+    }
+    const preferredStyle = getMapStylePreference();
+    if (preferredStyle && (preferredStyle === "auto" || providerIndexById.has(preferredStyle))) {
+      mapStyleSelect.value = preferredStyle;
+    } else {
+      mapStyleSelect.value = "auto";
+    }
   }
-  switchProvider(0);
+
+  const preferredStyle = getMapStylePreference();
+  let initialProviderId = "esriTopo";
+  if (preferredStyle && preferredStyle !== "auto" && providerIndexById.has(preferredStyle)) {
+    initialProviderId = preferredStyle;
+  } else if (hasMapbox) {
+    initialProviderId = "mapbox";
+  }
+  const initialProviderIndex = providerIndexById.get(initialProviderId) ?? 0;
+  if (!hasMapbox && mapSubhead) {
+    mapSubhead.textContent = "Mapbox token not set, using Topo map style.";
+  }
+  switchProvider(initialProviderIndex);
+  updateMapboxTokenButtonLabel();
   stageLayer = L.layerGroup().addTo(map);
   resupplyLayer = L.layerGroup().addTo(map);
   sectionLayer = L.layerGroup().addTo(map);
@@ -4432,7 +4594,7 @@ function updateStagesFromInput() {
 
   if (mapSubhead) {
     mapSubhead.textContent = mapboxFallbackActive
-      ? `Using OpenStreetMap fallback. GPX loaded with ${stageCount} days (from projected days).`
+      ? `Using ${activeBaseMapName} base map. GPX loaded with ${stageCount} days (from projected days).`
       : `Loaded from your GPX file with ${stageCount} days (from projected days).`;
   }
 
@@ -4729,6 +4891,52 @@ if (fitRouteBtn) {
   });
 }
 
+if (mapStyleSelect) {
+  mapStyleSelect.addEventListener("change", () => {
+    const nextStyle = String(mapStyleSelect.value || "auto");
+    saveMapStylePreference(nextStyle);
+    if (!map || !activeBaseLayer) return;
+    // Keep this simple and reliable: reinitialize on style changes.
+    window.location.reload();
+  });
+}
+
+if (mapboxTokenBtn) {
+  mapboxTokenBtn.addEventListener("click", () => {
+    const currentToken = getSavedMapboxToken();
+    const entered = window.prompt(
+      "Paste your Mapbox public token (starts with pk.). Leave blank to remove it.",
+      currentToken
+    );
+    if (entered === null) return;
+    const token = String(entered).trim();
+    if (!token) {
+      try {
+        localStorage.removeItem(MAPBOX_TOKEN_KEY);
+      } catch {
+        // Ignore localStorage write failures.
+      }
+      updateMapboxTokenButtonLabel();
+      setCloudStatus("Mapbox token removed. Reloading with fallback map.");
+      window.location.reload();
+      return;
+    }
+    if (!token.startsWith("pk.")) {
+      setCloudStatus("Mapbox token should start with pk.");
+      return;
+    }
+    try {
+      localStorage.setItem(MAPBOX_TOKEN_KEY, token);
+    } catch {
+      setCloudStatus("Could not save token in this browser. Check storage settings.");
+      return;
+    }
+    updateMapboxTokenButtonLabel();
+    setCloudStatus("Mapbox token saved. Reloading map.");
+    window.location.reload();
+  });
+}
+
 startDateInput.addEventListener("change", () => {
   if (finishDateInput.value) {
     const days = dateDiffInDaysInclusive(startDateInput.value, finishDateInput.value);
@@ -4831,6 +5039,38 @@ signInBtn.addEventListener("click", async () => {
     setCloudStatus(`Sign in failed: ${error.message}`);
   }
 });
+
+if (signInGoogleBtn) {
+  signInGoogleBtn.addEventListener("click", async () => {
+    if (localAuthMode) {
+      setCloudStatus("Google sign-in requires Firebase cloud auth mode.");
+      return;
+    }
+    if (!firebaseAuth) {
+      setCloudStatus("Cloud auth is not configured yet.");
+      return;
+    }
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await firebaseAuth.signInWithPopup(provider);
+      setCloudStatus("Signed in with Google.");
+    } catch (error) {
+      const message = String(error?.message || "");
+      const popupBlocked = /popup|blocked|closed/i.test(message);
+      if (popupBlocked) {
+        try {
+          const provider = new firebase.auth.GoogleAuthProvider();
+          await firebaseAuth.signInWithRedirect(provider);
+          return;
+        } catch (redirectError) {
+          setCloudStatus(`Google sign-in failed: ${redirectError.message}`);
+          return;
+        }
+      }
+      setCloudStatus(`Google sign-in failed: ${message || "Unknown error"}`);
+    }
+  });
+}
 
 signOutBtn.addEventListener("click", async () => {
   if (localAuthMode) {
