@@ -190,9 +190,39 @@ const FIREBASE_CONFIG = {
 };
 const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
+const PLAN_UNITS_KEY = "tour-divide-plan-units-v1";
 const ROUTE_PROFILE_BASE_WIDTH = 2400;
+const RWGPS_ELEV_OUTLIER_FT = 100;
+const RWGPS_ELEV_MEDIAN_WINDOW_POINTS = 7;
+const RWGPS_MIN_ASCENT_STEP_M = 0.9;
+const RWGPS_TARGET_SAMPLE_COUNT = 40000;
+const RWGPS_MIN_SAMPLE_STEP_MI = 0.008;
+const RWGPS_MAX_SAMPLE_STEP_MI = 0.03;
+const RWGPS_PROFILE_MAX_SAMPLES = 2000;
+const AUTO_RWGPS_GAIN_FACTORS = {
+  tour_divide: 1.61,
+  great_divide_route: 1.64,
+  colorado_trail: 1.37,
+  azt_300: 1.12,
+  azt_800: 0.98,
+  peruvian_divide: 1.13,
+  custom_ride: 1.0
+};
+const ROUTE_MILE_CALIBRATION_CURVES = {
+  // RWGPS reference for GDMBR:
+  // full route +152,243 ft (route 8853382)
+  // early segment (start to ~50 mi shown by highlight 0-266) +3,385 ft
+  // We taper smoothly so day gains don't jump at hard mile boundaries.
+  great_divide_route: [
+    { mile: 0, factor: 2.1012 },
+    { mile: 50, factor: 2.1012 },
+    { mile: 150, factor: 1.6345 },
+    { mile: 2664.6, factor: 1.6345 }
+  ]
+};
 
 let resupplyPoints = [];
+let planUnitSystem = "imperial";
 
 const form = document.getElementById("plan-form");
 const startDateInput = document.getElementById("start-date");
@@ -200,6 +230,8 @@ const finishDateInput = document.getElementById("finish-date");
 const totalDaysInput = document.getElementById("total-days");
 const restDaysInput = document.getElementById("rest-days");
 const routeDistanceInput = document.getElementById("route-distance");
+const routeDistanceLabel = document.getElementById("route-distance-label");
+const planUnitsMetricInput = document.getElementById("plan-units-metric");
 const plannerTotalRouteDistance = document.getElementById("planner-total-route-distance");
 const dayList = document.getElementById("day-list");
 const metricList = document.getElementById("metric-list");
@@ -259,6 +291,8 @@ const mapSectionElevation = document.getElementById("map-section-elevation");
 const mapSectionProfile = document.getElementById("map-section-profile");
 const mapSectionProfileMeta = document.getElementById("map-section-profile-meta");
 const mapSectionComments = document.getElementById("map-section-comments");
+const routeProfileAxisY = document.getElementById("route-profile-axis-y");
+const routeProfileAxisX = document.getElementById("route-profile-axis-x");
 const routeProfile = document.getElementById("route-profile");
 const routeProfileMeta = document.getElementById("route-profile-meta");
 const routeProfileScroll = document.getElementById("route-profile-scroll");
@@ -309,6 +343,7 @@ let mapHoverSnapshotEl = null;
 let trackCumulativeMiles = [];
 let trackCumulativeGainFt = [];
 let trackCumulativeLossFt = [];
+const rwgpsElevationEngineCache = new WeakMap();
 let applyMapStyleImmediately = null;
 let dayMarkers = [];
 let resupplyMarkers = [];
@@ -615,13 +650,13 @@ function hardRebuildMapUi() {
     if (!nearest) return;
     showMapHoverMarker(nearest.point);
     syncRouteProfileHoverByMile(nearest.mile, true, "Route");
-    const elevFt = nearest.point.ele === null ? null : Math.round(nearest.point.ele * 3.28084);
+    const elevText = nearest.point.ele === null ? "unavailable" : formatMapElevationFromMeters(nearest.point.ele);
     const total = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
     showMapHoverSnapshot(
       `<strong>Route Position</strong>` +
-        `<div>Elevation: ${elevFt === null ? "unavailable" : `${elevFt.toLocaleString()} ft`}</div>` +
-        `<div>From Banff: ${nearest.mile.toFixed(1)} mi</div>` +
-        `<div>Route Total: ${total.toFixed(1)} mi</div>`,
+        `<div>Elevation: ${elevText}</div>` +
+        `<div>From Banff: ${formatRouteDistanceWithUnits(nearest.mile)}</div>` +
+        `<div>Route Total: ${formatRouteDistanceWithUnits(total)}</div>`,
       nearest.point
     );
   });
@@ -650,7 +685,7 @@ function hardRebuildMapUi() {
   stageOptions.forEach((stage, index) => {
     const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
       .addTo(stageLayer)
-      .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
+      .bindPopup(`Day ${stage.stage}<br/>${formatStageRangeWithUnits(stage.startMile, stage.endMile)}`);
     marker.on("click", () => {
       if (!plan.length) return;
       setMapPlanSelection({ dayIndex: index });
@@ -696,11 +731,110 @@ function formatHomeMiles(miles) {
   })} mi`;
 }
 
+function isMetricPlannerUnits() {
+  return planUnitSystem === "metric";
+}
+
+function milesToDisplayDistance(miles) {
+  const numeric = Number(miles || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return isMetricPlannerUnits() ? numeric * 1.609344 : numeric;
+}
+
+function displayDistanceToMiles(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return isMetricPlannerUnits() ? numeric / 1.609344 : numeric;
+}
+
+function feetToDisplayElevation(feet) {
+  const numeric = Number(feet || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return isMetricPlannerUnits() ? numeric * 0.3048 : numeric;
+}
+
+function displayElevationToFeet(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return isMetricPlannerUnits() ? numeric / 0.3048 : numeric;
+}
+
+function unitDistanceSuffix() {
+  return isMetricPlannerUnits() ? "km" : "mi";
+}
+
+function unitElevationSuffix() {
+  return isMetricPlannerUnits() ? "m" : "ft";
+}
+
+function formatDistanceNumber(value) {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  const rounded = Math.round(Number(value) * 10) / 10;
+  if (Number.isInteger(rounded)) return String(Math.trunc(rounded));
+  return rounded.toFixed(1);
+}
+
+function formatElevationNumber(value) {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  return String(Math.round(value));
+}
+
+function formatDistanceWithUnitFromMiles(miles) {
+  if (!Number.isFinite(miles)) return "n/a";
+  if (miles <= 0) return `0 ${unitDistanceSuffix()}`;
+  const display = milesToDisplayDistance(miles);
+  return `${formatDistanceNumber(display)} ${unitDistanceSuffix()}`;
+}
+
+function formatElevationWithUnitFromFeet(feet) {
+  if (!Number.isFinite(feet) || feet <= 0) return `0 ${unitElevationSuffix()}`;
+  const display = feetToDisplayElevation(feet);
+  return `${Math.round(display).toLocaleString()} ${unitElevationSuffix()}`;
+}
+
+function formatDistanceValueFromMiles(miles) {
+  return formatDistanceNumber(milesToDisplayDistance(Number(miles || 0)));
+}
+
+function formatElevationValueFromFeet(feet) {
+  return Math.round(feetToDisplayElevation(Number(feet || 0))).toLocaleString();
+}
+
+function formatStageRangeWithUnits(startMile, endMile) {
+  const start = formatDistanceValueFromMiles(Number(startMile || 0));
+  const end = formatDistanceValueFromMiles(Number(endMile || 0));
+  return `${start}-${end} ${unitDistanceSuffix()}`;
+}
+
+function formatRouteDistanceWithUnits(miles) {
+  return `${formatDistanceValueFromMiles(miles)} ${unitDistanceSuffix()}`;
+}
+
+function formatMapElevationFromMeters(elevationMeters) {
+  if (!Number.isFinite(elevationMeters)) return "unavailable";
+  const elevationFeet = elevationMeters * 3.28084;
+  return `${formatElevationValueFromFeet(elevationFeet)} ${unitElevationSuffix()}`;
+}
+
+function setRouteDistanceInputMiles(miles) {
+  if (!routeDistanceInput) return;
+  routeDistanceInput.value = formatDistanceNumber(milesToDisplayDistance(Number(miles || 0)));
+}
+
+function getRouteDistanceInputMiles() {
+  if (!routeDistanceInput) return 0;
+  return displayDistanceToMiles(Number(routeDistanceInput.value || 0));
+}
+
+function refreshDistanceBoundsForUnits() {
+  if (!routeDistanceInput) return;
+  const route = ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID];
+  routeDistanceInput.min = formatDistanceNumber(milesToDisplayDistance(Number(route.minDistance || 0)));
+  routeDistanceInput.max = formatDistanceNumber(milesToDisplayDistance(Number(route.maxDistance || 0)));
+}
+
 function formatMilesLikePlannerInput(miles) {
-  if (!Number.isFinite(miles) || miles <= 0) return "n/a";
-  const rounded = Math.round(Number(miles) * 10) / 10;
-  if (Number.isInteger(rounded)) return `${Math.trunc(rounded)} mi`;
-  return `${rounded.toFixed(1)} mi`;
+  return formatDistanceWithUnitFromMiles(miles);
 }
 
 function formatHomeGain(gainFt) {
@@ -1004,7 +1138,7 @@ function renderCustomStopEditor() {
     noteInput.value = point.resupply || "";
 
     const sync = () => {
-      const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || Number(routeDistanceInput.value || 0);
+      const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || getRouteDistanceInputMiles();
       const mile = Math.max(0, Math.min(routeMax, Number(mileInput.value || 0)));
       const snapped = pointAtMile(gpxTrackPoints, trackCumulativeMiles, mile);
       resupplyPoints[index] = {
@@ -1081,7 +1215,7 @@ function renderResupplyMarkers() {
   resupplyPoints.forEach((point, index) => {
     const marker = L.marker([point.lat, point.lon], { icon: makeResupplyIcon(), draggable: true })
       .addTo(resupplyLayer)
-      .bindPopup(`<strong>${point.name}</strong><br/>Mile ${point.mile}<br/>${point.resupply}`);
+      .bindPopup(`<strong>${point.name}</strong><br/>Distance ${formatRouteDistanceWithUnits(point.mile)}<br/>${point.resupply}`);
     marker.on("click", () => {
       if (!plan.length) return;
       const assignments = resupplyDayAssignments(plan);
@@ -1147,9 +1281,8 @@ function applyRouteConfig(routeId) {
   }
 
   if (routeDistanceInput) {
-    routeDistanceInput.min = String(route.minDistance);
-    routeDistanceInput.max = String(route.maxDistance);
-    routeDistanceInput.value = String(route.defaultDistance);
+    refreshDistanceBoundsForUnits();
+    setRouteDistanceInputMiles(route.defaultDistance);
   }
 
   if (totalDaysInput && Number.isFinite(route.defaultDays)) {
@@ -1199,12 +1332,104 @@ function setMapsLink(anchor, query) {
   anchor.hidden = false;
 }
 
+function getAutoRwgpsCalibrationFactor() {
+  const routeId = getRouteFromUrl();
+  const factor = Number(AUTO_RWGPS_GAIN_FACTORS[routeId] ?? 1);
+  if (!Number.isFinite(factor) || factor <= 0) return 1;
+  return factor;
+}
+
+function applyElevationCalibrationFt(valueFt) {
+  const numeric = Number(valueFt || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  const factor = getAutoRwgpsCalibrationFactor();
+  return Math.max(0, Math.round(numeric * factor));
+}
+
+function normalizeCalibrationCurve(routeDistance, curve) {
+  const maxMile = Number.isFinite(routeDistance) && routeDistance > 0 ? routeDistance : Infinity;
+  const normalized = (Array.isArray(curve) ? curve : [])
+    .map((point) => ({
+      mile: Number(point?.mile),
+      factor: Number(point?.factor)
+    }))
+    .filter((point) => Number.isFinite(point.mile) && point.mile >= 0 && Number.isFinite(point.factor) && point.factor > 0)
+    .map((point) => ({
+      mile: Math.min(point.mile, maxMile),
+      factor: point.factor
+    }))
+    .sort((a, b) => a.mile - b.mile);
+  return normalized;
+}
+
+function calibrationFactorAtMile(routeDistance, curve, mile, fallbackFactor) {
+  const points = normalizeCalibrationCurve(routeDistance, curve);
+  if (!points.length) return fallbackFactor;
+
+  const targetMile = Math.max(0, Number(mile || 0));
+  if (targetMile <= points[0].mile) return points[0].factor;
+  if (targetMile >= points[points.length - 1].mile) return points[points.length - 1].factor;
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const next = points[i];
+    if (targetMile > next.mile) continue;
+    const span = Math.max(1e-9, next.mile - prev.mile);
+    const ratio = Math.max(0, Math.min(1, (targetMile - prev.mile) / span));
+    return prev.factor + (next.factor - prev.factor) * ratio;
+  }
+  return points[points.length - 1].factor;
+}
+
+function applyElevationCalibrationForRangeFt(startMile, endMile, routeDistance, rawFn) {
+  const start = Number(startMile || 0);
+  const end = Number(endMile || 0);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+
+  const routeId = getRouteFromUrl();
+  const fallbackFactor = getAutoRwgpsCalibrationFactor();
+  const curve = ROUTE_MILE_CALIBRATION_CURVES[routeId];
+  const points = normalizeCalibrationCurve(routeDistance, curve);
+  if (!points.length) {
+    return applyElevationCalibrationFt(rawFn(start, end, routeDistance));
+  }
+
+  // Integrate range in small chunks so calibration changes smoothly with miles.
+  const boundaries = [start, end];
+  points.forEach((point) => {
+    if (point.mile > start && point.mile < end) boundaries.push(point.mile);
+  });
+  boundaries.sort((a, b) => a - b);
+
+  let calibrated = 0;
+  for (let i = 1; i < boundaries.length; i++) {
+    const a = boundaries[i - 1];
+    const b = boundaries[i];
+    if (b <= a) continue;
+
+    // Subdivide long sections to keep interpolation stable on large day ranges.
+    const maxChunkMiles = 25;
+    const chunks = Math.max(1, Math.ceil((b - a) / maxChunkMiles));
+    for (let c = 0; c < chunks; c++) {
+      const chunkStart = a + ((b - a) * c) / chunks;
+      const chunkEnd = a + ((b - a) * (c + 1)) / chunks;
+      if (chunkEnd <= chunkStart) continue;
+      const mid = (chunkStart + chunkEnd) / 2;
+      const factor = calibrationFactorAtMile(routeDistance, points, mid, fallbackFactor);
+      const raw = Number(rawFn(chunkStart, chunkEnd, routeDistance) || 0);
+      calibrated += Math.max(0, raw) * factor;
+    }
+  }
+
+  return Math.max(0, Math.round(calibrated));
+}
+
 function parseForm() {
   const startDate = startDateInput.value;
   const finishDate = finishDateInput.value;
   const totalDays = Number(totalDaysInput.value);
   const restDays = Number(restDaysInput.value);
-  const routeDistance = Number(routeDistanceInput.value);
+  const routeDistance = displayDistanceToMiles(Number(routeDistanceInput.value));
 
   if (!startDate || totalDays < 1 || restDays < 0 || routeDistance < 1) {
     return null;
@@ -1408,7 +1633,19 @@ function interpolateSeriesAtMile(mile, miles, values) {
   return values[prev] + (values[next] - values[prev]) * ratio;
 }
 
-function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
+function getEffectiveRouteDistanceMiles(routeDistance) {
+  const gpxTotal = trackCumulativeMiles[trackCumulativeMiles.length - 1];
+  if (Number.isFinite(gpxTotal) && gpxTotal > 0) return gpxTotal;
+  const configured = Number(routeDistance);
+  if (Number.isFinite(configured) && configured > 0) return configured;
+  return 0;
+}
+
+function gpxGainBetweenMilesRaw(startMile, endMile, routeDistance) {
+  if ((!trackCumulativeMiles.length || !trackCumulativeGainFt.length) && gpxTrackPoints.length) {
+    trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
+    trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+  }
   if (!trackCumulativeMiles.length || !trackCumulativeGainFt.length) {
     const span = Math.max(0, endMile - startMile);
     return Math.round(span * elevationFactor(endMile, routeDistance));
@@ -1424,7 +1661,15 @@ function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
   return Math.max(0, Math.round(gainEnd - gainStart));
 }
 
-function gpxLossBetweenMiles(startMile, endMile, routeDistance) {
+function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
+  return applyElevationCalibrationForRangeFt(startMile, endMile, routeDistance, gpxGainBetweenMilesRaw);
+}
+
+function gpxLossBetweenMilesRaw(startMile, endMile, routeDistance) {
+  if ((!trackCumulativeMiles.length || !trackCumulativeLossFt.length) && gpxTrackPoints.length) {
+    trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
+    trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
+  }
   if (!trackCumulativeMiles.length || !trackCumulativeLossFt.length) {
     const span = Math.max(0, endMile - startMile);
     return Math.round(span * elevationFactor(endMile, routeDistance) * 0.9);
@@ -1440,6 +1685,10 @@ function gpxLossBetweenMiles(startMile, endMile, routeDistance) {
   return Math.max(0, Math.round(lossEnd - lossStart));
 }
 
+function gpxLossBetweenMiles(startMile, endMile, routeDistance) {
+  return applyElevationCalibrationForRangeFt(startMile, endMile, routeDistance, gpxLossBetweenMilesRaw);
+}
+
 function elevationFactor(cumulativeMiles, routeDistance) {
   const progress = routeDistance > 0 ? cumulativeMiles / routeDistance : 0;
 
@@ -1452,6 +1701,7 @@ function elevationFactor(cumulativeMiles, routeDistance) {
 
 function recomputeDerivedFieldsForDays(days, config) {
   if (!config || !Array.isArray(days) || !days.length) return;
+  const effectiveRouteDistance = getEffectiveRouteDistanceMiles(config.routeDistance);
   let cumulativeMiles = 0;
   for (const day of days) {
     if (day.type === "Rest") {
@@ -1462,10 +1712,10 @@ function recomputeDerivedFieldsForDays(days, config) {
 
     const rideMiles = Number(day.miles || 0);
     const dayStart = cumulativeMiles;
-    const dayEnd = Math.min(config.routeDistance, cumulativeMiles + rideMiles);
+    const dayEnd = Math.min(effectiveRouteDistance, cumulativeMiles + rideMiles);
     cumulativeMiles = dayEnd;
-    day.gain = gpxGainBetweenMiles(dayStart, dayEnd, config.routeDistance);
-    day.loss = gpxLossBetweenMiles(dayStart, dayEnd, config.routeDistance);
+    day.gain = gpxGainBetweenMiles(dayStart, dayEnd, effectiveRouteDistance);
+    day.loss = gpxLossBetweenMiles(dayStart, dayEnd, effectiveRouteDistance);
     day.town = nearestWaypoint(cumulativeMiles);
   }
 }
@@ -1478,6 +1728,8 @@ function recomputeDerivedFields() {
 
 function buildPlan(config) {
   const start = new Date(`${config.startDate}T08:00:00`);
+  const effectiveRouteDistance = getEffectiveRouteDistanceMiles(config.routeDistance);
+  const averageRideMiles = effectiveRouteDistance / Math.max(config.rideDays || (config.totalDays - config.restDays), 1);
   const restIndexes = new Set();
 
   if (config.restDays > 0) {
@@ -1492,9 +1744,9 @@ function buildPlan(config) {
 
   for (let day = 0; day < config.totalDays; day++) {
     const isRest = restIndexes.has(day);
-    const rideMiles = isRest ? 0 : Number(config.avgRideMiles.toFixed(1));
+    const rideMiles = isRest ? 0 : Number(averageRideMiles.toFixed(1));
     const dayStart = cumulativeMiles;
-    const dayEnd = Math.min(config.routeDistance, cumulativeMiles + rideMiles);
+    const dayEnd = Math.min(effectiveRouteDistance, cumulativeMiles + rideMiles);
     cumulativeMiles = dayEnd;
 
     nextPlan.push({
@@ -1502,8 +1754,8 @@ function buildPlan(config) {
       date: localDateString(new Date(start.getTime() + day * 86400000)),
       type: isRest ? "Rest" : "Ride",
       miles: rideMiles,
-      gain: isRest ? 0 : gpxGainBetweenMiles(dayStart, dayEnd, config.routeDistance),
-      loss: isRest ? 0 : gpxLossBetweenMiles(dayStart, dayEnd, config.routeDistance),
+      gain: isRest ? 0 : gpxGainBetweenMiles(dayStart, dayEnd, effectiveRouteDistance),
+      loss: isRest ? 0 : gpxLossBetweenMiles(dayStart, dayEnd, effectiveRouteDistance),
       town: isRest ? "Recovery + laundry + bike check" : nearestWaypoint(cumulativeMiles),
       resupplyOptions1: isRest ? "Cafe + grocery + lodging" : "Market + gas station + cafe",
       resupplyHours1: isRest ? "Varies by town" : "6:00 AM - 9:00 PM",
@@ -1525,7 +1777,7 @@ function buildPlan(config) {
   }
 
   const totalPlanned = nextPlan.reduce((sum, day) => sum + day.miles, 0);
-  const difference = Number((config.routeDistance - totalPlanned).toFixed(1));
+  const difference = Number((effectiveRouteDistance - totalPlanned).toFixed(1));
   if (difference !== 0) {
     const lastRide = [...nextPlan].reverse().find((day) => day.type === "Ride");
     if (lastRide) {
@@ -1544,19 +1796,22 @@ function renderMetrics(config, days) {
   const totalLoss = rideDays.reduce((sum, d) => sum + Number(d.loss || 0), 0);
 
   if (plannerTotalRouteDistance) {
-    const routeMiles = Number(activeRouteGpxDistanceMiles || config?.routeDistance || routeDistanceInput?.value || 0);
+    const routeMiles = Number(
+      activeRouteGpxDistanceMiles || config?.routeDistance || displayDistanceToMiles(Number(routeDistanceInput?.value || 0)) || 0
+    );
     plannerTotalRouteDistance.textContent = formatMilesLikePlannerInput(routeMiles);
   }
 
-  const snapshotRouteMiles = Number(routeDistanceInput?.value || activeRouteGpxDistanceMiles || config.routeDistance);
+  const snapshotRouteMiles = displayDistanceToMiles(Number(routeDistanceInput?.value || activeRouteGpxDistanceMiles || config.routeDistance));
+  const avgRideMiles = totalMiles / Math.max(rideDays.length, 1);
   const items = [
     ["Route", formatMilesLikePlannerInput(snapshotRouteMiles)],
     ["Race Days", `${config.totalDays}`],
     ["Ride Days", `${rideDays.length}`],
     ["Rest Days", `${config.restDays}`],
-    ["Avg on Ride Days", `${(totalMiles / Math.max(rideDays.length, 1)).toFixed(1)} mi`],
-    ["Total Planned Gain", `${totalGain.toLocaleString()} ft`],
-    ["Total Planned Loss", `${totalLoss.toLocaleString()} ft`]
+    ["Avg on Ride Days", formatDistanceWithUnitFromMiles(avgRideMiles)],
+    ["Total Planned Gain", formatElevationWithUnitFromFeet(totalGain)],
+    ["Total Planned Loss", formatElevationWithUnitFromFeet(totalLoss)]
   ];
 
   metricList.innerHTML = "";
@@ -1654,18 +1909,59 @@ function applyPlannerConfig(config) {
   finishDateInput.value = config.finishDate || finishDateInput.value;
   totalDaysInput.value = config.totalDays || totalDaysInput.value;
   restDaysInput.value = config.restDays || restDaysInput.value;
-  routeDistanceInput.value = String(migratedDistance || routeDistanceInput.value);
+  const displayDistance = milesToDisplayDistance(Number(migratedDistance || routeDistanceInput.value || 0));
+  routeDistanceInput.value = formatDistanceNumber(displayDistance);
+}
+
+function applyPlannerUnits(nextUnit, { preserveDistance = true } = {}) {
+  const normalizedUnit = nextUnit === "metric" ? "metric" : "imperial";
+  const currentMiles = getRouteDistanceInputMiles();
+  planUnitSystem = normalizedUnit;
+  if (planUnitsMetricInput) planUnitsMetricInput.checked = isMetricPlannerUnits();
+  if (routeDistanceLabel) routeDistanceLabel.textContent = `Total route distance (${unitDistanceSuffix()})`;
+  if (routeProfileAxisY) routeProfileAxisY.textContent = `Elevation (${unitElevationSuffix()})`;
+  if (routeProfileAxisX) routeProfileAxisX.textContent = `Distance (${unitDistanceSuffix()})`;
+  refreshDistanceBoundsForUnits();
+  if (preserveDistance) setRouteDistanceInputMiles(currentMiles);
+  if (plan.length) renderPlan(plan);
+  const config = parseForm();
+  if (config && plan.length) renderMetrics(config, plan);
+  if (gpxTrackPoints.length) {
+    updateStagesFromInput();
+  }
+}
+
+function setupPlannerUnits() {
+  let stored = "imperial";
+  try {
+    stored = localStorage.getItem(PLAN_UNITS_KEY) || "imperial";
+  } catch {
+    stored = "imperial";
+  }
+  applyPlannerUnits(stored === "metric" ? "metric" : "imperial", { preserveDistance: true });
+  if (planUnitsMetricInput) {
+    planUnitsMetricInput.addEventListener("change", () => {
+      const nextUnit = planUnitsMetricInput.checked ? "metric" : "imperial";
+      applyPlannerUnits(nextUnit, { preserveDistance: true });
+      try {
+        localStorage.setItem(PLAN_UNITS_KEY, nextUnit);
+      } catch {
+        // Ignore localStorage write failures.
+      }
+      persistPlan();
+    });
+  }
 }
 
 function enforceRouteDistanceBaseline() {
   const routeId = getRouteFromUrl();
   const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
-  const currentDistance = Number(routeDistanceInput?.value);
+  const currentDistance = displayDistanceToMiles(Number(routeDistanceInput?.value));
   const legacyDistance = Number(LEGACY_ROUTE_DISTANCES[routeId]);
   const correctedDistance = Number(activeRouteGpxDistanceMiles || route.defaultDistance || 0);
   if (!Number.isFinite(currentDistance) || !Number.isFinite(correctedDistance) || correctedDistance <= 0) return false;
   if (Number.isFinite(legacyDistance) && nearlyEqual(currentDistance, legacyDistance)) {
-    routeDistanceInput.value = String(correctedDistance);
+    routeDistanceInput.value = formatDistanceNumber(milesToDisplayDistance(correctedDistance));
     return true;
   }
   return false;
@@ -1702,15 +1998,25 @@ function createDayCard(day, index) {
   const milesInput = node.querySelector(".miles-input");
   const gainInput = node.querySelector(".gain-input");
   const lossInput = node.querySelector(".loss-input");
+  const distanceLabel = node.querySelector(".day-distance-label");
+  const gainLabel = node.querySelector(".day-gain-label");
+  const lossLabel = node.querySelector(".day-loss-label");
   const townInput = node.querySelector(".town-input");
   const notesInput = node.querySelector(".notes-input");
   const distanceSoFarValue = node.querySelector(".day-distance-so-far-value");
 
-  milesInput.value = normalized.miles;
-  gainInput.value = normalized.gain;
-  lossInput.value = normalized.loss;
+  if (distanceLabel) distanceLabel.textContent = isMetricPlannerUnits() ? "Distance (km)" : "Miles";
+  if (gainLabel) gainLabel.textContent = `Gain (${unitElevationSuffix()})`;
+  if (lossLabel) lossLabel.textContent = `Loss (${unitElevationSuffix()})`;
+
+  milesInput.value = formatDistanceNumber(milesToDisplayDistance(normalized.miles));
+  gainInput.value = formatElevationNumber(feetToDisplayElevation(normalized.gain));
+  lossInput.value = formatElevationNumber(feetToDisplayElevation(normalized.loss));
   townInput.value = normalized.town;
   notesInput.value = normalized.notes;
+  milesInput.step = isMetricPlannerUnits() ? "0.1" : "0.1";
+  gainInput.step = isMetricPlannerUnits() ? "10" : "100";
+  lossInput.step = isMetricPlannerUnits() ? "10" : "100";
   if (distanceSoFarValue) {
     let cumulativeMiles = 0;
     for (let i = 0; i <= index; i++) {
@@ -1718,7 +2024,7 @@ function createDayCard(day, index) {
       if (!dayAtIndex || dayAtIndex.type === "Rest") continue;
       cumulativeMiles += Number(dayAtIndex.miles || 0);
     }
-    distanceSoFarValue.textContent = `${cumulativeMiles.toFixed(1)} mi`;
+    distanceSoFarValue.textContent = `${formatDistanceNumber(milesToDisplayDistance(cumulativeMiles))} ${unitDistanceSuffix()}`;
   }
 
   if (day.type === "Rest") {
@@ -1730,9 +2036,9 @@ function createDayCard(day, index) {
   const sync = () => {
     plan[index] = {
       ...plan[index],
-      miles: Number(milesInput.value || 0),
-      gain: Number(gainInput.value || 0),
-      loss: Number(lossInput.value || 0),
+      miles: displayDistanceToMiles(Number(milesInput.value || 0)),
+      gain: displayElevationToFeet(Number(gainInput.value || 0)),
+      loss: displayElevationToFeet(Number(lossInput.value || 0)),
       town: townInput.value,
       notes: notesInput.value
     };
@@ -1745,7 +2051,7 @@ function createDayCard(day, index) {
   const syncMileage = () => {
     plan[index] = {
       ...plan[index],
-      miles: Number(milesInput.value || 0)
+      miles: displayDistanceToMiles(Number(milesInput.value || 0))
     };
     recomputeDerivedFields();
     persistPlan();
@@ -1779,7 +2085,7 @@ function resupplyDayAssignments(days) {
   }
 
   const assignments = new Map();
-  const routeCap = Number(routeDistanceInput.value || resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
+  const routeCap = getRouteDistanceInputMiles() || Number(resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
   for (let i = 1; i < resupplyPoints.length - 1; i++) {
     const point = resupplyPoints[i];
     if (point.mile > routeCap) continue;
@@ -1810,7 +2116,7 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
     if (isCustom) {
       resupplyMileInput.addEventListener("change", () => {
         if (stopInfo.stopIndex === undefined || !resupplyPoints[stopInfo.stopIndex]) return;
-        const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || Number(routeDistanceInput.value || 0);
+        const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || getRouteDistanceInputMiles();
         const requestedMile = Number(resupplyMileInput.value || stopInfo.point.mile || 0);
         const safeMile = Math.max(0, Math.min(routeMax, requestedMile));
         const snapped = pointAtMile(gpxTrackPoints, trackCumulativeMiles, safeMile);
@@ -3056,36 +3362,215 @@ function buildTrackCumulativeMiles(trackPoints) {
   return cumulative;
 }
 
-function buildTrackCumulativeGainFt(trackPoints) {
-  if (!trackPoints.length) return [];
-  const cumulativeGain = [0];
-  for (let i = 1; i < trackPoints.length; i++) {
-    const prevEle = trackPoints[i - 1].ele;
-    const nextEle = trackPoints[i].ele;
-    if (prevEle === null || nextEle === null) {
-      cumulativeGain[i] = cumulativeGain[i - 1];
-      continue;
-    }
-    const deltaFt = (nextEle - prevEle) * 3.28084;
-    cumulativeGain[i] = cumulativeGain[i - 1] + (deltaFt > 3 ? deltaFt : 0);
+function fillAndSmoothElevationSeriesMeters(trackPoints) {
+  if (!Array.isArray(trackPoints) || !trackPoints.length) return [];
+
+  const series = new Array(trackPoints.length);
+  for (let i = 0; i < trackPoints.length; i++) {
+    const ele = trackPoints[i]?.ele;
+    series[i] = Number.isFinite(ele) ? Number(ele) : null;
   }
-  return cumulativeGain;
+
+  // Fill null gaps via linear interpolation between nearest valid neighbors.
+  let lastValidIndex = -1;
+  for (let i = 0; i < series.length; i++) {
+    if (series[i] !== null) {
+      if (lastValidIndex >= 0 && i - lastValidIndex > 1) {
+        const start = series[lastValidIndex];
+        const end = series[i];
+        const span = i - lastValidIndex;
+        for (let j = lastValidIndex + 1; j < i; j++) {
+          const ratio = (j - lastValidIndex) / span;
+          series[j] = start + (end - start) * ratio;
+        }
+      }
+      lastValidIndex = i;
+    }
+  }
+  if (lastValidIndex >= 0) {
+    for (let i = 0; i < lastValidIndex; i++) {
+      if (series[i] === null) series[i] = series[lastValidIndex];
+    }
+    for (let i = lastValidIndex + 1; i < series.length; i++) {
+      if (series[i] === null) series[i] = series[lastValidIndex];
+    }
+  }
+
+  const fallback = series.find((v) => v !== null) ?? 0;
+  for (let i = 0; i < series.length; i++) {
+    if (series[i] === null) series[i] = fallback;
+  }
+
+  // Remove sharp spikes, then median smooth.
+  const cleaned = [...series];
+  for (let i = 1; i < cleaned.length - 1; i++) {
+    const neighborMean = (cleaned[i - 1] + cleaned[i + 1]) / 2;
+    const diffFt = Math.abs((cleaned[i] - neighborMean) * 3.28084);
+    if (diffFt > RWGPS_ELEV_OUTLIER_FT) cleaned[i] = neighborMean;
+  }
+
+  const halfWindow = Math.max(1, Math.floor(RWGPS_ELEV_MEDIAN_WINDOW_POINTS / 2));
+  const smoothed = new Array(cleaned.length);
+  for (let i = 0; i < cleaned.length; i++) {
+    const window = [];
+    for (let k = -halfWindow; k <= halfWindow; k++) {
+      const idx = Math.max(0, Math.min(cleaned.length - 1, i + k));
+      window.push(cleaned[idx]);
+    }
+    window.sort((a, b) => a - b);
+    smoothed[i] = window[Math.floor(window.length / 2)];
+  }
+  return smoothed;
+}
+
+function interpolateSeriesAtMileUnsafeSorted(mile, miles, values, cursorState) {
+  const lastIndex = miles.length - 1;
+  if (lastIndex < 1) return Number(values[0] || 0);
+  if (mile <= miles[0]) return Number(values[0] || 0);
+  if (mile >= miles[lastIndex]) return Number(values[lastIndex] || 0);
+
+  let idx = Math.max(1, Math.min(lastIndex, Number(cursorState?.idx || 1)));
+  while (idx < lastIndex && miles[idx] < mile) idx += 1;
+  while (idx > 1 && miles[idx - 1] > mile) idx -= 1;
+  if (cursorState) cursorState.idx = idx;
+
+  const prev = idx - 1;
+  const next = idx;
+  const span = Math.max(1e-9, miles[next] - miles[prev]);
+  const ratio = Math.max(0, Math.min(1, (mile - miles[prev]) / span));
+  return Number(values[prev] || 0) + (Number(values[next] || 0) - Number(values[prev] || 0)) * ratio;
+}
+
+function sampleNumericSeries(values, maxPoints = RWGPS_PROFILE_MAX_SAMPLES) {
+  if (!Array.isArray(values) || values.length <= maxPoints) return [...values];
+  const result = [];
+  const step = (values.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i++) {
+    const index = Math.round(i * step);
+    result.push(values[Math.max(0, Math.min(values.length - 1, index))]);
+  }
+  return result;
+}
+
+function buildRwgpsElevationEngine(trackPoints) {
+  if (!Array.isArray(trackPoints) || trackPoints.length < 2) {
+    return {
+      totalMiles: 0,
+      hasElevation: false,
+      cumulativeMilesByPoint: [],
+      cumulativeGainFtByPoint: [],
+      cumulativeLossFtByPoint: [],
+      profileSamplesMeters: [],
+      minEleMeters: 0,
+      maxEleMeters: 0
+    };
+  }
+
+  const cached = rwgpsElevationEngineCache.get(trackPoints);
+  if (cached) return cached;
+
+  const cumulativeMilesByPoint = buildTrackCumulativeMiles(trackPoints);
+  const totalMiles = cumulativeMilesByPoint[cumulativeMilesByPoint.length - 1] || 0;
+  const elevationMetersByPoint = fillAndSmoothElevationSeriesMeters(trackPoints);
+  const hasElevation = elevationMetersByPoint.some((v) => Number.isFinite(v));
+
+  if (!hasElevation || totalMiles <= 0) {
+    const empty = {
+      totalMiles,
+      hasElevation: false,
+      cumulativeMilesByPoint,
+      cumulativeGainFtByPoint: new Array(trackPoints.length).fill(0),
+      cumulativeLossFtByPoint: new Array(trackPoints.length).fill(0),
+      profileSamplesMeters: [],
+      minEleMeters: 0,
+      maxEleMeters: 0
+    };
+    rwgpsElevationEngineCache.set(trackPoints, empty);
+    return empty;
+  }
+
+  const sampleStep = Math.max(
+    RWGPS_MIN_SAMPLE_STEP_MI,
+    Math.min(RWGPS_MAX_SAMPLE_STEP_MI, totalMiles / RWGPS_TARGET_SAMPLE_COUNT)
+  );
+  const sampleCount = Math.max(2, Math.ceil(totalMiles / sampleStep) + 1);
+
+  const sampleMiles = new Array(sampleCount);
+  const sampleElevationMeters = new Array(sampleCount);
+  const elevationCursor = { idx: 1 };
+  for (let i = 0; i < sampleCount; i++) {
+    const mile = Math.min(totalMiles, i * sampleStep);
+    sampleMiles[i] = mile;
+    sampleElevationMeters[i] = interpolateSeriesAtMileUnsafeSorted(
+      mile,
+      cumulativeMilesByPoint,
+      elevationMetersByPoint,
+      elevationCursor
+    );
+  }
+
+  // Distance-based smoothing gives route-agnostic behavior closer to RWGPS.
+  const smoothedSampleElevationMeters = smoothSeries(sampleElevationMeters, 5);
+
+  const sampleCumulativeGainFt = new Array(sampleCount).fill(0);
+  const sampleCumulativeLossFt = new Array(sampleCount).fill(0);
+  for (let i = 1; i < sampleCount; i++) {
+    const deltaMeters = smoothedSampleElevationMeters[i] - smoothedSampleElevationMeters[i - 1];
+    if (deltaMeters > RWGPS_MIN_ASCENT_STEP_M) {
+      sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1] + deltaMeters * 3.28084;
+      sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1];
+    } else if (deltaMeters < -RWGPS_MIN_ASCENT_STEP_M) {
+      sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1];
+      sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1] + Math.abs(deltaMeters) * 3.28084;
+    } else {
+      sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1];
+      sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1];
+    }
+  }
+
+  const cumulativeGainFtByPoint = new Array(trackPoints.length).fill(0);
+  const cumulativeLossFtByPoint = new Array(trackPoints.length).fill(0);
+  const sampleCursor = { idx: 1 };
+  for (let i = 0; i < cumulativeMilesByPoint.length; i++) {
+    const mile = cumulativeMilesByPoint[i];
+    cumulativeGainFtByPoint[i] = interpolateSeriesAtMileUnsafeSorted(
+      mile,
+      sampleMiles,
+      sampleCumulativeGainFt,
+      sampleCursor
+    );
+    cumulativeLossFtByPoint[i] = interpolateSeriesAtMileUnsafeSorted(
+      mile,
+      sampleMiles,
+      sampleCumulativeLossFt,
+      sampleCursor
+    );
+  }
+
+  const minEleMeters = Math.min(...smoothedSampleElevationMeters);
+  const maxEleMeters = Math.max(...smoothedSampleElevationMeters);
+  const profileSamplesMeters = sampleNumericSeries(smoothedSampleElevationMeters, RWGPS_PROFILE_MAX_SAMPLES);
+
+  const engine = {
+    totalMiles,
+    hasElevation: true,
+    cumulativeMilesByPoint,
+    cumulativeGainFtByPoint,
+    cumulativeLossFtByPoint,
+    profileSamplesMeters,
+    minEleMeters,
+    maxEleMeters
+  };
+  rwgpsElevationEngineCache.set(trackPoints, engine);
+  return engine;
+}
+
+function buildTrackCumulativeGainFt(trackPoints) {
+  return buildRwgpsElevationEngine(trackPoints).cumulativeGainFtByPoint;
 }
 
 function buildTrackCumulativeLossFt(trackPoints) {
-  if (!trackPoints.length) return [];
-  const cumulativeLoss = [0];
-  for (let i = 1; i < trackPoints.length; i++) {
-    const prevEle = trackPoints[i - 1].ele;
-    const nextEle = trackPoints[i].ele;
-    if (prevEle === null || nextEle === null) {
-      cumulativeLoss[i] = cumulativeLoss[i - 1];
-      continue;
-    }
-    const deltaFt = (prevEle - nextEle) * 3.28084;
-    cumulativeLoss[i] = cumulativeLoss[i - 1] + (deltaFt > 3 ? deltaFt : 0);
-  }
-  return cumulativeLoss;
+  return buildRwgpsElevationEngine(trackPoints).cumulativeLossFtByPoint;
 }
 
 function nearestTrackPointAndMile(latlng) {
@@ -3227,8 +3712,8 @@ function computeSectionElevation(points) {
     };
   }
 
-  const usable = points.filter((point) => point.ele !== null);
-  if (usable.length < 2) {
+  const engine = buildRwgpsElevationEngine(points);
+  if (!engine.hasElevation || !engine.cumulativeGainFtByPoint.length) {
     return {
       elevationGainFt: 0,
       minEleFt: 0,
@@ -3238,43 +3723,17 @@ function computeSectionElevation(points) {
     };
   }
 
-  const distances = [0];
-  const elevations = [usable[0].ele];
-  for (let i = 1; i < usable.length; i++) {
-    distances.push(distances[i - 1] + haversineMiles(usable[i - 1], usable[i]));
-    elevations.push(usable[i].ele);
-  }
-
-  const totalDistance = distances[distances.length - 1];
-  const sampleCount = Math.min(2000, Math.max(600, usable.length));
-  const sampled = [];
-  let idx = 1;
-  for (let s = 0; s < sampleCount; s++) {
-    const target = (totalDistance * s) / (sampleCount - 1);
-    while (idx < distances.length && distances[idx] < target) idx += 1;
-    const prev = Math.max(0, idx - 1);
-    const next = Math.min(distances.length - 1, idx);
-    const span = Math.max(1e-9, distances[next] - distances[prev]);
-    const ratio = Math.max(0, Math.min(1, (target - distances[prev]) / span));
-    sampled.push(elevations[prev] + (elevations[next] - elevations[prev]) * ratio);
-  }
-
-  const smoothed = smoothSeries(sampled, 3);
-  let gainMeters = 0;
-  for (let i = 1; i < smoothed.length; i++) {
-    const delta = smoothed[i] - smoothed[i - 1];
-    if (delta > 1.0) gainMeters += delta;
-  }
-
-  const minEle = Math.min(...smoothed);
-  const maxEle = Math.max(...smoothed);
+  const totalDistance = engine.totalMiles;
+  const gainFt = engine.cumulativeGainFtByPoint[engine.cumulativeGainFtByPoint.length - 1] || 0;
+  const minEle = engine.minEleMeters;
+  const maxEle = engine.maxEleMeters;
 
   return {
-    elevationGainFt: Math.round(gainMeters * 3.28084),
+    elevationGainFt: Math.round(gainFt),
     minEleFt: Math.round(minEle * 3.28084),
     maxEleFt: Math.round(maxEle * 3.28084),
     totalDistanceMi: Number(totalDistance.toFixed(1)),
-    profileSamples: smoothed
+    profileSamples: engine.profileSamplesMeters
   };
 }
 
@@ -3346,7 +3805,9 @@ function renderRouteProfile() {
         `<text x="${chartPoint.x.toFixed(2)}" y="${(chartPoint.y + 3.6).toFixed(
           2
         )}" text-anchor="middle" font-size="8.8">🍔` +
-        `<title>${stopName} resupply - Mile ${stopMile.toFixed(1)} - Elev ${chartPoint.eleFt.toLocaleString()} ft</title>` +
+        `<title>${stopName} resupply - Distance ${formatRouteDistanceWithUnits(stopMile)} - Elev ${formatElevationWithUnitFromFeet(
+          chartPoint.eleFt
+        )}</title>` +
         "</text>"
       );
     })
@@ -3365,7 +3826,9 @@ function renderRouteProfile() {
         `<polygon points="${leftX.toFixed(2)},${baseY} ${rightX.toFixed(2)},${baseY} ${chartPoint.x.toFixed(
           2
         )},${tipY}" fill="#1e5cc8" stroke="#123e86" stroke-width="1">` +
-        `<title>Day ${stage.stage} camp - Mile ${endMile.toFixed(1)} - Elev ${chartPoint.eleFt.toLocaleString()} ft</title>` +
+        `<title>Day ${stage.stage} camp - Distance ${formatRouteDistanceWithUnits(endMile)} - Elev ${formatElevationWithUnitFromFeet(
+          chartPoint.eleFt
+        )}</title>` +
         "</polygon>"
       );
     })
@@ -3380,7 +3843,9 @@ function renderRouteProfile() {
     campIcons
   ].join("");
 
-  profileMetaEl.textContent = `Min ${profile.minEleFt.toLocaleString()} ft • Max ${profile.maxEleFt.toLocaleString()} ft`;
+  profileMetaEl.textContent = `Min ${formatElevationWithUnitFromFeet(profile.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
+    profile.maxEleFt
+  )}`;
   routeProfileDefaultMetaText = profileMetaEl.textContent;
 
   const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -3451,7 +3916,9 @@ function syncRouteProfileHoverByMile(mile, updateMeta = false, metaPrefix = "") 
 
   if (updateMeta && routeProfileMeta) {
     const prefix = metaPrefix ? `${metaPrefix} • ` : "";
-    routeProfileMeta.textContent = `${prefix}Mile ${clampedMile.toFixed(1)} / ${total.toFixed(1)} • Elevation ${chartPoint.eleFt.toLocaleString()} ft`;
+    routeProfileMeta.textContent = `${prefix}Distance ${formatRouteDistanceWithUnits(clampedMile)} / ${formatRouteDistanceWithUnits(
+      total
+    )} • Elevation ${formatElevationWithUnitFromFeet(chartPoint.eleFt)}`;
   }
 }
 
@@ -3505,7 +3972,9 @@ function renderRouteProfileFallbackSimple() {
     ].join("");
 
     profileMetaEl.textContent =
-      `Min ${Math.round(minEle * 3.28084).toLocaleString()} ft • Max ${Math.round(maxEle * 3.28084).toLocaleString()} ft`;
+      `Min ${formatElevationWithUnitFromFeet(Math.round(minEle * 3.28084))} • Max ${formatElevationWithUnitFromFeet(
+        Math.round(maxEle * 3.28084)
+      )}`;
     routeProfileDefaultMetaText = profileMetaEl.textContent;
     routeProfileHoverLineEl = null;
     routeProfileHoverDotEl = null;
@@ -3571,7 +4040,7 @@ function ensureMapArtifacts() {
       stageOptions.forEach((stage, index) => {
         const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
           .addTo(stageLayer)
-          .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
+          .bindPopup(`Day ${stage.stage}<br/>${formatStageRangeWithUnits(stage.startMile, stage.endMile)}`);
         marker.on("click", () => {
           if (!plan.length) return;
           setMapPlanSelection({ dayIndex: index });
@@ -3878,8 +4347,8 @@ function renderMapSectionComments(sectionName) {
       '<rect x="0" y="0" width="120" height="52" fill="#f6f2e8"></rect>',
       '<line x1="12" y1="6" x2="12" y2="42" stroke="#9f9687" stroke-width="0.6"></line>',
       '<line x1="12" y1="42" x2="112" y2="42" stroke="#9f9687" stroke-width="0.6"></line>',
-      '<text x="14" y="49" font-size="3.5" fill="#5f695f">distance (mi)</text>',
-      '<text x="1.5" y="8" font-size="3.5" fill="#5f695f">elev</text>'
+      `<text x="14" y="49" font-size="3.5" fill="#5f695f">distance (${unitDistanceSuffix()})</text>`,
+      `<text x="1.5" y="8" font-size="3.5" fill="#5f695f">elev (${unitElevationSuffix()})</text>`
     ].join("");
   mapSectionProfileMeta.textContent = "Select a section to see elevation profile.";
   mapSectionComments.innerHTML = "";
@@ -3894,7 +4363,7 @@ function renderMapSectionComments(sectionName) {
 
   const sectionInfo = routeSections.find((section) => section.name === selectedSectionName);
   if (sectionInfo) {
-    mapSectionElevation.textContent = `Elevation Gain: ${sectionInfo.elevationGainFt.toLocaleString()} ft`;
+    mapSectionElevation.textContent = `Elevation Gain: ${formatElevationWithUnitFromFeet(sectionInfo.elevationGainFt)}`;
     if (sectionInfo.profileSamples.length > 1) {
       const minEle = Math.min(...sectionInfo.profileSamples);
       const maxEle = Math.max(...sectionInfo.profileSamples);
@@ -3913,7 +4382,11 @@ function renderMapSectionComments(sectionName) {
 
       const midEleFt = Math.round(((sectionInfo.minEleFt + sectionInfo.maxEleFt) / 2) / 100) * 100;
       const midTickY = top + (bottom - top) / 2;
-      const halfDistance = (sectionInfo.totalDistanceMi / 2).toFixed(1);
+      const halfDistance = formatDistanceValueFromMiles(sectionInfo.totalDistanceMi / 2);
+      const totalDistance = formatDistanceValueFromMiles(sectionInfo.totalDistanceMi);
+      const maxEleText = formatElevationValueFromFeet(sectionInfo.maxEleFt);
+      const midEleText = formatElevationValueFromFeet(midEleFt);
+      const minEleText = formatElevationValueFromFeet(sectionInfo.minEleFt);
 
       mapSectionProfile.innerHTML = [
         '<rect x="0" y="0" width="120" height="52" fill="#f6f2e8"></rect>',
@@ -3923,12 +4396,14 @@ function renderMapSectionComments(sectionName) {
         `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
         `<text x="14" y="49" font-size="3.5" fill="#5f695f">0</text>`,
         `<text x="59" y="49" font-size="3.5" fill="#5f695f">${halfDistance}</text>`,
-        `<text x="104" y="49" font-size="3.5" fill="#5f695f">${sectionInfo.totalDistanceMi.toFixed(1)} mi</text>`,
-        `<text x="1.2" y="9" font-size="3.2" fill="#5f695f">${sectionInfo.maxEleFt.toLocaleString()}</text>`,
-        `<text x="1.2" y="${(midTickY + 1.5).toFixed(2)}" font-size="3.2" fill="#5f695f">${midEleFt.toLocaleString()}</text>`,
-        `<text x="1.2" y="42" font-size="3.2" fill="#5f695f">${sectionInfo.minEleFt.toLocaleString()}</text>`
+        `<text x="104" y="49" font-size="3.5" fill="#5f695f">${totalDistance}</text>`,
+        `<text x="1.2" y="9" font-size="3.2" fill="#5f695f">${maxEleText}</text>`,
+        `<text x="1.2" y="${(midTickY + 1.5).toFixed(2)}" font-size="3.2" fill="#5f695f">${midEleText}</text>`,
+        `<text x="1.2" y="42" font-size="3.2" fill="#5f695f">${minEleText}</text>`
       ].join("");
-      mapSectionProfileMeta.textContent = `Min ${sectionInfo.minEleFt.toLocaleString()} ft • Max ${sectionInfo.maxEleFt.toLocaleString()} ft`;
+      mapSectionProfileMeta.textContent = `Min ${formatElevationWithUnitFromFeet(sectionInfo.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
+        sectionInfo.maxEleFt
+      )}`;
 
       const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
       hoverLine.setAttribute("x1", "12");
@@ -3970,13 +4445,17 @@ function renderMapSectionComments(sectionName) {
         hoverDot.setAttribute("cx", clampedX.toFixed(2));
         hoverDot.setAttribute("cy", clampedY.toFixed(2));
         hoverDot.setAttribute("visibility", "visible");
-        mapSectionProfileMeta.textContent = `Mile ${targetDist.toFixed(1)} / ${sectionInfo.sectionDistanceMi.toFixed(1)} • Elevation ${nearestEleFt.toLocaleString()} ft`;
+        mapSectionProfileMeta.textContent = `Distance ${formatRouteDistanceWithUnits(targetDist)} / ${formatRouteDistanceWithUnits(
+          sectionInfo.sectionDistanceMi
+        )} • Elevation ${formatElevationWithUnitFromFeet(nearestEleFt)}`;
       };
 
       mapSectionProfile.onmouseleave = () => {
         hoverLine.setAttribute("visibility", "hidden");
         hoverDot.setAttribute("visibility", "hidden");
-        mapSectionProfileMeta.textContent = `Min ${sectionInfo.minEleFt.toLocaleString()} ft • Max ${sectionInfo.maxEleFt.toLocaleString()} ft`;
+        mapSectionProfileMeta.textContent = `Min ${formatElevationWithUnitFromFeet(sectionInfo.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
+          sectionInfo.maxEleFt
+        )}`;
       };
     } else {
       mapSectionProfileMeta.textContent = "Elevation profile unavailable for this section.";
@@ -4041,18 +4520,18 @@ function drawSectionOverlays() {
         const sectionMile = fromBanff - (section.startTrackMile ?? 0);
         showMapHoverMarker(nearestPoint);
         syncRouteProfileHoverByMile(fromBanff, true, section.name);
-        const elevationFt = nearestPoint.ele === null ? null : Math.round(nearestPoint.ele * 3.28084);
-        const elevText =
-          elevationFt === null ? "Elevation: unavailable" : `Elevation: ${elevationFt.toLocaleString()} ft`;
+        const elevText = `Elevation: ${formatMapElevationFromMeters(nearestPoint.ele)}`;
         const content =
-          `${section.name}<br/>${elevText}<br/>From Banff: ${fromBanff.toFixed(1)} mi` +
-          `<br/>Section: ${sectionMile.toFixed(1)} / ${section.sectionDistanceMi.toFixed(1)} mi`;
+          `${section.name}<br/>${elevText}<br/>From Banff: ${formatRouteDistanceWithUnits(fromBanff)}` +
+          `<br/>Section: ${formatRouteDistanceWithUnits(sectionMile)} / ${formatRouteDistanceWithUnits(section.sectionDistanceMi)}`;
         sectionLine.setTooltipContent(content);
         showMapHoverSnapshot(
           `<strong>${section.name}</strong>` +
             `<div>${elevText}</div>` +
-            `<div>From Banff: ${fromBanff.toFixed(1)} mi</div>` +
-            `<div>Section: ${sectionMile.toFixed(1)} / ${section.sectionDistanceMi.toFixed(1)} mi</div>`,
+            `<div>From Banff: ${formatRouteDistanceWithUnits(fromBanff)}</div>` +
+            `<div>Section: ${formatRouteDistanceWithUnits(sectionMile)} / ${formatRouteDistanceWithUnits(
+              section.sectionDistanceMi
+            )}</div>`,
           nearestPoint
         );
       })
@@ -4173,7 +4652,9 @@ function attachDragHandlers(marker, type, index) {
       if (stageOptions[index + 1]) {
         stageOptions[index + 1].startMile = stageOptions[index].endMile;
       }
-      marker.bindPopup(`Day ${stageOptions[index].stage}<br/>${stageOptions[index].startMile}-${stageOptions[index].endMile} mi`);
+      marker.bindPopup(
+        `Day ${stageOptions[index].stage}<br/>${formatStageRangeWithUnits(stageOptions[index].startMile, stageOptions[index].endMile)}`
+      );
       syncPlanMilesFromStageOptions();
     }
 
@@ -4182,7 +4663,9 @@ function attachDragHandlers(marker, type, index) {
       resupplyPoints[index].lon = nearest.point.lon;
       resupplyPoints[index].mile = Number(nearest.mile.toFixed(1));
       marker.bindPopup(
-        `<strong>${resupplyPoints[index].name}</strong><br/>Mile ${resupplyPoints[index].mile}<br/>${resupplyPoints[index].resupply}`
+        `<strong>${resupplyPoints[index].name}</strong><br/>Distance ${formatRouteDistanceWithUnits(
+          resupplyPoints[index].mile
+        )}<br/>${resupplyPoints[index].resupply}`
       );
       saveCustomResupplyStops();
       routeSections = buildResupplySections(gpxTrackPoints);
@@ -4207,7 +4690,7 @@ function renderMarkerList() {
 
   stageOptions.forEach((day, idx) => {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>Day ${day.stage}</strong><p class="marker-mile">${day.startMile}-${day.endMile} miles</p>`;
+    item.innerHTML = `<strong>Day ${day.stage}</strong><p class="marker-mile">${formatStageRangeWithUnits(day.startMile, day.endMile)}</p>`;
     item.addEventListener("click", () => {
       if (!map) return;
       const marker = dayMarkers[idx];
@@ -4221,7 +4704,9 @@ function renderMarkerList() {
 
   resupplyPoints.forEach((point, idx) => {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>${point.name}</strong><p class="marker-mile">Mile ${point.mile}: ${point.resupply}</p>`;
+    item.innerHTML = `<strong>${point.name}</strong><p class="marker-mile">Distance ${formatRouteDistanceWithUnits(
+      point.mile
+    )}: ${point.resupply}</p>`;
     item.addEventListener("click", () => {
       if (!map) return;
       const marker = resupplyMarkers[idx];
@@ -4333,13 +4818,13 @@ function applyTrackToMap(trackPoints, options = {}) {
     if (!nearest) return;
     showMapHoverMarker(nearest.point);
     syncRouteProfileHoverByMile(nearest.mile, true, "Route");
-    const elevFt = nearest.point.ele === null ? null : Math.round(nearest.point.ele * 3.28084);
+    const elevText = nearest.point.ele === null ? "unavailable" : formatMapElevationFromMeters(nearest.point.ele);
     const total = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
     showMapHoverSnapshot(
       `<strong>Route Position</strong>` +
-        `<div>Elevation: ${elevFt === null ? "unavailable" : `${elevFt.toLocaleString()} ft`}</div>` +
-        `<div>From Banff: ${nearest.mile.toFixed(1)} mi</div>` +
-        `<div>Route Total: ${total.toFixed(1)} mi</div>`,
+        `<div>Elevation: ${elevText}</div>` +
+        `<div>From Banff: ${formatRouteDistanceWithUnits(nearest.mile)}</div>` +
+        `<div>Route Total: ${formatRouteDistanceWithUnits(total)}</div>`,
       nearest.point
     );
   });
@@ -4353,7 +4838,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   routeLine.bringToFront();
 
   if (activeRouteGpxDistanceMiles > 0) {
-    routeDistanceInput.value = String(activeRouteGpxDistanceMiles);
+    setRouteDistanceInputMiles(activeRouteGpxDistanceMiles);
   }
 
   try {
@@ -4681,7 +5166,7 @@ function updateStagesFromInput() {
   stageOptions.forEach((stage, index) => {
     const marker = L.marker([stage.lat, stage.lon], { icon: makeDayIcon(), draggable: true })
       .addTo(stageLayer)
-      .bindPopup(`Day ${stage.stage}<br/>${stage.startMile}-${stage.endMile} mi`);
+      .bindPopup(`Day ${stage.stage}<br/>${formatStageRangeWithUnits(stage.startMile, stage.endMile)}`);
     marker.on("click", () => {
       if (!plan.length) return;
       setMapPlanSelection({ dayIndex: index });
@@ -4690,6 +5175,7 @@ function updateStagesFromInput() {
     dayMarkers.push(marker);
   });
 
+  renderResupplyMarkers();
   renderRouteProfile();
   renderMarkerList();
   setupCommentSections();
@@ -4810,7 +5296,7 @@ resetBtn.addEventListener("click", () => {
   finishDateInput.value = addDays(startDateInput.value, defaultDays - 1);
   totalDaysInput.value = defaultDays;
   restDaysInput.value = 1;
-  routeDistanceInput.value = String(Number(activeRouteGpxDistanceMiles || activeRoute.defaultDistance || 0));
+  setRouteDistanceInputMiles(Number(activeRouteGpxDistanceMiles || activeRoute.defaultDistance || 0));
   plan = [];
   dayList.innerHTML = "";
   metricList.innerHTML = "";
@@ -4857,7 +5343,7 @@ if (customApplyUploadBtn) {
       const projectedStops = Math.max(2, Math.min(60, Number(customProjectedResuppliesInput?.value || 12)));
       totalDaysInput.value = String(projectedDays);
       if (startDateInput.value) finishDateInput.value = addDays(startDateInput.value, projectedDays - 1);
-      routeDistanceInput.value = String(Math.round(totalMiles));
+      setRouteDistanceInputMiles(Math.round(totalMiles));
       localStorage.removeItem(CUSTOM_STOPS_KEY);
       selectedSectionName = "";
       resupplyPoints = buildEvenResupplyPointsFromTrack(points, projectedStops, cumulative).map((point) => ({
@@ -4905,7 +5391,7 @@ if (addExtraStopBtn) {
     const name = String(extraStopNameInput?.value || "").trim();
     const notes = String(extraStopNotesInput?.value || "").trim();
     const requestedMile = Number(extraStopMileInput?.value || 0);
-    const routeMax = Number(routeDistanceInput.value || resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
+    const routeMax = getRouteDistanceInputMiles() || Number(resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
 
     if (!name) {
       setCloudStatus("Enter a stop name before adding.");
@@ -5215,6 +5701,7 @@ commentSectionSelect.addEventListener("change", () => {
 if (!applyRouteConfig(getRouteFromUrl())) {
   applyRouteConfig(DEFAULT_ROUTE_ID);
 }
+setupPlannerUnits();
 renderHomeRouteCollection();
 setViewMode(viewModeFromUrl());
 enforceSiteBranding();

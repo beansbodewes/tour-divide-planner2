@@ -297,8 +297,15 @@
                 <input type="number" id="rest-days" min="0" max="10" value="1" required />
               </label>
               <label>
-                Total route distance (mi)
+                <span id="route-distance-label">Total route distance (mi)</span>
                 <input type="number" id="route-distance" min="2000" max="3200" step="0.1" value="2679.2" required />
+              </label>
+              <label class="unit-toggle-field">
+                <span>Units</span>
+                <span class="unit-toggle-row">
+                  <input type="checkbox" id="plan-units-metric" />
+                  <span>Use kilometers + meters</span>
+                </span>
               </label>
               <div class="button-row">
                 <button type="submit" class="btn btn-primary">Build Plan</button>
@@ -382,8 +389,8 @@
                   <svg id="route-profile" class="map-section-profile route-profile" viewBox="0 0 2400 160" preserveAspectRatio="none" aria-label="Tour Divide elevation profile"></svg>
                 </div>
                 <div class="profile-axis-labels">
-                  <span class="axis-y">Elevation (ft)</span>
-                  <span class="axis-x">Distance (mi)</span>
+                  <span id="route-profile-axis-y" class="axis-y">Elevation (ft)</span>
+                  <span id="route-profile-axis-x" class="axis-x">Distance (mi)</span>
                 </div>
                 <p id="route-profile-meta" class="map-section-profile-meta">Loading GPX elevation profile...</p>
                 <div class="profile-zoom-bar">
@@ -478,18 +485,19 @@
         </div>
         <div class="day-stats">
           <label>
-            Miles
+            <span class="day-distance-label">Miles</span>
             <input type="number" class="miles-input" min="0" step="0.1" />
           </label>
           <label>
-            Gain (ft)
+            <span class="day-gain-label">Gain (ft)</span>
             <input type="number" class="gain-input" min="0" step="100" />
           </label>
           <label>
-            Loss (ft)
+            <span class="day-loss-label">Loss (ft)</span>
             <input type="number" class="loss-input" min="0" step="100" />
           </label>
         </div>
+        <p class="day-elevation-disclaimer">Elevation values are GPX-based estimates designed to help planning and may vary slightly from other tools.</p>
         <p class="day-distance-so-far">Distance so far: <strong class="day-distance-so-far-value">0.0 mi</strong></p>
         <div class="day-notes">
           <label>
@@ -604,7 +612,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=66"></script>
+    <script src="script.js?v=83"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
