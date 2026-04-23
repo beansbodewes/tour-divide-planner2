@@ -44,20 +44,36 @@ const ROUTES = {
     csvName: "great-divide-touring-route-day-by-day-plan.csv",
     resupplyPoints: [
       { mile: 0, name: "Banff", lat: 51.1784, lon: -115.5708, resupply: "Start-town setup and food carry prep." },
-      { mile: 370, name: "Fernie", lat: 49.5042, lon: -115.0631, resupply: "Bike shops, food, motel options." },
-      { mile: 545, name: "Whitefish", lat: 48.4111, lon: -114.3376, resupply: "Major resupply and repairs." },
-      { mile: 760, name: "Ovando", lat: 47.0219, lon: -113.1893, resupply: "Small stop, check seasonal services." },
-      { mile: 940, name: "Helena", lat: 46.5884, lon: -112.0245, resupply: "Full-service city reset point." },
-      { mile: 1120, name: "Lima", lat: 44.6357, lon: -112.5918, resupply: "Convenience stop + basic food." },
-      { mile: 1320, name: "Island Park", lat: 44.4157, lon: -111.3796, resupply: "Food + lodging options." },
-      { mile: 1515, name: "Pinedale", lat: 42.8666, lon: -109.8622, resupply: "Strong resupply before long stretches." },
-      { mile: 1705, name: "Steamboat Springs", lat: 40.4849, lon: -106.8317, resupply: "Bike, food, and weather reset." },
-      { mile: 1885, name: "Silverthorne", lat: 39.6328, lon: -106.0747, resupply: "Dense services, high-country prep." },
-      { mile: 2085, name: "Salida", lat: 38.5347, lon: -105.9989, resupply: "Popular rider rest and resupply." },
-      { mile: 2260, name: "Del Norte", lat: 37.6781, lon: -106.3534, resupply: "Good stop before New Mexico push." },
-      { mile: 2440, name: "Abiquiu", lat: 36.2033, lon: -106.3198, resupply: "Small services, monitor opening times." },
-      { mile: 2590, name: "Silver City", lat: 32.7701, lon: -108.2803, resupply: "Last big prep before finish." },
-      { mile: 2745, name: "Antelope Wells", lat: 31.3325, lon: -108.5103, resupply: "Finish point and final logistics." }
+      { mile: 161, name: "Fernie", lat: 49.5042, lon: -115.0631, resupply: "Bike shops, food, motel options." },
+      { mile: 277.5, name: "Eureka", lat: 48.8794, lon: -115.0531, resupply: "Town services and grocery options." },
+      { mile: 368.6, name: "Whitefish", lat: 48.4111, lon: -114.3376, resupply: "Major resupply and repairs." },
+      { mile: 378.6, name: "Columbia Falls", lat: 48.3725, lon: -114.1815, resupply: "Additional food and lodging options." },
+      { mile: 509.7, name: "Seeley Lake", lat: 47.1799, lon: -113.4854, resupply: "Off route: services available in town." },
+      { mile: 536, name: "Ovando", lat: 47.0219, lon: -113.1893, resupply: "Small stop, check seasonal services." },
+      { mile: 574, name: "Lincoln", lat: 46.9544, lon: -112.6823, resupply: "Small-town grocery and cafe options." },
+      { mile: 635, name: "Helena", lat: 46.5884, lon: -112.0245, resupply: "Full-service city reset point." },
+      { mile: 674, name: "Basin", lat: 46.2469, lon: -112.2606, resupply: "Small stop between Helena and Butte." },
+      { mile: 706, name: "Butte", lat: 46.0038, lon: -112.5347, resupply: "Major services and bike support." },
+      { mile: 898, name: "Lima", lat: 44.6357, lon: -112.5918, resupply: "Convenience stop + basic food." },
+      { mile: 985, name: "Macks Inn", lat: 44.4455, lon: -111.3333, resupply: "Food and lodging near route junction." },
+      { mile: 1070, name: "Yellowstone Stops", lat: 44.6621, lon: -111.1041, resupply: "Park-area seasonal services." },
+      { mile: 1212, name: "Pinedale", lat: 42.8666, lon: -109.8622, resupply: "Strong resupply before long stretches." },
+      { mile: 1300, name: "Atlantic City", lat: 42.4958, lon: -108.7237, resupply: "Historic stop with limited services." },
+      { mile: 1395, name: "Wamsutter", lat: 41.6722, lon: -107.9809, resupply: "Fuel station + convenience food." },
+      { mile: 1527, name: "Steamboat Springs", lat: 40.4849, lon: -106.8317, resupply: "Bike, food, and weather reset." },
+      { mile: 1602, name: "Kremmling", lat: 40.0583, lon: -106.3884, resupply: "Off route: larger town resupply option." },
+      { mile: 1650, name: "Silverthorne", lat: 39.6328, lon: -106.0747, resupply: "Dense services, high-country prep." },
+      { mile: 1668, name: "Breckenridge", lat: 39.4817, lon: -106.0384, resupply: "Grocery, lodging, and bike options." },
+      { mile: 1717, name: "Hartsel", lat: 39.0217, lon: -105.7950, resupply: "Small stop and convenience options." },
+      { mile: 1762, name: "Salida", lat: 38.5347, lon: -105.9989, resupply: "Popular rider rest and resupply." },
+      { mile: 1768, name: "Poncha Springs", lat: 38.5125, lon: -106.0756, resupply: "Quick town stop just west of Salida." },
+      { mile: 1915, name: "Del Norte", lat: 37.6781, lon: -106.3534, resupply: "Good stop before New Mexico push." },
+      { mile: 2103, name: "Abiquiu", lat: 36.2033, lon: -106.3198, resupply: "Small services, monitor opening times." },
+      { mile: 2180, name: "Cuba", lat: 36.0222, lon: -106.9589, resupply: "Reliable food and lodging options." },
+      { mile: 2300, name: "Grants", lat: 35.1473, lon: -107.8514, resupply: "Large-town resupply and bike support." },
+      { mile: 2370, name: "Pie Town", lat: 34.2995, lon: -108.1376, resupply: "Classic stop with limited hours." },
+      { mile: 2544, name: "Silver City", lat: 32.7701, lon: -108.2803, resupply: "Last big prep before finish." },
+      { mile: 2664.6, name: "Antelope Wells", lat: 31.3325, lon: -108.5103, resupply: "Finish point and final logistics." }
     ]
   },
   colorado_trail: {
@@ -74,14 +90,13 @@ const ROUTES = {
     csvName: "colorado-trail-day-by-day-plan.csv",
     resupplyPoints: [
       { mile: 0, name: "Waterton Canyon", lat: 39.4905, lon: -105.0927, resupply: "Trailhead start point near Denver." },
-      { mile: 73, name: "Bailey", lat: 39.4079, lon: -105.4764, resupply: "Small-town stores and food options." },
-      { mile: 145, name: "Breckenridge", lat: 39.4817, lon: -106.0384, resupply: "Major grocery + bike service access." },
-      { mile: 195, name: "Leadville", lat: 39.2508, lon: -106.2925, resupply: "High-altitude full resupply stop." },
-      { mile: 248, name: "Buena Vista", lat: 38.8422, lon: -106.1311, resupply: "Strong grocery and cafe options." },
-      { mile: 280, name: "Salida / Poncha", lat: 38.5332, lon: -106.0003, resupply: "Good reset before big climbs." },
-      { mile: 398, name: "Lake City", lat: 38.0299, lon: -107.3153, resupply: "Seasonal mountain-town services." },
-      { mile: 450, name: "Silverton", lat: 37.8089, lon: -107.6645, resupply: "Compact but useful food options." },
-      { mile: 527, name: "Durango", lat: 37.2754, lon: -107.8802, resupply: "Finish town and full services." }
+      { mile: 146, name: "Breckenridge", lat: 39.4817, lon: -106.0384, resupply: "Major grocery + bike service access." },
+      { mile: 193, name: "Leadville", lat: 39.2508, lon: -106.2925, resupply: "High-altitude full resupply stop." },
+      { mile: 215, name: "Twin Lakes", lat: 39.0828, lon: -106.3811, resupply: "Small stop with lodging and supplies." },
+      { mile: 245, name: "Buena Vista", lat: 38.8422, lon: -106.1311, resupply: "Strong grocery and cafe options." },
+      { mile: 398, name: "Slumgullion Pass", lat: 37.9902, lon: -107.2303, resupply: "High pass area checkpoint." },
+      { mile: 449, name: "Silverton", lat: 37.8089, lon: -107.6645, resupply: "Compact but useful food options." },
+      { mile: 530, name: "Durango", lat: 37.2754, lon: -107.8802, resupply: "Finish town and full services." }
     ]
   },
   azt_300: {
@@ -274,9 +289,11 @@ const donationsPage = document.getElementById("donations-page");
 const homeOpenActiveBtn = document.getElementById("home-open-active-btn");
 const homeRouteList = document.getElementById("home-route-list");
 const routeButtons = Array.from(document.querySelectorAll(".route-btn[data-route]"));
+const myRouteShortcutBtn = document.getElementById("my-route-shortcut-btn");
 const plannerTitle = document.getElementById("planner-title");
 const plannerSubhead = document.getElementById("planner-subhead");
 const routeSwitcherNote = document.getElementById("route-switcher-note");
+const unsignedWarningBanner = document.getElementById("unsigned-warning-banner");
 const sectionsNav = document.getElementById("sections-nav");
 const routeProfileKicker = document.getElementById("route-profile-kicker");
 const siteTitle = document.querySelector(".site-title");
@@ -328,6 +345,7 @@ const donMessageInput = document.getElementById("don-message");
 
 let plan = [];
 let comments = [];
+let appInitialized = false;
 let map;
 let stageOptions = [];
 let gpxTrackPoints = [];
@@ -374,6 +392,7 @@ let routeProfileHoverDotEl = null;
 let routeProfileDefaultMetaText = "";
 let routeProfilePointForMile = null;
 let routeProfileBounds = null;
+let routeProfileInitializedView = false;
 let mapRenderWatchdogTimer = null;
 let activeRouteGpxDistanceMiles = null;
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
@@ -381,6 +400,7 @@ const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
 const MAP_STYLE_KEY = "bikepack-map-style-v2";
 const MAPBOX_TOKEN_KEY = "bikepack-mapbox-token-v1";
+const MY_ROUTE_SHORTCUT_KEY_PREFIX = "bikepack-finisher-my-route-shortcut-v1:";
 const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
 const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
@@ -1468,6 +1488,20 @@ function cloudReady() {
   return Boolean(authUser);
 }
 
+function setUnsignedWarningVisible(visible) {
+  if (!unsignedWarningBanner) return;
+  unsignedWarningBanner.hidden = !visible;
+}
+
+function maybeWarnUnsignedChanges() {
+  if (!appInitialized) return;
+  if (cloudReady()) {
+    setUnsignedWarningVisible(false);
+    return;
+  }
+  setUnsignedWarningVisible(true);
+}
+
 function stateSnapshot() {
   const config = parseForm();
   return JSON.stringify({
@@ -1583,6 +1617,89 @@ function setLocalSessionEmail(email) {
 
 function clearLocalSessionEmail() {
   localStorage.removeItem(LOCAL_AUTH_SESSION_KEY);
+}
+
+function customRideLocalProfileKey(email) {
+  return `${ROUTES.custom_ride.storagePrefix}-local-profile-v1:${normalizeEmail(email)}`;
+}
+
+function hasCustomRideDataInLocalProfile(email) {
+  if (!email) return false;
+  try {
+    const raw = localStorage.getItem(customRideLocalProfileKey(email));
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    return Boolean(data?.config || (Array.isArray(data?.plan) && data.plan.length) || (Array.isArray(data?.comments) && data.comments.length));
+  } catch {
+    return false;
+  }
+}
+
+function myRouteShortcutStorageKey() {
+  const email = normalizeEmail(authUser?.email || "");
+  if (!email) return "";
+  return `${MY_ROUTE_SHORTCUT_KEY_PREFIX}${email}`;
+}
+
+function setMyRouteShortcutFlag(enabled) {
+  const key = myRouteShortcutStorageKey();
+  if (!key) return;
+  try {
+    if (enabled) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function hasMyRouteShortcutFlag() {
+  const key = myRouteShortcutStorageKey();
+  if (!key) return false;
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setMyRouteShortcutVisible(visible) {
+  if (!myRouteShortcutBtn) return;
+  myRouteShortcutBtn.hidden = !visible;
+}
+
+async function refreshMyRouteShortcutVisibility() {
+  if (!myRouteShortcutBtn) return;
+  if (!authUser) {
+    setMyRouteShortcutVisible(false);
+    return;
+  }
+
+  const email = normalizeEmail(authUser.email || "");
+  if (!email) {
+    setMyRouteShortcutVisible(false);
+    return;
+  }
+
+  let shouldShow = hasMyRouteShortcutFlag() || hasCustomRideDataInLocalProfile(email);
+
+  if (!shouldShow && !localAuthMode && firestoreDb && authUser.uid) {
+    try {
+      const snapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).get();
+      if (snapshot.exists) {
+        const data = snapshot.data() || {};
+        shouldShow = Boolean(
+          data?.config ||
+            (Array.isArray(data?.plan) && data.plan.length) ||
+            (Array.isArray(data?.comments) && data.comments.length)
+        );
+      }
+    } catch {
+      // Ignore cloud check failures and keep local visibility state.
+    }
+  }
+
+  if (shouldShow) setMyRouteShortcutFlag(true);
+  setMyRouteShortcutVisible(shouldShow);
 }
 
 function saveLocalProfileWithFallback(email, payload) {
@@ -1716,7 +1833,6 @@ function recomputeDerivedFieldsForDays(days, config) {
     cumulativeMiles = dayEnd;
     day.gain = gpxGainBetweenMiles(dayStart, dayEnd, effectiveRouteDistance);
     day.loss = gpxLossBetweenMiles(dayStart, dayEnd, effectiveRouteDistance);
-    day.town = nearestWaypoint(cumulativeMiles);
   }
 }
 
@@ -1756,23 +1872,21 @@ function buildPlan(config) {
       miles: rideMiles,
       gain: isRest ? 0 : gpxGainBetweenMiles(dayStart, dayEnd, effectiveRouteDistance),
       loss: isRest ? 0 : gpxLossBetweenMiles(dayStart, dayEnd, effectiveRouteDistance),
-      town: isRest ? "Recovery + laundry + bike check" : nearestWaypoint(cumulativeMiles),
-      resupplyOptions1: isRest ? "Cafe + grocery + lodging" : "Market + gas station + cafe",
-      resupplyHours1: isRest ? "Varies by town" : "6:00 AM - 9:00 PM",
-      resupplyDistance1: isRest ? 0.2 : 0.4,
+      town: "",
+      resupplyOptions1: "",
+      resupplyHours1: "",
+      resupplyDistance1: 0,
       resupplyAddress1: "",
-      resupplyOptions2: isRest ? "Backup convenience store" : "Backup convenience store",
-      resupplyHours2: "7:00 AM - 8:00 PM",
-      resupplyDistance2: isRest ? 0.4 : 0.8,
+      resupplyOptions2: "",
+      resupplyHours2: "",
+      resupplyDistance2: 0,
       resupplyAddress2: "",
       resupplyOptions3: "",
       resupplyHours3: "",
       resupplyDistance3: 0,
-      shoppingList: isRest ? "Recovery meal, hydration mix, laundry supplies" : "High-calorie food, bottles, battery charge items",
-      calorieTarget: isRest ? 4000 : 7000,
-      notes: isRest
-        ? "Leg flush, stretch, check drivetrain and tires."
-        : "Keep effort controlled in first half. Protect sleep window."
+      shoppingList: "",
+      calorieTarget: 0,
+      notes: ""
     });
   }
 
@@ -2149,6 +2263,7 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
   const extraBikeShopsWrap = node.querySelector(".extra-bike-shops");
   const addExtraOptionBtn = node.querySelector(".add-resupply-option-btn");
   const addBikeShopBtn = node.querySelector(".add-bike-shop-btn");
+  const deleteResupplyStopBtn = node.querySelector(".delete-resupply-stop-btn");
 
   resupplyOptions1Input.value = normalized.resupplyOptions1;
   resupplyHours1Input.value = normalized.resupplyHours1;
@@ -2364,6 +2479,28 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
     addBikeShopBtn.addEventListener("click", () => {
       makeBikeShopRow();
       sync();
+    });
+  }
+
+  if (deleteResupplyStopBtn) {
+    const stopIndex = Number(stopInfo.stopIndex);
+    const canDelete = Number.isInteger(stopIndex) && stopIndex > 0 && stopIndex < resupplyPoints.length - 1;
+    deleteResupplyStopBtn.hidden = !canDelete;
+    deleteResupplyStopBtn.addEventListener("click", () => {
+      if (!Number.isInteger(stopIndex) || stopIndex <= 0 || stopIndex >= resupplyPoints.length - 1) {
+        setCloudStatus("Only intermediate resupply stops can be deleted.");
+        return;
+      }
+      if (resupplyPoints.length <= 2) {
+        setCloudStatus("Cannot delete start/finish route anchors.");
+        return;
+      }
+      const stopName = String(resupplyPoints[stopIndex]?.name || "this stop");
+      const confirmed = window.confirm(`Delete resupply stop \"${stopName}\"?`);
+      if (!confirmed) return;
+      resupplyPoints.splice(stopIndex, 1);
+      setCloudStatus(`Deleted resupply stop: ${stopName}.`);
+      refreshResupplyUIAfterChange();
     });
   }
 
@@ -2593,9 +2730,13 @@ function initCloud() {
     if (sessionEmail) {
       authUser = { uid: `local-${sessionEmail}`, email: sessionEmail };
       loadCloudData();
+      refreshMyRouteShortcutVisibility();
+      setUnsignedWarningVisible(false);
     } else {
       authUser = null;
       setCloudStatus("Local account mode active. Sign up or sign in below.");
+      setMyRouteShortcutVisible(false);
+      setUnsignedWarningVisible(false);
     }
     return;
   }
@@ -2607,8 +2748,12 @@ function initCloud() {
     authUser = user || null;
     if (authUser) {
       await loadCloudData();
+      await refreshMyRouteShortcutVisibility();
+      setUnsignedWarningVisible(false);
     } else {
       setCloudStatus("Signed out. Local-only mode active.");
+      setMyRouteShortcutVisible(false);
+      setUnsignedWarningVisible(false);
     }
   });
 }
@@ -2624,6 +2769,7 @@ function persistPlan() {
       plan
     })
   );
+  maybeWarnUnsignedChanges();
   scheduleCloudSync();
 }
 
@@ -3794,6 +3940,7 @@ function renderRouteProfile() {
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
+  const areaPoints = `${left.toFixed(2)},${bottom.toFixed(2)} ${points} ${right.toFixed(2)},${bottom.toFixed(2)}`;
 
   const resupplyIcons = resupplyPoints
     .map((point) => {
@@ -3802,13 +3949,14 @@ function renderRouteProfile() {
       const chartPoint = pointOnProfileForMile(stopMile);
       const stopName = String(point?.name || "Resupply");
       return (
-        `<text x="${chartPoint.x.toFixed(2)}" y="${(chartPoint.y + 3.6).toFixed(
+        `<g class="route-profile-icon route-profile-icon-resupply" data-x="${chartPoint.x.toFixed(2)}" data-y="${chartPoint.y.toFixed(
           2
-        )}" text-anchor="middle" font-size="8.8">🍔` +
+        )}">` +
+        '<text x="0" y="3.6" text-anchor="middle" font-size="8.8">🍔</text>' +
         `<title>${stopName} resupply - Distance ${formatRouteDistanceWithUnits(stopMile)} - Elev ${formatElevationWithUnitFromFeet(
           chartPoint.eleFt
         )}</title>` +
-        "</text>"
+        "</g>"
       );
     })
     .join("");
@@ -3818,18 +3966,13 @@ function renderRouteProfile() {
       const endMile = Number(stage?.endMile);
       if (!Number.isFinite(endMile)) return "";
       const chartPoint = pointOnProfileForMile(endMile);
-      const baseY = chartPoint.y + 5;
-      const tipY = chartPoint.y - 5;
-      const leftX = chartPoint.x - 4;
-      const rightX = chartPoint.x + 4;
       return (
-        `<polygon points="${leftX.toFixed(2)},${baseY} ${rightX.toFixed(2)},${baseY} ${chartPoint.x.toFixed(
-          2
-        )},${tipY}" fill="#1e5cc8" stroke="#123e86" stroke-width="1">` +
+        `<g class="route-profile-icon route-profile-icon-camp" data-x="${chartPoint.x.toFixed(2)}" data-y="${chartPoint.y.toFixed(2)}">` +
+        '<polygon points="-4,5 4,5 0,-5" fill="#1e5cc8" stroke="#123e86" stroke-width="1"></polygon>' +
         `<title>Day ${stage.stage} camp - Distance ${formatRouteDistanceWithUnits(endMile)} - Elev ${formatElevationWithUnitFromFeet(
           chartPoint.eleFt
         )}</title>` +
-        "</polygon>"
+        "</g>"
       );
     })
     .join("");
@@ -3838,6 +3981,7 @@ function renderRouteProfile() {
     '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
     '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
     '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
+    `<polygon points="${areaPoints}" fill="#d14a4a" opacity="0.22"></polygon>`,
     `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
     resupplyIcons,
     campIcons
@@ -3887,7 +4031,11 @@ function renderRouteProfile() {
     clearRouteProfileHover();
   };
 
-  applyRouteProfileZoom(true);
+  refreshRouteProfileIconAspect();
+
+  if (!applyInitialRouteProfileViewIfNeeded()) {
+    applyRouteProfileZoom(true);
+  }
 }
 
 function syncRouteProfileHoverByMile(mile, updateMeta = false, metaPrefix = "") {
@@ -3963,11 +4111,13 @@ function renderRouteProfileFallbackSimple() {
         return `${x.toFixed(2)},${y.toFixed(2)}`;
       })
       .join(" ");
+    const areaPoints = `${left.toFixed(2)},${bottom.toFixed(2)} ${points} ${right.toFixed(2)},${bottom.toFixed(2)}`;
 
     profileSvgEl.innerHTML = [
       '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
       '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
       '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
+      `<polygon points="${areaPoints}" fill="#d14a4a" opacity="0.22"></polygon>`,
       `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>`
     ].join("");
 
@@ -4177,16 +4327,48 @@ function hideMapHoverSnapshot() {
   mapHoverSnapshotEl.style.display = "none";
 }
 
+function refreshRouteProfileIconAspect() {
+  if (!routeProfile) return;
+  const icons = routeProfile.querySelectorAll(".route-profile-icon");
+  if (!icons.length) return;
+  const viewBox = routeProfile.viewBox?.baseVal;
+  const baseWidth = Number(viewBox?.width || ROUTE_PROFILE_BASE_WIDTH);
+  const baseHeight = Number(viewBox?.height || 160);
+  const scaleX = baseWidth > 0 ? routeProfile.clientWidth / baseWidth : 1;
+  const scaleY = baseHeight > 0 ? routeProfile.clientHeight / baseHeight : 1;
+  const compensateX = scaleX > 0 ? scaleY / scaleX : 1;
+
+  icons.forEach((icon) => {
+    const x = Number(icon.getAttribute("data-x") || 0);
+    const y = Number(icon.getAttribute("data-y") || 0);
+    icon.setAttribute(
+      "transform",
+      `translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${compensateX.toFixed(6)} 1)`
+    );
+  });
+}
+
+function getRouteProfileFitZoom() {
+  const wrapWidth = Number(routeProfileScrollWrap?.clientWidth || 0);
+  const fitZoomRaw = wrapWidth > 0 ? wrapWidth / ROUTE_PROFILE_BASE_WIDTH : 1;
+  return Math.max(0.25, Math.min(6, fitZoomRaw));
+}
+
 function applyRouteProfileZoom(preserveScroll) {
   if (!routeProfile || !routeProfileScrollWrap) return;
-  const zoom = Math.max(0.25, Number(routeProfileZoom?.value || 1));
+  const fitZoom = getRouteProfileFitZoom();
+  let zoom = Number(routeProfileZoom?.value || fitZoom);
+  if (!Number.isFinite(zoom)) zoom = fitZoom;
+  zoom = Math.max(fitZoom, Math.min(6, zoom));
   const previousMax = Math.max(0, routeProfileScrollWrap.scrollWidth - routeProfileScrollWrap.clientWidth);
   const previousRatio = previousMax > 0 ? routeProfileScrollWrap.scrollLeft / previousMax : 0;
 
   routeProfile.style.width = `${ROUTE_PROFILE_BASE_WIDTH * zoom}px`;
   if (routeProfileZoom) {
-    routeProfileZoom.value = String(zoom);
+    routeProfileZoom.min = fitZoom.toFixed(2);
+    routeProfileZoom.value = zoom.toFixed(2);
   }
+  refreshRouteProfileIconAspect();
 
   const nextMax = Math.max(0, routeProfileScrollWrap.scrollWidth - routeProfileScrollWrap.clientWidth);
   const nextScroll = preserveScroll ? previousRatio * nextMax : Math.min(routeProfileScrollWrap.scrollLeft, nextMax);
@@ -4200,6 +4382,17 @@ function applyRouteProfileZoom(preserveScroll) {
   if (routeProfileZoomLabel) {
     routeProfileZoomLabel.textContent = `Zoom ${zoom.toFixed(1)}x`;
   }
+}
+
+function applyInitialRouteProfileViewIfNeeded() {
+  if (routeProfileInitializedView) return false;
+  const fitZoom = getRouteProfileFitZoom();
+  if (routeProfileZoom) {
+    routeProfileZoom.value = fitZoom.toFixed(2);
+  }
+  applyRouteProfileZoom(false);
+  routeProfileInitializedView = true;
+  return true;
 }
 
 function setupRouteProfileScroll() {
@@ -4608,6 +4801,26 @@ function setMarkerDragState(marker) {
   else marker.dragging.disable();
 }
 
+const OFF_ROUTE_DRAG_THRESHOLD_MILES = 0.5;
+
+function upsertMarkerGuide(marker, fromLatLng, toPoint) {
+  if (!marker || !map || !fromLatLng || !toPoint) return;
+  const guideLatLngs = [
+    [fromLatLng.lat, fromLatLng.lng],
+    [toPoint.lat, toPoint.lon]
+  ];
+  if (!marker._dragGuide) {
+    marker._dragGuide = L.polyline(guideLatLngs, {
+      color: "#c62828",
+      weight: 2,
+      dashArray: "4 4",
+      opacity: 0.85
+    }).addTo(map);
+    return;
+  }
+  marker._dragGuide.setLatLngs(guideLatLngs);
+}
+
 function clearMarkerGuide(marker) {
   if (marker && marker._dragGuide && map && map.hasLayer(marker._dragGuide)) {
     map.removeLayer(marker._dragGuide);
@@ -4621,31 +4834,25 @@ function attachDragHandlers(marker, type, index) {
     const nearest = nearestTrackPointAndMile(marker.getLatLng());
     if (!nearest || !map) return;
     const latlng = marker.getLatLng();
-    if (!marker._dragGuide) {
-      marker._dragGuide = L.polyline(
-        [
-          [latlng.lat, latlng.lng],
-          [nearest.point.lat, nearest.point.lon]
-        ],
-        { color: "#c62828", weight: 2, dashArray: "4 4", opacity: 0.85 }
-      ).addTo(map);
-    } else {
-      marker._dragGuide.setLatLngs([
-        [latlng.lat, latlng.lng],
-        [nearest.point.lat, nearest.point.lon]
-      ]);
-    }
+    upsertMarkerGuide(marker, latlng, nearest.point);
   });
 
   marker.on("dragend", () => {
     const nearest = nearestTrackPointAndMile(marker.getLatLng());
     if (!nearest) return;
-    marker.setLatLng([nearest.point.lat, nearest.point.lon]);
-    clearMarkerGuide(marker);
+    const droppedLatLng = marker.getLatLng();
+    const isOffRoute = nearest.straightDistanceMiles > OFF_ROUTE_DRAG_THRESHOLD_MILES;
+
+    if (isOffRoute) {
+      upsertMarkerGuide(marker, droppedLatLng, nearest.point);
+    } else {
+      marker.setLatLng([nearest.point.lat, nearest.point.lon]);
+      clearMarkerGuide(marker);
+    }
 
     if (type === "day" && stageOptions[index]) {
-      stageOptions[index].lat = nearest.point.lat;
-      stageOptions[index].lon = nearest.point.lon;
+      stageOptions[index].lat = isOffRoute ? droppedLatLng.lat : nearest.point.lat;
+      stageOptions[index].lon = isOffRoute ? droppedLatLng.lng : nearest.point.lon;
       stageOptions[index].endMile = nearest.mile.toFixed(1);
       const prevEnd = index === 0 ? 0 : Number(stageOptions[index - 1].endMile || 0);
       stageOptions[index].startMile = prevEnd.toFixed(1);
@@ -4659,8 +4866,8 @@ function attachDragHandlers(marker, type, index) {
     }
 
     if (type === "resupply" && resupplyPoints[index]) {
-      resupplyPoints[index].lat = nearest.point.lat;
-      resupplyPoints[index].lon = nearest.point.lon;
+      resupplyPoints[index].lat = isOffRoute ? droppedLatLng.lat : nearest.point.lat;
+      resupplyPoints[index].lon = isOffRoute ? droppedLatLng.lng : nearest.point.lon;
       resupplyPoints[index].mile = Number(nearest.mile.toFixed(1));
       marker.bindPopup(
         `<strong>${resupplyPoints[index].name}</strong><br/>Distance ${formatRouteDistanceWithUnits(
@@ -5202,6 +5409,7 @@ function loadComments() {
 function persistComments() {
   captureUndoPoint();
   localStorage.setItem(COMMENTS_KEY, JSON.stringify(comments));
+  maybeWarnUnsignedChanges();
   scheduleCloudSync();
 }
 
@@ -5354,6 +5562,10 @@ if (customApplyUploadBtn) {
 
       if (map) {
         applyTrackToMap(points, { fitBounds: true, rebuildPlan: true });
+      }
+      if (cloudReady()) {
+        setMyRouteShortcutFlag(true);
+        refreshMyRouteShortcutVisibility();
       }
       renderCustomStopEditor();
       customGpxStatus.textContent = `Uploaded ${file.name} • ${totalMiles.toFixed(1)} mi`;
@@ -5565,6 +5777,8 @@ signUpBtn.addEventListener("click", async () => {
     authUser = { uid: `local-${key}`, email: key };
     setLocalSessionEmail(key);
     setCloudStatus(`Local account created for ${key}.`);
+    setUnsignedWarningVisible(false);
+    await refreshMyRouteShortcutVisibility();
     await pushCloudData();
     return;
   }
@@ -5597,6 +5811,8 @@ signInBtn.addEventListener("click", async () => {
     authUser = { uid: `local-${key}`, email: key };
     setLocalSessionEmail(key);
     await loadCloudData();
+    setUnsignedWarningVisible(false);
+    await refreshMyRouteShortcutVisibility();
     return;
   }
   if (!firebaseAuth) {
@@ -5648,6 +5864,8 @@ signOutBtn.addEventListener("click", async () => {
     authUser = null;
     clearLocalSessionEmail();
     setCloudStatus("Signed out of local account.");
+    setMyRouteShortcutVisible(false);
+    setUnsignedWarningVisible(false);
     return;
   }
   if (!firebaseAuth) return;
@@ -5734,3 +5952,4 @@ if (startDateInput.value && totalDaysInput.value && !finishDateInput.value) {
 }
 
 resetUndoBaseline();
+appInitialized = true;

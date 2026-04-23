@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=23" />
+    <link rel="stylesheet" href="styles.css?v=27" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -63,11 +63,15 @@
           <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
           <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
           <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
+          <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="custom_ride" type="button" hidden>My Route</button>
           <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
           <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
         </nav>
         <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
       </section>
+      <p id="unsigned-warning-banner" class="unsigned-warning-banner" hidden>
+        Warning: You are not signed in. Changes can be lost on refresh/device switch. Sign in to save your data.
+      </p>
       <p id="planner-title" class="planner-route-title">Tour Divide Race Planner</p>
       <p id="planner-subhead" class="subhead">
         Plan each race day, inspect the full route map with resupply points, and discuss route sections with other riders.
@@ -88,7 +92,7 @@
               <img src="home-bike-photo.jpeg" alt="Bikepacking bike on a snowy trail." loading="lazy" />
             </figure>
             <figure class="home-photo">
-              <img src="home-bike-photo-2.jpg" alt="Bikepacking photo from your ride gallery." loading="lazy" />
+              <img src="assets/home/home-trip-1.jpg?v=2" alt="Bikepacker riding toward mountain walls on a paved road." loading="lazy" />
             </figure>
             <figure class="home-photo">
               <img src="home-bike-photo-3.jpg" alt="Bikepacking bike setup on trail terrain." loading="lazy" />
@@ -116,6 +120,20 @@
             <h2>Route Collections</h2>
             <p>Choose a route and start planning with distance, elevation, terrain, and region in mind.</p>
             <div id="home-route-list" class="home-route-list"></div>
+          </section>
+          <section class="home-bottom-gallery" aria-label="More ride photos">
+            <h2>More Ride Photos</h2>
+            <div class="home-bottom-photo-grid">
+              <figure class="home-photo">
+                <img src="assets/home/home-trip-2.jpg?v=2" alt="Bikepacking ride photo from your gallery." loading="lazy" />
+              </figure>
+              <figure class="home-photo">
+                <img src="assets/home/home-trip-3.jpg?v=2" alt="Bikepacking ride photo from your gallery." loading="lazy" />
+              </figure>
+              <figure class="home-photo">
+                <img src="assets/home/home-trip-4.jpeg" alt="Bikepacking ride photo from your gallery." loading="lazy" />
+              </figure>
+            </div>
           </section>
           <div class="button-row">
             <button id="home-open-active-btn" class="btn btn-primary" type="button">Open Active Planner</button>
@@ -502,7 +520,7 @@
         <div class="day-notes">
           <label>
             Target town / stop
-            <input type="text" class="town-input" />
+            <input type="text" class="town-input" placeholder="e.g. campground, town, pass, hotel" />
           </label>
           <label>
             Notes on the day
@@ -519,7 +537,10 @@
             <h3 class="resupply-title"></h3>
             <p class="day-date resupply-subtitle"></p>
           </div>
-          <span class="tag ride">Resupply</span>
+          <div class="resupply-top-actions">
+            <button type="button" class="btn delete-resupply-stop-btn">Delete Stop</button>
+            <span class="tag ride">Resupply</span>
+          </div>
         </div>
         <div class="resupply-mile-edit" hidden>
           <label>
@@ -578,7 +599,7 @@
         <div class="day-stats">
           <label>
             Days until next resupply
-            <input type="number" class="days-until-input" min="1" step="1" />
+            <input type="number" class="days-until-input" min="1" step="1" placeholder="1" />
           </label>
           <label>
             Calorie counter (target kcal)
@@ -612,7 +633,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=83"></script>
+    <script src="script.js?v=91"></script>
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {

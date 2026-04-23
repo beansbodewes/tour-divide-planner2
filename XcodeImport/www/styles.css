@@ -74,6 +74,21 @@ body {
   max-width: 760px;
 }
 
+.home-bottom-gallery {
+  margin-top: 0.9rem;
+  border: 1px solid #dccfb9;
+  border-radius: 12px;
+  background: #fffefb;
+  padding: 0.8rem;
+}
+
+.home-bottom-photo-grid {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .home-photo {
   margin: 0;
   border: 1px solid #ccbfa8;
@@ -98,6 +113,10 @@ body {
 
 @media (max-width: 540px) {
   .home-photo-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .home-bottom-photo-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -392,6 +411,22 @@ h1 {
   color: #8b3614;
 }
 
+#my-route-shortcut-btn {
+  border-color: #2f5fb9;
+  background: #e8f0ff;
+  color: #163f8f;
+}
+
+#my-route-shortcut-btn:hover {
+  background: #dbe8ff;
+}
+
+#my-route-shortcut-btn.active {
+  border-color: #2f5fb9;
+  background: #2f5fb9;
+  color: #fff;
+}
+
 #customer-service-view-btn,
 #donations-view-btn {
   border-color: #9aa19a;
@@ -414,6 +449,17 @@ h1 {
   margin: 0.5rem 0 0;
   font-size: 0.82rem;
   color: var(--ink-soft);
+}
+
+.unsigned-warning-banner {
+  margin: 0.55rem 0 0;
+  padding: 0.62rem 0.8rem;
+  border: 1px solid #b63a3a;
+  border-radius: 10px;
+  background: #fde5e5;
+  color: #8a1f1f;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .tabs {
@@ -619,6 +665,24 @@ select:focus {
   background: var(--accent-2);
 }
 
+.delete-resupply-stop-btn {
+  border-color: #b63a3a;
+  color: #8a1f1f;
+  background: #fde9e9;
+}
+
+.resupply-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.resupply-top-actions .delete-resupply-stop-btn {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
 .export {
   display: flex;
   align-items: center;
@@ -668,6 +732,10 @@ select:focus {
   gap: 1rem;
   align-items: baseline;
   margin-bottom: 1rem;
+}
+
+.map-panel .map-header {
+  margin-bottom: 0.4rem;
 }
 
 .days-header p,
@@ -1030,6 +1098,14 @@ select:focus {
 .route-profile {
   height: 118px;
   width: 2400px;
+}
+
+.route-profile-icon {
+  pointer-events: none;
+}
+
+.route-profile-icon text {
+  dominant-baseline: middle;
 }
 
 .profile-scroll {
