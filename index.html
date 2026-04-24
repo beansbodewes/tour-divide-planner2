@@ -63,7 +63,7 @@
           <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
           <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
           <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
-          <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="custom_ride" type="button" hidden>My Route</button>
+          <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="my_route" type="button" hidden>My Route</button>
           <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
           <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
         </nav>
@@ -285,8 +285,12 @@
               </label>
               <div class="control-grid custom-projection-grid">
                 <label>
+                  Route name
+                  <input type="text" id="custom-route-name" maxlength="48" placeholder="My Route" />
+                </label>
+                <label>
                   Projected days
-                  <input type="number" id="custom-projected-days" min="2" max="120" value="20" />
+                  <input type="number" id="custom-projected-days" min="1" max="120" value="20" />
                 </label>
                 <label>
                   Projected resupply points
@@ -294,7 +298,7 @@
                 </label>
               </div>
               <div class="button-row">
-                <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Apply Uploaded Route</button>
+                <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Create New Route</button>
               </div>
             </section>
             <form id="plan-form" class="control-grid">
@@ -308,7 +312,7 @@
               </label>
               <label>
                 Projected days
-                <input type="number" id="total-days" min="10" max="120" value="22" required />
+                <input type="number" id="total-days" min="1" max="120" value="22" required />
               </label>
               <label>
                 Planned rest days
@@ -388,6 +392,9 @@
               <h3>Custom Resupply Points</h3>
               <p id="custom-stop-editor-note" class="empty-note">Upload a custom GPX route to edit stops.</p>
               <div id="custom-stop-list" class="custom-stop-list"></div>
+              <div class="button-row">
+                <button id="custom-delete-route-btn" class="btn" type="button">Delete Route</button>
+              </div>
             </div>
           </section>
         </div>
