@@ -735,7 +735,7 @@ async function loadGpxTrackPoints(fileName) {
       const xmlText = await response.text();
       const parsed = parseGpxTrack(xmlText);
       if (parsed.length >= 2) return parsed;
-      lastError = `${path} -> parsed ${parsed.length} track points`;
+      lastError = `${path} -> parsed ${parsed.length} route points (need at least 2)`;
     } catch (error) {
       lastError = `${path} -> ${error instanceof Error ? error.message : "fetch error"}`;
     }
@@ -1257,7 +1257,12 @@ function refreshResupplyUIAfterChange() {
   renderMarkerList();
   drawSectionOverlays();
   renderMapSectionComments(selectedSectionName);
-  if (plan.length) renderPlan(plan);
+  if (plan.length) {
+    renderPlan(plan);
+    persistPlan();
+    const config = parseForm();
+    if (config) renderMetrics(config, plan);
+  }
   if (isCustomRouteActive()) renderCustomStopEditor();
   applyDragModeToMarkers();
 }
@@ -1726,6 +1731,95 @@ function saveLocalProfileWithFallback(email, payload) {
       return { ok: false, degraded: false };
     }
   }
+}
+
+const CUSTOM_ROUTE_MAX_STORED_TRACK_POINTS = 12000;
+
+function normalizeStoredTrackPoint(point) {
+  const lat = Number(point?.lat);
+  const lon = Number(point?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const eleRaw = Number(point?.ele);
+  return {
+    lat: Number(lat.toFixed(6)),
+    lon: Number(lon.toFixed(6)),
+    ele: Number.isFinite(eleRaw) ? Number(eleRaw.toFixed(1)) : null
+  };
+}
+
+function normalizeStoredResupplyPoint(point) {
+  const mile = Number(point?.mile);
+  const lat = Number(point?.lat);
+  const lon = Number(point?.lon);
+  if (!Number.isFinite(mile) || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return {
+    mile: Number(mile.toFixed(1)),
+    name: String(point?.name || "").trim() || "Stop",
+    lat: Number(lat.toFixed(6)),
+    lon: Number(lon.toFixed(6)),
+    resupply: String(point?.resupply || "").trim(),
+    isCustom: Boolean(point?.isCustom)
+  };
+}
+
+function thinTrackPointsForStorage(points, maxPoints = CUSTOM_ROUTE_MAX_STORED_TRACK_POINTS) {
+  if (!Array.isArray(points)) return [];
+  if (points.length <= maxPoints) return points;
+  const stride = Math.ceil(points.length / maxPoints);
+  const thinned = [];
+  for (let i = 0; i < points.length; i += stride) {
+    thinned.push(points[i]);
+  }
+  if (points.length && thinned[thinned.length - 1] !== points[points.length - 1]) {
+    thinned.push(points[points.length - 1]);
+  }
+  return thinned;
+}
+
+function buildCustomRideDataPayload() {
+  if (!isCustomRouteActive()) return null;
+  const validTrack = Array.isArray(customUploadedTrackPoints)
+    ? customUploadedTrackPoints.map(normalizeStoredTrackPoint).filter(Boolean)
+    : [];
+  if (validTrack.length < 2) return null;
+  const storedTrack = thinTrackPointsForStorage(validTrack);
+  const storedResupply = Array.isArray(resupplyPoints)
+    ? resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+    : [];
+  return {
+    trackPoints: storedTrack,
+    resupplyPoints: storedResupply,
+    uploadedFileName: String(customUploadedFile?.name || ""),
+    sourcePointCount: validTrack.length
+  };
+}
+
+function applyCustomRideDataPayload(customRideData) {
+  if (!customRideData || typeof customRideData !== "object") return false;
+  const storedTrack = Array.isArray(customRideData.trackPoints)
+    ? customRideData.trackPoints.map(normalizeStoredTrackPoint).filter(Boolean)
+    : [];
+  if (storedTrack.length < 2) return false;
+
+  customUploadedTrackPoints = storedTrack;
+  customUploadedFile = null;
+
+  const storedResupply = Array.isArray(customRideData.resupplyPoints)
+    ? customRideData.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+    : [];
+  if (storedResupply.length >= 2) {
+    resupplyPoints = storedResupply;
+    sortResupplyPointsByMile();
+    saveCustomResupplyStops();
+  }
+
+  const label = String(customRideData.uploadedFileName || "").trim();
+  if (customGpxStatus) {
+    customGpxStatus.textContent = label
+      ? `Loaded saved custom route (${label})`
+      : `Loaded saved custom route • ${storedTrack.length.toLocaleString()} points`;
+  }
+  return true;
 }
 
 function nearestWaypoint(mile) {
@@ -2499,6 +2593,7 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
       const confirmed = window.confirm(`Delete resupply stop \"${stopName}\"?`);
       if (!confirmed) return;
       resupplyPoints.splice(stopIndex, 1);
+      setMapPlanSelection({ dayIndex });
       setCloudStatus(`Deleted resupply stop: ${stopName}.`);
       refreshResupplyUIAfterChange();
     });
@@ -2639,6 +2734,7 @@ function renderMapPlanSelection() {
 
 async function pushCloudData() {
   if (!cloudReady()) return;
+  const customRideData = buildCustomRideDataPayload();
   if (localAuthMode) {
     try {
       const config = parseForm();
@@ -2646,6 +2742,7 @@ async function pushCloudData() {
         config,
         plan,
         comments,
+        customRideData,
         updatedAt: new Date().toISOString()
       });
       if (result.ok && result.degraded) {
@@ -2667,6 +2764,7 @@ async function pushCloudData() {
         config,
         plan,
         comments,
+        customRideData,
         updatedAt: new Date().toISOString()
       },
       { merge: true }
@@ -2695,10 +2793,16 @@ async function loadCloudData() {
         return;
       }
       const data = JSON.parse(raw);
+      if (isCustomRouteActive()) {
+        applyCustomRideDataPayload(data.customRideData);
+      }
       applyPlannerConfig(data.config);
       enforceRouteDistanceBaseline();
       applyPlanArray(data.plan);
       applyCommentsArray(data.comments);
+      if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
+        applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+      }
       setCloudStatus(`Loaded local account data for ${authUser.email}`);
     } catch {
       setCloudStatus("Failed to load local account data.");
@@ -2712,10 +2816,16 @@ async function loadCloudData() {
       return;
     }
     const data = snapshot.data() || {};
+    if (isCustomRouteActive()) {
+      applyCustomRideDataPayload(data.customRideData);
+    }
     applyPlannerConfig(data.config);
     enforceRouteDistanceBaseline();
     applyPlanArray(data.plan);
     applyCommentsArray(data.comments);
+    if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
+      applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+    }
     resetUndoBaseline();
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
   } catch {
@@ -2762,11 +2872,13 @@ function persistPlan() {
   const config = parseForm();
   if (!config) return;
   captureUndoPoint();
+  const customRideData = buildCustomRideDataPayload();
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
       config,
-      plan
+      plan,
+      customRideData
     })
   );
   maybeWarnUnsignedChanges();
@@ -2784,12 +2896,18 @@ function loadSavedPlan() {
     const saved = JSON.parse(raw);
     if (!saved?.config || !Array.isArray(saved?.plan)) throw new Error("Invalid plan");
 
+    if (isCustomRouteActive()) {
+      applyCustomRideDataPayload(saved.customRideData);
+    }
     applyPlannerConfig({
       ...saved.config,
       finishDate: saved.config.finishDate || addDays(saved.config.startDate, saved.config.totalDays - 1)
     });
     enforceRouteDistanceBaseline();
     applyPlanArray(saved.plan);
+    if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
+      applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+    }
   } catch {
     localStorage.removeItem(STORAGE_KEY);
     startDateInput.value = localDateString(new Date());
@@ -3463,17 +3581,54 @@ function interpolatePoint(a, b, target, startDistance, segmentDistance) {
 function parseGpxTrack(xmlText) {
   const parser = new DOMParser();
   const xml = parser.parseFromString(xmlText, "application/xml");
-  const points = Array.from(xml.getElementsByTagName("trkpt")).map((node) => {
-    const eleNode = node.getElementsByTagName("ele")[0];
+  if (xml.querySelector("parsererror")) {
+    throw new Error("Invalid GPX XML.");
+  }
+
+  const toTrackPoint = (node) => {
+    if (!node) return null;
+    const lat = Number(node.getAttribute("lat"));
+    const lon = Number(node.getAttribute("lon"));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    let eleNode = null;
+    for (const child of Array.from(node.children || [])) {
+      if (String(child.localName || child.nodeName).toLowerCase() === "ele") {
+        eleNode = child;
+        break;
+      }
+    }
     const ele = eleNode ? Number(eleNode.textContent) : Number.NaN;
     return {
-      lat: Number(node.getAttribute("lat")),
-      lon: Number(node.getAttribute("lon")),
+      lat,
+      lon,
       ele: Number.isFinite(ele) ? ele : null
     };
-  });
+  };
 
-  return points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
+  const collectByLocalName = (localName) =>
+    Array.from(xml.getElementsByTagName("*")).filter(
+      (node) => String(node.localName || node.nodeName).toLowerCase() === localName
+    );
+
+  // Prefer real track points; fallback to route points; final fallback to waypoints.
+  const trkNodes = collectByLocalName("trkpt");
+  const rteNodes = collectByLocalName("rtept");
+  const wptNodes = collectByLocalName("wpt");
+  const chosenNodes = trkNodes.length ? trkNodes : rteNodes.length ? rteNodes : wptNodes;
+
+  const points = chosenNodes.map(toTrackPoint).filter(Boolean);
+
+  // Remove immediate duplicates that can appear in some exported GPX files.
+  const deduped = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = deduped[deduped.length - 1];
+    const cur = points[i];
+    if (prev && prev.lat === cur.lat && prev.lon === cur.lon) continue;
+    deduped.push(cur);
+  }
+
+  return deduped;
 }
 
 function sampleTrackForDisplay(points, maxPoints = 3200) {
@@ -5562,6 +5717,11 @@ if (customApplyUploadBtn) {
 
       if (map) {
         applyTrackToMap(points, { fitBounds: true, rebuildPlan: true });
+      }
+      persistPlan();
+      persistComments();
+      if (cloudReady()) {
+        await pushCloudData();
       }
       if (cloudReady()) {
         setMyRouteShortcutFlag(true);
