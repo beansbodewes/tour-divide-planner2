@@ -398,6 +398,7 @@ let firestoreDb = null;
 let authUser = null;
 let cloudSyncTimer = null;
 let cloudLoadRetryCount = 0;
+let cloudLoadInProgress = false;
 let localAuthMode = false;
 let authBusy = false;
 let undoStack = [];
@@ -3476,6 +3477,9 @@ function scheduleCloudSync() {
 }
 
 async function loadCloudData() {
+  if (cloudLoadInProgress) return;
+  cloudLoadInProgress = true;
+  try {
   if (!cloudReady()) return;
   const routeId = getRouteFromUrl();
   if (isRouteBuilderActive()) {
@@ -3576,16 +3580,21 @@ async function loadCloudData() {
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
   } catch (error) {
     const message = String(error?.message || "Unknown cloud load error");
-    if (/parentNode/i.test(message) && cloudLoadRetryCount < 2) {
+    const transientUiRace = /parentNode|is not an object|Cannot read properties of undefined/i.test(message);
+    if (transientUiRace && cloudLoadRetryCount < 6) {
       cloudLoadRetryCount += 1;
       setCloudStatus("Signed in. Finishing map setup...");
       setTimeout(() => {
+        cloudLoadInProgress = false;
         loadCloudData();
-      }, 300);
+      }, 500 + cloudLoadRetryCount * 200);
       return;
     }
     console.error("Cloud load error:", error);
     setCloudStatus(`Cloud load failed (${message}). Using local data.`);
+  }
+  } finally {
+    cloudLoadInProgress = false;
   }
 }
 
