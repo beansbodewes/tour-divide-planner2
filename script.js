@@ -397,6 +397,7 @@ let firebaseAuth = null;
 let firestoreDb = null;
 let authUser = null;
 let cloudSyncTimer = null;
+let cloudLoadRetryCount = 0;
 let localAuthMode = false;
 let authBusy = false;
 let undoStack = [];
@@ -618,18 +619,20 @@ async function loadCustomRouteRegistryFromCloud() {
     const snapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).get();
     if (!snapshot.exists) return;
     const data = snapshot.data() || {};
+    const customRoutesMap = data?.customRoutes && typeof data.customRoutes === "object" ? data.customRoutes : {};
+    const hasPersistedPayload = (routeId) => hasValidCustomRideDataPayload(customRoutesMap?.[routeId]);
     const cloudRoutes = Array.isArray(data.customRouteRegistry)
       ? data.customRouteRegistry
           .map((entry) => ({
             id: String(entry?.id || ""),
             name: sanitizeCustomRouteName(entry?.name || "My Route")
           }))
-          .filter((entry) => isNamedCustomRoute(entry.id))
+          .filter((entry) => isNamedCustomRoute(entry.id) && hasPersistedPayload(entry.id))
       : [];
-    const customRoutesMap = data?.customRoutes && typeof data.customRoutes === "object" ? data.customRoutes : {};
     Object.keys(customRoutesMap).forEach((routeId) => {
       if (!isNamedCustomRoute(routeId)) return;
       const routeData = customRoutesMap[routeId] || {};
+      if (!hasValidCustomRideDataPayload(routeData)) return;
       cloudRoutes.push({
         id: routeId,
         name: sanitizeCustomRouteName(routeData?.routeName || "My Route")
@@ -3569,9 +3572,19 @@ async function loadCloudData() {
       });
     }
     resetUndoBaseline();
+    cloudLoadRetryCount = 0;
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
   } catch (error) {
     const message = String(error?.message || "Unknown cloud load error");
+    if (/parentNode/i.test(message) && cloudLoadRetryCount < 2) {
+      cloudLoadRetryCount += 1;
+      setCloudStatus("Signed in. Finishing map setup...");
+      setTimeout(() => {
+        loadCloudData();
+      }, 300);
+      return;
+    }
+    console.error("Cloud load error:", error);
     setCloudStatus(`Cloud load failed (${message}). Using local data.`);
   }
 }
@@ -6463,10 +6476,6 @@ if (customApplyUploadBtn) {
       customRouteDisplayName = sanitizeCustomRouteName(customRouteNameInput?.value || file.name.replace(/\.gpx$/i, ""));
       const newRouteId = generateCustomRouteId(customRouteDisplayName);
       ensureCustomRouteDefinition(newRouteId, customRouteDisplayName);
-      upsertCustomRouteRegistryEntry(newRouteId, customRouteDisplayName);
-      renderCustomRouteButtons();
-      setMyRouteShortcutLabel(customRouteDisplayName);
-      saveMyRouteMeta({ hasRoute: true, name: customRouteDisplayName });
       if (customRouteNameInput) customRouteNameInput.value = customRouteDisplayName;
       const cumulative = buildTrackCumulativeMiles(points);
       const totalMiles = cumulative[cumulative.length - 1] || 0;
@@ -6504,12 +6513,21 @@ if (customApplyUploadBtn) {
       setMyRouteShortcutVisible(true);
       renderCustomStopEditor();
       customGpxStatus.textContent = `Uploaded ${file.name} • ${totalMiles.toFixed(1)} mi`;
-      await persistMyRouteSnapshot({
+      const persisted = await persistMyRouteSnapshot({
         syncCloud: true,
         uploadedFileName: file.name,
         routeId: newRouteId,
         routeName: customRouteDisplayName
       });
+      if (!persisted) {
+        setCloudStatus("Could not save this route yet. Try again after selecting the GPX.");
+        return;
+      }
+
+      upsertCustomRouteRegistryEntry(newRouteId, customRouteDisplayName);
+      renderCustomRouteButtons();
+      setMyRouteShortcutLabel(customRouteDisplayName);
+      saveMyRouteMeta({ hasRoute: true, name: customRouteDisplayName });
 
       setCloudStatus(`Created route: ${customRouteDisplayName}`);
       window.location.href = routeUrl(newRouteId);
