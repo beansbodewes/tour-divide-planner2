@@ -2325,7 +2325,10 @@ async function persistMyRouteSnapshot(options = {}) {
       ? activeRouteId()
       : "my_route";
   ensureCustomRouteDefinition(targetRouteId, options.routeName || customRouteDisplayName);
-  const myPayload = buildCustomRideDataFromCurrentState(uploadedFileName);
+  const overridePayload = options.customRideDataOverride;
+  const myPayload =
+    (hasValidCustomRideDataPayload({ customRideData: overridePayload }) ? overridePayload : null) ||
+    buildCustomRideDataFromCurrentState(uploadedFileName);
   if (!myPayload) return false;
 
   const myRoute = ROUTES[targetRouteId] || ROUTES.my_route;
@@ -6595,6 +6598,10 @@ if (customApplyUploadBtn) {
       customRouteDisplayName = sanitizeCustomRouteName(customRouteNameInput?.value || file.name.replace(/\.gpx$/i, ""));
       const newRouteId = generateCustomRouteId(customRouteDisplayName);
       ensureCustomRouteDefinition(newRouteId, customRouteDisplayName);
+      upsertCustomRouteRegistryEntry(newRouteId, customRouteDisplayName);
+      renderCustomRouteButtons();
+      setMyRouteShortcutLabel(customRouteDisplayName);
+      saveMyRouteMeta({ hasRoute: true, name: customRouteDisplayName });
       if (customRouteNameInput) customRouteNameInput.value = customRouteDisplayName;
       const cumulative = buildTrackCumulativeMiles(points);
       const totalMiles = cumulative[cumulative.length - 1] || 0;
@@ -6632,14 +6639,24 @@ if (customApplyUploadBtn) {
       setMyRouteShortcutVisible(true);
       renderCustomStopEditor();
       customGpxStatus.textContent = `Uploaded ${file.name} • ${totalMiles.toFixed(1)} mi`;
+      const explicitPayload = {
+        trackPoints: thinTrackPointsForStorage(points.map(normalizeStoredTrackPoint).filter(Boolean)),
+        resupplyPoints: Array.isArray(resupplyPoints)
+          ? resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+          : [],
+        uploadedFileName: String(file.name || ""),
+        routeName: sanitizeCustomRouteName(customRouteDisplayName),
+        sourcePointCount: points.length
+      };
       const persisted = await persistMyRouteSnapshot({
         syncCloud: true,
         uploadedFileName: file.name,
         routeId: newRouteId,
-        routeName: customRouteDisplayName
+        routeName: customRouteDisplayName,
+        customRideDataOverride: explicitPayload
       });
       if (!persisted) {
-        setCloudStatus("Could not save this route yet. Try again after selecting the GPX.");
+        setCloudStatus("Route tab created, but GPX save failed. Try once more and keep this page open.");
         return;
       }
 
