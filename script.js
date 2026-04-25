@@ -193,7 +193,7 @@ const ROUTES = {
     minDistance: 1,
     maxDistance: 5000,
     storagePrefix: "my-route",
-    profileCollection: "my_route_profiles",
+    profileCollection: "custom_ride_profiles",
     csvName: "my-route-day-by-day-plan.csv",
     resupplyPoints: [
       { mile: 0, name: "Start", lat: 0, lon: 0, resupply: "Upload GPX to build route." },
@@ -420,7 +420,6 @@ let mapRenderWatchdogTimer = null;
 let activeRouteGpxDistanceMiles = null;
 const CUSTOM_ROUTE_REGISTRY_KEY = "bikepack-finisher-custom-route-registry-v1";
 const CUSTOM_ROUTE_ID_PREFIX = "my_route_";
-const CUSTOM_ROUTE_REGISTRY_COLLECTION = "my_route_registry";
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
 const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
@@ -540,7 +539,7 @@ function buildNamedCustomRouteDefinition(routeId, name = "My Route") {
     label,
     plannerTitle: `${label} Planner`,
     storagePrefix: `my-route-${routeId}`,
-    profileCollection: "my_route_profiles",
+    profileCollection: "custom_ride_profiles",
     csvName: `${sanitizeRouteIdSegment(label)}-day-by-day-plan.csv`,
     resupplyPoints: ROUTES.my_route.resupplyPoints.map((point) => ({ ...point }))
   };
@@ -563,12 +562,18 @@ function loadCustomRouteRegistry() {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const normalized = parsed
       .map((entry) => ({
         id: String(entry?.id || ""),
         name: sanitizeCustomRouteName(entry?.name || "My Route")
       }))
       .filter((entry) => String(entry.id || "").startsWith(CUSTOM_ROUTE_ID_PREFIX));
+    const uniqueById = new Map();
+    normalized.forEach((entry) => {
+      if (!entry.id) return;
+      uniqueById.set(entry.id, entry);
+    });
+    return Array.from(uniqueById.values());
   } catch {
     return [];
   }
@@ -576,7 +581,16 @@ function loadCustomRouteRegistry() {
 
 function saveCustomRouteRegistry(registry) {
   try {
-    localStorage.setItem(CUSTOM_ROUTE_REGISTRY_KEY, JSON.stringify(registry));
+    const uniqueById = new Map();
+    (Array.isArray(registry) ? registry : []).forEach((entry) => {
+      const id = String(entry?.id || "");
+      if (!id.startsWith(CUSTOM_ROUTE_ID_PREFIX)) return;
+      uniqueById.set(id, {
+        id,
+        name: sanitizeCustomRouteName(entry?.name || "My Route")
+      });
+    });
+    localStorage.setItem(CUSTOM_ROUTE_REGISTRY_KEY, JSON.stringify(Array.from(uniqueById.values())));
   } catch {
     // Ignore local storage failures.
   }
@@ -586,9 +600,9 @@ async function saveCustomRouteRegistryToCloud() {
   if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
   const registry = loadCustomRouteRegistry();
   try {
-    await firestoreDb.collection(CUSTOM_ROUTE_REGISTRY_COLLECTION).doc(authUser.uid).set(
+    await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).set(
       {
-        routes: registry,
+        customRouteRegistry: registry,
         updatedAt: new Date().toISOString()
       },
       { merge: true }
@@ -601,30 +615,100 @@ async function saveCustomRouteRegistryToCloud() {
 async function loadCustomRouteRegistryFromCloud() {
   if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
   try {
-    const snapshot = await firestoreDb.collection(CUSTOM_ROUTE_REGISTRY_COLLECTION).doc(authUser.uid).get();
+    const snapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).get();
     if (!snapshot.exists) return;
     const data = snapshot.data() || {};
-    const cloudRoutes = Array.isArray(data.routes)
-      ? data.routes
+    const cloudRoutes = Array.isArray(data.customRouteRegistry)
+      ? data.customRouteRegistry
           .map((entry) => ({
             id: String(entry?.id || ""),
             name: sanitizeCustomRouteName(entry?.name || "My Route")
           }))
           .filter((entry) => isNamedCustomRoute(entry.id))
       : [];
-    if (!cloudRoutes.length) return;
-    const merged = loadCustomRouteRegistry();
-    cloudRoutes.forEach((entry) => {
-      if (!merged.some((existing) => existing.id === entry.id)) {
-        merged.push(entry);
-      }
+    const customRoutesMap = data?.customRoutes && typeof data.customRoutes === "object" ? data.customRoutes : {};
+    Object.keys(customRoutesMap).forEach((routeId) => {
+      if (!isNamedCustomRoute(routeId)) return;
+      const routeData = customRoutesMap[routeId] || {};
+      cloudRoutes.push({
+        id: routeId,
+        name: sanitizeCustomRouteName(routeData?.routeName || "My Route")
+      });
     });
+    if (!cloudRoutes.length) return;
+    const mergedById = new Map();
+    loadCustomRouteRegistry().forEach((entry) => mergedById.set(entry.id, entry));
+    cloudRoutes.forEach((entry) => mergedById.set(entry.id, entry));
+    const merged = Array.from(mergedById.values());
     saveCustomRouteRegistry(merged);
     hydrateCustomRoutesFromRegistry();
     renderCustomRouteButtons();
   } catch {
     // Ignore cloud registry load failures.
   }
+}
+
+function getCustomRouteStorageKeys(routeId) {
+  const route = ROUTES[routeId];
+  if (!route) return null;
+  return {
+    planKey: `${route.storagePrefix}-plan-v1`,
+    commentsKey: `${route.storagePrefix}-comments-v1`
+  };
+}
+
+function loadLocalCustomRouteSnapshot(routeId) {
+  const keys = getCustomRouteStorageKeys(routeId);
+  if (!keys) return null;
+  try {
+    const rawPlan = localStorage.getItem(keys.planKey);
+    if (!rawPlan) return null;
+    const parsedPlan = JSON.parse(rawPlan);
+    if (!hasValidCustomRideDataPayload(parsedPlan)) return null;
+    const rawComments = localStorage.getItem(keys.commentsKey);
+    const commentsList = rawComments ? JSON.parse(rawComments) : [];
+    return {
+      routeName: sanitizeCustomRouteName(parsedPlan?.customRideData?.routeName || ROUTES[routeId]?.label || "My Route"),
+      config: parsedPlan?.config || buildFallbackConfigForMyRoute(),
+      plan: Array.isArray(parsedPlan?.plan) ? parsedPlan.plan : [],
+      comments: Array.isArray(commentsList) ? commentsList : [],
+      customRideData: parsedPlan?.customRideData || null,
+      updatedAt: new Date().toISOString()
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function syncAllLocalCustomRoutesToCloud() {
+  if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
+  const registry = loadCustomRouteRegistry();
+  if (!registry.length) return;
+
+  const customRoutesPayload = {};
+  registry.forEach((entry) => {
+    ensureCustomRouteDefinition(entry.id, entry.name);
+    const snapshot = loadLocalCustomRouteSnapshot(entry.id);
+    if (!snapshot || !hasValidCustomRideDataPayload(snapshot)) return;
+    customRoutesPayload[entry.id] = {
+      routeName: sanitizeCustomRouteName(snapshot.routeName || entry.name || "My Route"),
+      config: snapshot.config || buildFallbackConfigForMyRoute(),
+      plan: Array.isArray(snapshot.plan) ? snapshot.plan : [],
+      comments: Array.isArray(snapshot.comments) ? snapshot.comments : [],
+      customRideData: snapshot.customRideData,
+      updatedAt: new Date().toISOString()
+    };
+  });
+
+  if (!Object.keys(customRoutesPayload).length) return;
+  await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).set(
+    {
+      customRouteRegistry: registry,
+      customRoutes: customRoutesPayload,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
 }
 
 function upsertCustomRouteRegistryEntry(routeId, name) {
@@ -1835,9 +1919,6 @@ function localProfileKey(email) {
 function cloudProfileDocIdForRoute(routeId, uid) {
   const safeUid = String(uid || "");
   if (!safeUid) return "";
-  if (isNamedCustomRoute(routeId)) {
-    return `${safeUid}__${routeId}`;
-  }
   return safeUid;
 }
 
@@ -1998,7 +2079,7 @@ async function refreshMyRouteShortcutVisibility() {
     return;
   }
 
-  let shouldShow = Boolean(myRouteMeta.hasRoute) || hasMyRouteShortcutFlag() || hasCustomRideDataInLocalProfile(email);
+  let shouldShow = Boolean(myRouteMeta.hasRoute) || hasMyRouteShortcutFlag() || loadCustomRouteRegistry().length > 0;
   try {
     const raw = localStorage.getItem(customRideLocalProfileKey(email)) || localStorage.getItem(legacyCustomRideLocalProfileKey(email));
     if (raw) {
@@ -2018,18 +2099,18 @@ async function refreshMyRouteShortcutVisibility() {
 
   if (!shouldShow && !localAuthMode && firestoreDb && authUser.uid) {
     try {
-      const primarySnapshot = await firestoreDb.collection(ROUTES.my_route.profileCollection).doc(authUser.uid).get();
-      let data = primarySnapshot.exists ? primarySnapshot.data() || {} : null;
-      if (!hasValidCustomRideDataPayload(data)) {
-        const legacySnapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).get();
-        if (legacySnapshot.exists) data = legacySnapshot.data() || {};
-      }
-      if (hasValidCustomRideDataPayload(data)) {
-        const savedName = sanitizeCustomRouteName(data?.customRideData?.routeName || "");
-        customRouteDisplayName = savedName;
-        setMyRouteShortcutLabel(savedName);
-        saveMyRouteMeta({ hasRoute: true, name: savedName });
-        shouldShow = true;
+      const snapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).get();
+      if (snapshot.exists) {
+        const data = snapshot.data() || {};
+        const customRoutesMap = data?.customRoutes && typeof data.customRoutes === "object" ? data.customRoutes : {};
+        Object.keys(customRoutesMap).forEach((routeId) => {
+          if (!isNamedCustomRoute(routeId)) return;
+          const routeData = customRoutesMap[routeId] || {};
+          upsertCustomRouteRegistryEntry(routeId, sanitizeCustomRouteName(routeData?.routeName || "My Route"));
+        });
+        if (Object.keys(customRoutesMap).length > 0) {
+          shouldShow = true;
+        }
       }
     } catch {
       // Ignore cloud check failures and keep local visibility state.
@@ -2233,12 +2314,19 @@ async function persistMyRouteSnapshot(options = {}) {
       } else if (firestoreDb && authUser?.uid) {
         const docId = cloudProfileDocIdForRoute(targetRouteId, authUser.uid);
         if (!docId) return true;
-        await firestoreDb.collection(myRoute.profileCollection).doc(docId).set(
+        await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
           {
-            config,
-            plan: planToStore,
-            comments: commentsToStore,
-            customRideData: myPayload,
+            customRouteRegistry: loadCustomRouteRegistry(),
+            customRoutes: {
+              [targetRouteId]: {
+                routeName: sanitizeCustomRouteName(myPayload.routeName || options.routeName || "My Route"),
+                config,
+                plan: planToStore,
+                comments: commentsToStore,
+                customRideData: myPayload,
+                updatedAt: new Date().toISOString()
+              }
+            },
             updatedAt: new Date().toISOString()
           },
           { merge: true }
@@ -2365,16 +2453,29 @@ async function deleteCustomRouteData() {
         localStorage.removeItem(routeLocalKey);
       } else if (firestoreDb && window.firebase?.firestore?.FieldValue && authUser?.uid) {
         const cloudDocId = cloudProfileDocIdForRoute(routeId, authUser.uid);
-        await firestoreDb.collection(routeDef.profileCollection).doc(cloudDocId).set(
-          {
-            config: window.firebase.firestore.FieldValue.delete(),
-            plan: window.firebase.firestore.FieldValue.delete(),
-            comments: window.firebase.firestore.FieldValue.delete(),
-            customRideData: window.firebase.firestore.FieldValue.delete(),
-            updatedAt: new Date().toISOString()
-          },
-          { merge: true }
-        );
+        if (isNamedCustomRoute(routeId)) {
+          await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(cloudDocId).set(
+            {
+              customRouteRegistry: loadCustomRouteRegistry(),
+              customRoutes: {
+                [routeId]: window.firebase.firestore.FieldValue.delete()
+              },
+              updatedAt: new Date().toISOString()
+            },
+            { merge: true }
+          );
+        } else {
+          await firestoreDb.collection(routeDef.profileCollection).doc(cloudDocId).set(
+            {
+              config: window.firebase.firestore.FieldValue.delete(),
+              plan: window.firebase.firestore.FieldValue.delete(),
+              comments: window.firebase.firestore.FieldValue.delete(),
+              customRideData: window.firebase.firestore.FieldValue.delete(),
+              updatedAt: new Date().toISOString()
+            },
+            { merge: true }
+          );
+        }
       }
     } catch {
       // Keep local delete state even if cloud cleanup fails.
@@ -3324,16 +3425,39 @@ async function pushCloudData() {
   try {
     const config = parseForm();
     const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
-    await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).set(
-      {
-        config,
-        plan,
-        comments,
-        customRideData,
-        updatedAt: new Date().toISOString()
-      },
-      { merge: true }
-    );
+    if (!docId) return;
+    if (isCustomRouteActive()) {
+      const customConfig = config || buildFallbackConfigForMyRoute();
+      const customPlan = Array.isArray(plan) && plan.length ? plan : buildPlan(customConfig);
+      await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
+        {
+          customRouteRegistry: loadCustomRouteRegistry(),
+          customRoutes: {
+            [routeId]: {
+              routeName: sanitizeCustomRouteName(customRouteDisplayName || "My Route"),
+              config: customConfig,
+              plan: customPlan,
+              comments: Array.isArray(comments) ? comments : [],
+              customRideData,
+              updatedAt: new Date().toISOString()
+            }
+          },
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    } else {
+      await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).set(
+        {
+          config,
+          plan,
+          comments,
+          customRideData,
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    }
     setCloudStatus(`Synced to cloud for ${authUser.email}`);
   } catch {
     setCloudStatus("Cloud sync failed. Local data is still safe.");
@@ -3390,23 +3514,36 @@ async function loadCloudData() {
     let data = null;
     let usedLegacyCustomRouteData = false;
     const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
-    const snapshot = await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).get();
-    if (snapshot.exists) data = snapshot.data() || {};
-    if (isCustomRouteActive() && !hasValidCustomRideDataPayload(data)) {
-      const priorMyRouteDoc = await firestoreDb.collection(ROUTES.my_route.profileCollection).doc(authUser.uid).get();
-      if (priorMyRouteDoc.exists && hasValidCustomRideDataPayload(priorMyRouteDoc.data() || {})) {
-        data = priorMyRouteDoc.data() || {};
+    if (!docId) return;
+    if (isCustomRouteActive()) {
+      const customSnapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).get();
+      const customDoc = customSnapshot.exists ? customSnapshot.data() || {} : {};
+      const customRoutesMap = customDoc?.customRoutes && typeof customDoc.customRoutes === "object" ? customDoc.customRoutes : {};
+      data = customRoutesMap[routeId] || null;
+      if (!hasValidCustomRideDataPayload(data) && hasValidCustomRideDataPayload(customDoc)) {
+        data = customDoc;
         usedLegacyCustomRouteData = true;
       }
-    }
-    if (isCustomRouteActive() && !hasValidCustomRideDataPayload(data)) {
-      const legacySnapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid).get();
-      if (legacySnapshot.exists && hasValidCustomRideDataPayload(legacySnapshot.data() || {})) {
-        data = legacySnapshot.data() || {};
-        usedLegacyCustomRouteData = true;
-      }
+    } else {
+      const snapshot = await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).get();
+      if (snapshot.exists) data = snapshot.data() || {};
     }
     if (!data) {
+      if (isCustomRouteActive()) {
+        const localCustomSnapshot = loadLocalCustomRouteSnapshot(routeId);
+        if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
+          applyCustomRideDataPayload(localCustomSnapshot.customRideData);
+          applyPlannerConfig(localCustomSnapshot.config);
+          enforceRouteDistanceBaseline();
+          applyPlanArray(localCustomSnapshot.plan);
+          applyCommentsArray(localCustomSnapshot.comments);
+          if (map && customUploadedTrackPoints.length >= 2) {
+            applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+          }
+          setCloudStatus(`Loaded local backup route for ${authUser.email}.`);
+          return;
+        }
+      }
       setCloudStatus(`Signed in as ${authUser.email}. No cloud data yet.`);
       return;
     }
@@ -3433,8 +3570,9 @@ async function loadCloudData() {
     }
     resetUndoBaseline();
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
-  } catch {
-    setCloudStatus("Cloud load failed. Using local data.");
+  } catch (error) {
+    const message = String(error?.message || "Unknown cloud load error");
+    setCloudStatus(`Cloud load failed (${message}). Using local data.`);
   }
 }
 
@@ -3464,6 +3602,11 @@ function initCloud() {
   firebaseAuth.onAuthStateChanged(async (user) => {
     authUser = user || null;
     if (authUser) {
+      try {
+        await syncAllLocalCustomRoutesToCloud();
+      } catch {
+        // Keep going even if pre-sync fails.
+      }
       await loadCloudData();
       await refreshMyRouteShortcutVisibility();
       updateAccountToggleLabel();
@@ -6623,8 +6766,7 @@ signUpBtn.addEventListener("click", async () => {
     setAuthBusyState(true);
     await ensureFirebaseLocalPersistence();
     await firebaseAuth.createUserWithEmailAndPassword(email, password);
-    setCloudStatus(`Account created for ${email}.`);
-    await pushCloudData();
+    setCloudStatus(`Account created for ${email}. Finishing sign-in...`);
   } catch (error) {
     setCloudStatus(`Sign up failed: ${error.message}`);
   } finally {
@@ -6662,13 +6804,7 @@ signInBtn.addEventListener("click", async () => {
     setAuthBusyState(true);
     await ensureFirebaseLocalPersistence();
     await firebaseAuth.signInWithEmailAndPassword(email, password);
-    authUser = firebaseAuth.currentUser || authUser;
-    if (authUser) {
-      await loadCloudData();
-      await refreshMyRouteShortcutVisibility();
-      setUnsignedWarningVisible(false);
-    }
-    setCloudStatus(`Signed in as ${email}.`);
+    setCloudStatus(`Signed in as ${email}. Loading your saved data...`);
   } catch (error) {
     setCloudStatus(`Sign in failed: ${error.message}`);
   } finally {
