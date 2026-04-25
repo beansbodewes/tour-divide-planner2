@@ -3707,7 +3707,7 @@ function initCloud() {
       setUnsignedWarningVisible(false);
       setAuthBusyState(false);
     } else {
-      setCloudStatus("Signed out. Local-only mode active.");
+      setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
       setMyRouteShortcutVisible(false);
       updateAccountToggleLabel();
       setUnsignedWarningVisible(false);
@@ -6998,7 +6998,7 @@ signOutBtn.addEventListener("click", async () => {
   }
   if (!firebaseAuth) return;
   await firebaseAuth.signOut();
-  setCloudStatus("Signed out. Local-only mode active.");
+  setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
 });
 
 syncNowBtn.addEventListener("click", async () => {
