@@ -411,16 +411,19 @@ h1 {
   color: #8b3614;
 }
 
+.route-btn-my,
 #my-route-shortcut-btn {
   border-color: #2f5fb9;
   background: #e8f0ff;
   color: #163f8f;
 }
 
+.route-btn-my:hover,
 #my-route-shortcut-btn:hover {
   background: #dbe8ff;
 }
 
+.route-btn-my.active,
 #my-route-shortcut-btn.active {
   border-color: #2f5fb9;
   background: #2f5fb9;

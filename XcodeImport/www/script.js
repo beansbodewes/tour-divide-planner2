@@ -429,6 +429,7 @@ const MAP_STYLE_KEY = "bikepack-map-style-v2";
 const MAPBOX_TOKEN_KEY = "bikepack-mapbox-token-v1";
 const MY_ROUTE_SHORTCUT_KEY_PREFIX = "bikepack-finisher-my-route-shortcut-v1:";
 const MY_ROUTE_META_KEY = "bikepack-finisher-my-route-meta-v1";
+const CUSTOM_ROUTE_PAYLOADS_KEY = "bikepack-finisher-custom-route-payloads-v1";
 const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
 const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
@@ -598,6 +599,57 @@ function saveCustomRouteRegistry(registry) {
   }
 }
 
+function loadCustomRoutePayloadStore() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_ROUTE_PAYLOADS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCustomRoutePayloadStore(store) {
+  try {
+    localStorage.setItem(CUSTOM_ROUTE_PAYLOADS_KEY, JSON.stringify(store && typeof store === "object" ? store : {}));
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function getCustomRoutePayload(routeId) {
+  if (!isNamedCustomRoute(routeId)) return null;
+  const store = loadCustomRoutePayloadStore();
+  const payload = store[routeId];
+  if (!payload || typeof payload !== "object") return null;
+  if (!hasValidCustomRideDataPayload(payload)) return null;
+  return payload;
+}
+
+function upsertCustomRoutePayload(routeId, payload) {
+  if (!isNamedCustomRoute(routeId) || !payload || typeof payload !== "object") return;
+  if (!hasValidCustomRideDataPayload(payload)) return;
+  const store = loadCustomRoutePayloadStore();
+  store[routeId] = {
+    routeName: sanitizeCustomRouteName(payload.routeName || "My Route"),
+    config: payload.config || null,
+    plan: Array.isArray(payload.plan) ? payload.plan : [],
+    comments: Array.isArray(payload.comments) ? payload.comments : [],
+    customRideData: payload.customRideData,
+    updatedAt: payload.updatedAt || new Date().toISOString()
+  };
+  saveCustomRoutePayloadStore(store);
+}
+
+function removeCustomRoutePayload(routeId) {
+  if (!isNamedCustomRoute(routeId)) return;
+  const store = loadCustomRoutePayloadStore();
+  if (!store[routeId]) return;
+  delete store[routeId];
+  saveCustomRoutePayloadStore(store);
+}
+
 async function saveCustomRouteRegistryToCloud() {
   if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
   const registry = loadCustomRouteRegistry();
@@ -662,6 +714,17 @@ function getCustomRouteStorageKeys(routeId) {
 }
 
 function loadLocalCustomRouteSnapshot(routeId) {
+  const storePayload = getCustomRoutePayload(routeId);
+  if (storePayload) {
+    return {
+      routeName: sanitizeCustomRouteName(storePayload?.routeName || ROUTES[routeId]?.label || "My Route"),
+      config: storePayload?.config || buildFallbackConfigForMyRoute(),
+      plan: Array.isArray(storePayload?.plan) ? storePayload.plan : [],
+      comments: Array.isArray(storePayload?.comments) ? storePayload.comments : [],
+      customRideData: storePayload?.customRideData || null,
+      updatedAt: String(storePayload?.updatedAt || new Date().toISOString())
+    };
+  }
   const keys = getCustomRouteStorageKeys(routeId);
   if (!keys) return null;
   try {
@@ -2293,6 +2356,14 @@ async function persistMyRouteSnapshot(options = {}) {
       resupply: String(point.resupply || "")
     }));
   localStorage.setItem(myStopsKey, JSON.stringify(customStops));
+  upsertCustomRoutePayload(targetRouteId, {
+    routeName: sanitizeCustomRouteName(myPayload.routeName || customRouteDisplayName || options.routeName || "My Route"),
+    config,
+    plan: planToStore,
+    comments: commentsToStore,
+    customRideData: myPayload,
+    updatedAt: new Date().toISOString()
+  });
   setMyRouteShortcutLabel(myPayload.routeName);
   saveMyRouteMeta({ hasRoute: true, name: myPayload.routeName });
   upsertCustomRouteRegistryEntry(targetRouteId, myPayload.routeName);
@@ -2400,6 +2471,7 @@ async function deleteCustomRouteData() {
   localStorage.removeItem(routeStopsKey);
   localStorage.removeItem(routeStorageKey);
   localStorage.removeItem(routeCommentsKey);
+  removeCustomRoutePayload(routeId);
   removeCustomRouteRegistryEntry(routeId);
   renderCustomRouteButtons();
   if (ROUTES[routeId] && routeId !== "my_route") {
@@ -3657,6 +3729,16 @@ function persistPlan() {
       customRideData
     })
   );
+  if (isNamedCustomRoute(activeRouteId()) && hasValidCustomRideDataPayload({ customRideData })) {
+    upsertCustomRoutePayload(activeRouteId(), {
+      routeName: sanitizeCustomRouteName(customRouteDisplayName || ROUTES[activeRouteId()]?.label || "My Route"),
+      config,
+      plan: Array.isArray(plan) ? plan : [],
+      comments: Array.isArray(comments) ? comments : [],
+      customRideData,
+      updatedAt: new Date().toISOString()
+    });
+  }
   maybeWarnUnsignedChanges();
   scheduleCloudSync();
 }
@@ -3670,6 +3752,20 @@ function loadSavedPlan() {
   }
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
+    if (isNamedCustomRoute(activeRouteId())) {
+      const localCustomSnapshot = loadLocalCustomRouteSnapshot(activeRouteId());
+      if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
+        applyCustomRideDataPayload(localCustomSnapshot.customRideData);
+        applyPlannerConfig(localCustomSnapshot.config);
+        enforceRouteDistanceBaseline();
+        applyPlanArray(localCustomSnapshot.plan);
+        applyCommentsArray(localCustomSnapshot.comments);
+        if (map && customUploadedTrackPoints.length >= 2) {
+          applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+        }
+        return;
+      }
+    }
     startDateInput.value = localDateString(new Date());
     return;
   }
@@ -6346,6 +6442,20 @@ function loadComments() {
 function persistComments() {
   captureUndoPoint();
   localStorage.setItem(COMMENTS_KEY, JSON.stringify(comments));
+  if (isNamedCustomRoute(activeRouteId())) {
+    const customRideData = buildCustomRideDataPayload();
+    const config = parseForm() || buildFallbackConfigForMyRoute();
+    if (hasValidCustomRideDataPayload({ customRideData })) {
+      upsertCustomRoutePayload(activeRouteId(), {
+        routeName: sanitizeCustomRouteName(customRouteDisplayName || ROUTES[activeRouteId()]?.label || "My Route"),
+        config,
+        plan: Array.isArray(plan) ? plan : [],
+        comments: Array.isArray(comments) ? comments : [],
+        customRideData,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }
   maybeWarnUnsignedChanges();
   scheduleCloudSync();
 }
