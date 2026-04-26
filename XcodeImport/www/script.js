@@ -613,8 +613,10 @@ function loadCustomRoutePayloadStore() {
 function saveCustomRoutePayloadStore(store) {
   try {
     localStorage.setItem(CUSTOM_ROUTE_PAYLOADS_KEY, JSON.stringify(store && typeof store === "object" ? store : {}));
+    return true;
   } catch {
     // Ignore storage write failures.
+    return false;
   }
 }
 
@@ -639,7 +641,7 @@ function upsertCustomRoutePayload(routeId, payload) {
     customRideData: payload.customRideData,
     updatedAt: payload.updatedAt || new Date().toISOString()
   };
-  saveCustomRoutePayloadStore(store);
+  return saveCustomRoutePayloadStore(store);
 }
 
 function removeCustomRoutePayload(routeId) {
@@ -2214,7 +2216,7 @@ function saveLocalProfileWithFallback(email, payload) {
   }
 }
 
-const CUSTOM_ROUTE_MAX_STORED_TRACK_POINTS = 12000;
+const CUSTOM_ROUTE_MAX_STORED_TRACK_POINTS = 2500;
 
 function normalizeStoredTrackPoint(point) {
   const lat = Number(point?.lat);
@@ -2338,16 +2340,21 @@ async function persistMyRouteSnapshot(options = {}) {
   const config = parseForm() || buildFallbackConfigForMyRoute();
   const planToStore = Array.isArray(plan) && plan.length ? plan : buildPlan(config);
   const commentsToStore = Array.isArray(comments) ? comments : [];
-
-  localStorage.setItem(
-    myStorageKey,
-    JSON.stringify({
-      config,
-      plan: planToStore,
-      customRideData: myPayload
-    })
-  );
-  localStorage.setItem(myCommentsKey, JSON.stringify(commentsToStore));
+  let localWriteOk = true;
+  try {
+    localStorage.setItem(
+      myStorageKey,
+      JSON.stringify({
+        config,
+        plan: planToStore,
+        // Keep this key light; GPX payload lives in dedicated custom payload store.
+        customRideData: null
+      })
+    );
+    localStorage.setItem(myCommentsKey, JSON.stringify(commentsToStore));
+  } catch {
+    localWriteOk = false;
+  }
 
   const customStops = resupplyPoints
     .filter((point) => point.isCustom)
@@ -2358,15 +2365,22 @@ async function persistMyRouteSnapshot(options = {}) {
       lon: Number(point.lon || 0),
       resupply: String(point.resupply || "")
     }));
-  localStorage.setItem(myStopsKey, JSON.stringify(customStops));
-  upsertCustomRoutePayload(targetRouteId, {
+  try {
+    localStorage.setItem(myStopsKey, JSON.stringify(customStops));
+  } catch {
+    localWriteOk = false;
+  }
+  const payloadStoreOk = Boolean(
+    upsertCustomRoutePayload(targetRouteId, {
     routeName: sanitizeCustomRouteName(myPayload.routeName || customRouteDisplayName || options.routeName || "My Route"),
     config,
     plan: planToStore,
     comments: commentsToStore,
     customRideData: myPayload,
     updatedAt: new Date().toISOString()
-  });
+    })
+  );
+  if (!payloadStoreOk) return false;
   setMyRouteShortcutLabel(myPayload.routeName);
   saveMyRouteMeta({ hasRoute: true, name: myPayload.routeName });
   upsertCustomRouteRegistryEntry(targetRouteId, myPayload.routeName);
@@ -2414,7 +2428,7 @@ async function persistMyRouteSnapshot(options = {}) {
       // Keep local snapshot even if cloud write fails.
     }
   }
-  return true;
+  return localWriteOk || syncCloud;
 }
 
 function applyCustomRideDataPayload(customRideData) {
@@ -3724,12 +3738,13 @@ function persistPlan() {
   if (!config) return;
   captureUndoPoint();
   const customRideData = buildCustomRideDataPayload();
+  const compactRouteStorage = isNamedCustomRoute(activeRouteId());
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
       config,
       plan,
-      customRideData
+      customRideData: compactRouteStorage ? null : customRideData
     })
   );
   if (isNamedCustomRoute(activeRouteId()) && hasValidCustomRideDataPayload({ customRideData })) {
@@ -3778,7 +3793,21 @@ function loadSavedPlan() {
     if (!saved?.config || !Array.isArray(saved?.plan)) throw new Error("Invalid plan");
 
     if (isCustomRouteActive()) {
-      applyCustomRideDataPayload(saved.customRideData);
+      const appliedFromStoredPlan = applyCustomRideDataPayload(saved.customRideData);
+      if (!appliedFromStoredPlan) {
+        const localCustomSnapshot = loadLocalCustomRouteSnapshot(activeRouteId());
+        if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
+          applyCustomRideDataPayload(localCustomSnapshot.customRideData);
+          applyPlannerConfig(localCustomSnapshot.config);
+          enforceRouteDistanceBaseline();
+          applyPlanArray(localCustomSnapshot.plan);
+          applyCommentsArray(localCustomSnapshot.comments);
+          if (map && customUploadedTrackPoints.length >= 2) {
+            applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+          }
+          return;
+        }
+      }
     }
     applyPlannerConfig({
       ...saved.config,
@@ -3790,6 +3819,20 @@ function loadSavedPlan() {
       applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
     }
   } catch {
+    if (isNamedCustomRoute(activeRouteId())) {
+      const localCustomSnapshot = loadLocalCustomRouteSnapshot(activeRouteId());
+      if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
+        applyCustomRideDataPayload(localCustomSnapshot.customRideData);
+        applyPlannerConfig(localCustomSnapshot.config);
+        enforceRouteDistanceBaseline();
+        applyPlanArray(localCustomSnapshot.plan);
+        applyCommentsArray(localCustomSnapshot.comments);
+        if (map && customUploadedTrackPoints.length >= 2) {
+          applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
+        }
+        return;
+      }
+    }
     localStorage.removeItem(STORAGE_KEY);
     startDateInput.value = localDateString(new Date());
   }
