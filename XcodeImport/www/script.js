@@ -843,14 +843,20 @@ function migrateLegacyMyRouteStorage() {
 function renderCustomRouteButtons() {
   if (!routeSwitcherNav) return;
   routeSwitcherNav.querySelectorAll(".route-btn-user-route").forEach((node) => node.remove());
-  const insertBeforeNode = customerServiceViewBtn || donationsViewBtn || null;
+  const preferredInsertNode = customerServiceViewBtn || donationsViewBtn || null;
+  const insertBeforeNode =
+    preferredInsertNode && routeSwitcherNav.contains(preferredInsertNode) ? preferredInsertNode : null;
   loadCustomRouteRegistry().forEach((entry) => {
     const button = document.createElement("button");
     button.className = "route-btn route-btn-my route-btn-user-route";
     button.type = "button";
     button.dataset.route = entry.id;
     button.textContent = entry.name;
-    routeSwitcherNav.insertBefore(button, insertBeforeNode);
+    if (insertBeforeNode) {
+      routeSwitcherNav.insertBefore(button, insertBeforeNode);
+    } else {
+      routeSwitcherNav.appendChild(button);
+    }
   });
 }
 

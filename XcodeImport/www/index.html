@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Bikepack Finisher" />
     <title>Bikepack Finisher</title>
-    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="manifest" href="manifest.webmanifest?v=102" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=27" />
+    <link rel="stylesheet" href="styles.css?v=28" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -640,13 +640,39 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=100"></script>
+    <script src="script.js?v=102"></script>
     <script>
+      (function ensureFreshBuildAcrossBrowsers() {
+        const BUILD_KEY = "bikepack-build-version";
+        const BUILD_VERSION = "102";
+        try {
+          const previous = localStorage.getItem(BUILD_KEY);
+          localStorage.setItem(BUILD_KEY, BUILD_VERSION);
+          if (previous && previous !== BUILD_VERSION && !sessionStorage.getItem("bikepack-build-reloaded")) {
+            sessionStorage.setItem("bikepack-build-reloaded", "1");
+            window.location.reload();
+          }
+        } catch (_) {}
+      })();
+
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker.getRegistrations().then((regs) => {
-            regs.forEach((reg) => reg.unregister());
-          }).catch(() => {});
+          navigator.serviceWorker
+            .getRegistrations()
+            .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+            .catch(() => {});
+          if ("caches" in window) {
+            caches
+              .keys()
+              .then((keys) =>
+                Promise.all(
+                  keys
+                    .filter((key) => /^bikepack-route-pwa-v/i.test(key))
+                    .map((key) => caches.delete(key))
+                )
+              )
+              .catch(() => {});
+          }
         });
       }
     </script>
