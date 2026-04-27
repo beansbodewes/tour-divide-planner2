@@ -3716,6 +3716,17 @@ function initCloud() {
   if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
   firebaseAuth = firebase.auth();
   firestoreDb = firebase.firestore();
+  firebaseAuth
+    .getRedirectResult()
+    .then((result) => {
+      if (result?.user) {
+        setCloudStatus(`Signed in with Google as ${result.user.email || "your account"}. Loading your saved data...`);
+      }
+    })
+    .catch((error) => {
+      const message = String(error?.message || "Unknown redirect error");
+      setCloudStatus(`Google sign-in failed: ${message}`);
+    });
   firebaseAuth.onAuthStateChanged(async (user) => {
     authUser = user || null;
     if (authUser) {
@@ -6929,6 +6940,15 @@ async function ensureFirebaseLocalPersistence() {
   }
 }
 
+function isSafariBrowser() {
+  try {
+    const ua = String(navigator.userAgent || "");
+    return /Safari/i.test(ua) && !/Chrome|Chromium|Edg|CriOS|FxiOS|OPR/i.test(ua);
+  } catch {
+    return false;
+  }
+}
+
 if (authForm) {
   authForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -7030,8 +7050,13 @@ if (signInGoogleBtn) {
       setAuthBusyState(true);
       await ensureFirebaseLocalPersistence();
       const provider = new firebase.auth.GoogleAuthProvider();
+      if (isSafariBrowser()) {
+        setCloudStatus("Opening Google sign-in...");
+        await firebaseAuth.signInWithRedirect(provider);
+        return;
+      }
       await firebaseAuth.signInWithPopup(provider);
-      setCloudStatus("Signed in with Google.");
+      setCloudStatus("Signed in with Google. Loading your saved data...");
     } catch (error) {
       const message = String(error?.message || "");
       const popupBlocked = /popup|blocked|closed/i.test(message);
