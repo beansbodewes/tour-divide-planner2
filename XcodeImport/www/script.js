@@ -275,6 +275,8 @@ const extraStopNameInput = document.getElementById("extra-stop-name");
 const extraStopMileInput = document.getElementById("extra-stop-mile");
 const extraStopNotesInput = document.getElementById("extra-stop-notes");
 const addExtraStopBtn = document.getElementById("add-extra-stop-btn");
+const planControlsPanel = document.querySelector(".panel.controls");
+const metricsPanel = document.querySelector(".panel.metrics");
 const customUploadPanel = document.getElementById("custom-upload-panel");
 const customGpxFileInput = document.getElementById("custom-gpx-file");
 const customGpxStatus = document.getElementById("custom-gpx-status");
@@ -620,6 +622,30 @@ function saveCustomRoutePayloadStore(store) {
   }
 }
 
+function compactCustomRoutePayloadStore() {
+  const store = loadCustomRoutePayloadStore();
+  const compacted = {};
+  let changed = false;
+  Object.keys(store).forEach((routeId) => {
+    if (!isNamedCustomRoute(routeId)) {
+      changed = true;
+      return;
+    }
+    const payload = store[routeId];
+    if (!payload || typeof payload !== "object" || !hasValidCustomRideDataPayload(payload)) {
+      changed = true;
+      return;
+    }
+    compacted[routeId] = {
+      routeName: sanitizeCustomRouteName(payload.routeName || "My Route"),
+      customRideData: payload.customRideData,
+      updatedAt: payload.updatedAt || new Date().toISOString()
+    };
+    if ("config" in payload || "plan" in payload || "comments" in payload) changed = true;
+  });
+  if (changed) saveCustomRoutePayloadStore(compacted);
+}
+
 function getCustomRoutePayload(routeId) {
   if (!isNamedCustomRoute(routeId)) return null;
   const store = loadCustomRoutePayloadStore();
@@ -635,9 +661,6 @@ function upsertCustomRoutePayload(routeId, payload) {
   const store = loadCustomRoutePayloadStore();
   store[routeId] = {
     routeName: sanitizeCustomRouteName(payload.routeName || "My Route"),
-    config: payload.config || null,
-    plan: Array.isArray(payload.plan) ? payload.plan : [],
-    comments: Array.isArray(payload.comments) ? payload.comments : [],
     customRideData: payload.customRideData,
     updatedAt: payload.updatedAt || new Date().toISOString()
   };
@@ -717,17 +740,41 @@ function getCustomRouteStorageKeys(routeId) {
 
 function loadLocalCustomRouteSnapshot(routeId) {
   const storePayload = getCustomRoutePayload(routeId);
+  const keys = getCustomRouteStorageKeys(routeId);
+  let parsedPlan = null;
+  let commentsList = [];
+  if (keys) {
+    try {
+      const rawPlan = localStorage.getItem(keys.planKey);
+      parsedPlan = rawPlan ? JSON.parse(rawPlan) : null;
+    } catch {
+      parsedPlan = null;
+    }
+    try {
+      const rawComments = localStorage.getItem(keys.commentsKey);
+      commentsList = rawComments ? JSON.parse(rawComments) : [];
+    } catch {
+      commentsList = [];
+    }
+  }
   if (storePayload) {
     return {
       routeName: sanitizeCustomRouteName(storePayload?.routeName || ROUTES[routeId]?.label || "My Route"),
-      config: storePayload?.config || buildFallbackConfigForMyRoute(),
-      plan: Array.isArray(storePayload?.plan) ? storePayload.plan : [],
-      comments: Array.isArray(storePayload?.comments) ? storePayload.comments : [],
+      config: parsedPlan?.config || storePayload?.config || buildFallbackConfigForMyRoute(),
+      plan: Array.isArray(parsedPlan?.plan)
+        ? parsedPlan.plan
+        : Array.isArray(storePayload?.plan)
+          ? storePayload.plan
+          : [],
+      comments: Array.isArray(commentsList)
+        ? commentsList
+        : Array.isArray(storePayload?.comments)
+          ? storePayload.comments
+          : [],
       customRideData: storePayload?.customRideData || null,
       updatedAt: String(storePayload?.updatedAt || new Date().toISOString())
     };
   }
-  const keys = getCustomRouteStorageKeys(routeId);
   if (!keys) return null;
   try {
     const rawPlan = localStorage.getItem(keys.planKey);
@@ -847,6 +894,7 @@ function renderCustomRouteButtons() {
   const insertBeforeNode =
     preferredInsertNode && routeSwitcherNav.contains(preferredInsertNode) ? preferredInsertNode : null;
   loadCustomRouteRegistry().forEach((entry) => {
+    ensureCustomRouteDefinition(entry.id, entry.name);
     const button = document.createElement("button");
     button.className = "route-btn route-btn-my route-btn-user-route";
     button.type = "button";
@@ -907,11 +955,12 @@ function setViewMode(mode) {
   const showCustomerService = mode === "customer_service";
   const showDonations = mode === "donations";
   const standaloneMode = showHome || showCustomerService || showDonations;
+  const isCreateRouteView = !standaloneMode && getRouteFromUrl() === "custom_ride";
   document.body.classList.toggle("home-only-mode", standaloneMode);
   if (homePage) homePage.hidden = !showHome;
   if (customerServicePage) customerServicePage.hidden = !showCustomerService;
   if (donationsPage) donationsPage.hidden = !showDonations;
-  if (sectionsNav) sectionsNav.hidden = standaloneMode;
+  if (sectionsNav) sectionsNav.hidden = standaloneMode || isCreateRouteView;
   if (plannerTitle) plannerTitle.hidden = standaloneMode;
   if (plannerSubhead) plannerSubhead.hidden = standaloneMode;
   getRouteButtons().forEach((button) => {
@@ -928,8 +977,13 @@ function setViewMode(mode) {
       routeSwitcherNote.textContent = `${(ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID]).label} is active now. Switch routes anytime.`;
     }
   }
+  if (isCreateRouteView) {
+    tabButtons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.tab === "planner");
+    });
+  }
   tabPanels.forEach((panel) => {
-    panel.hidden = standaloneMode;
+    panel.hidden = standaloneMode || (isCreateRouteView && panel.dataset.tabPanel !== "planner");
   });
   if (homeViewBtn) homeViewBtn.classList.toggle("active", showHome);
   if (customerServiceViewBtn) customerServiceViewBtn.classList.toggle("active", showCustomerService);
@@ -1506,6 +1560,10 @@ function refreshCustomRouteVisibility(routeId) {
   const isBuilder = routeId === "custom_ride";
   const isMyRoute = isNamedCustomRoute(routeId);
   if (customUploadPanel) customUploadPanel.hidden = !isBuilder;
+  if (customUploadPanel) customUploadPanel.classList.toggle("custom-upload-panel--embedded", isBuilder);
+  if (form) form.hidden = isBuilder;
+  if (metricsPanel) metricsPanel.hidden = isBuilder;
+  if (planControlsPanel) planControlsPanel.classList.toggle("plan-controls--builder-only", isBuilder);
   if (customStopEditor) customStopEditor.hidden = !isMyRoute;
   if (isBuilder && customProjectedDaysInput && totalDaysInput) {
     customProjectedDaysInput.value = String(Math.max(1, Number(totalDaysInput.value || 20)));
@@ -2037,6 +2095,55 @@ function hasValidCustomRideDataPayload(data) {
   return points.length >= 2;
 }
 
+function hasValidCustomRideDataObject(customRideData) {
+  const points = Array.isArray(customRideData?.trackPoints) ? customRideData.trackPoints : [];
+  return points.length >= 2;
+}
+
+function withTrackPointLimit(customRideData, maxPoints) {
+  if (!hasValidCustomRideDataObject(customRideData)) return null;
+  const normalizedTrack = customRideData.trackPoints.map(normalizeStoredTrackPoint).filter(Boolean);
+  if (normalizedTrack.length < 2) return null;
+  const limitedTrack = thinTrackPointsForStorage(normalizedTrack, Math.max(100, Number(maxPoints || 100)));
+  if (limitedTrack.length < 2) return null;
+  return {
+    ...customRideData,
+    trackPoints: limitedTrack
+  };
+}
+
+async function resolveCustomRideDataForSync(routeId, currentCustomRideData) {
+  if (hasValidCustomRideDataObject(currentCustomRideData)) return currentCustomRideData;
+
+  const localSnapshot = loadLocalCustomRouteSnapshot(routeId);
+  if (hasValidCustomRideDataPayload(localSnapshot)) {
+    return localSnapshot.customRideData;
+  }
+
+  if (!localAuthMode && firestoreDb && authUser?.uid) {
+    try {
+      const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
+      if (!docId) return null;
+      const snapshot = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).get();
+      if (!snapshot.exists) return null;
+      const cloudData = snapshot.data() || {};
+      const customRoutesMap =
+        cloudData?.customRoutes && typeof cloudData.customRoutes === "object" ? cloudData.customRoutes : {};
+      const routePayload = customRoutesMap?.[routeId];
+      if (hasValidCustomRideDataPayload(routePayload)) {
+        return routePayload.customRideData;
+      }
+      if (hasValidCustomRideDataPayload(cloudData)) {
+        return cloudData.customRideData;
+      }
+    } catch {
+      // Ignore cloud lookup failures here; caller will handle null result.
+    }
+  }
+
+  return null;
+}
+
 function sanitizeCustomRouteName(rawName) {
   const cleaned = String(rawName || "")
     .replace(/\s+/g, " ")
@@ -2376,65 +2483,87 @@ async function persistMyRouteSnapshot(options = {}) {
   } catch {
     localWriteOk = false;
   }
-  const payloadStoreOk = Boolean(
-    upsertCustomRoutePayload(targetRouteId, {
-    routeName: sanitizeCustomRouteName(myPayload.routeName || customRouteDisplayName || options.routeName || "My Route"),
-    config,
-    plan: planToStore,
-    comments: commentsToStore,
-    customRideData: myPayload,
-    updatedAt: new Date().toISOString()
-    })
-  );
-  if (!payloadStoreOk) return false;
-  setMyRouteShortcutLabel(myPayload.routeName);
-  saveMyRouteMeta({ hasRoute: true, name: myPayload.routeName });
-  upsertCustomRouteRegistryEntry(targetRouteId, myPayload.routeName);
-  renderCustomRouteButtons();
-  setMyRouteShortcutFlag(true);
-  setMyRouteShortcutVisible(true);
+  const routeName = sanitizeCustomRouteName(myPayload.routeName || customRouteDisplayName || options.routeName || "My Route");
+  const limits = [2500, 1600, 1000, 700, 450, 300, 180];
+  let payloadStoreOk = false;
+  let cloudWriteOk = false;
+  let savedPayload = null;
 
-  if (syncCloud && cloudReady()) {
-    try {
-      if (localAuthMode) {
-        if (authUser?.email) {
-          localStorage.setItem(
-            `${myRoute.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`,
-            JSON.stringify({
-              config,
-              plan: planToStore,
-              comments: commentsToStore,
-              customRideData: myPayload,
-              updatedAt: new Date().toISOString()
-            })
-          );
-        }
-      } else if (firestoreDb && authUser?.uid) {
-        const docId = cloudProfileDocIdForRoute(targetRouteId, authUser.uid);
-        if (!docId) return true;
-        await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
-          {
-            customRouteRegistry: loadCustomRouteRegistry(),
-            customRoutes: {
-              [targetRouteId]: {
-                routeName: sanitizeCustomRouteName(myPayload.routeName || options.routeName || "My Route"),
+  for (const limit of limits) {
+    const candidateCustomRideData = withTrackPointLimit(myPayload, limit);
+    if (!hasValidCustomRideDataObject(candidateCustomRideData)) continue;
+    const candidatePayload = {
+      routeName,
+      config,
+      plan: Array.isArray(planToStore) ? planToStore : [],
+      comments: Array.isArray(commentsToStore) ? commentsToStore : [],
+      customRideData: candidateCustomRideData,
+      updatedAt: new Date().toISOString()
+    };
+
+    payloadStoreOk = Boolean(upsertCustomRoutePayload(targetRouteId, candidatePayload));
+    cloudWriteOk = false;
+
+    if (syncCloud && cloudReady()) {
+      try {
+        if (localAuthMode) {
+          if (authUser?.email) {
+            localStorage.setItem(
+              `${myRoute.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`,
+              JSON.stringify({
                 config,
                 plan: planToStore,
                 comments: commentsToStore,
-                customRideData: myPayload,
+                customRideData: candidateCustomRideData,
                 updatedAt: new Date().toISOString()
-              }
-            },
-            updatedAt: new Date().toISOString()
-          },
-          { merge: true }
-        );
+              })
+            );
+            cloudWriteOk = true;
+          }
+        } else if (firestoreDb && authUser?.uid) {
+          const docId = cloudProfileDocIdForRoute(targetRouteId, authUser.uid);
+          if (docId) {
+            await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
+              {
+                customRouteRegistry: loadCustomRouteRegistry(),
+                customRoutes: {
+                  [targetRouteId]: {
+                    routeName,
+                    config,
+                    plan: planToStore,
+                    comments: commentsToStore,
+                    customRideData: candidateCustomRideData,
+                    updatedAt: new Date().toISOString()
+                  }
+                },
+                updatedAt: new Date().toISOString()
+              },
+              { merge: true }
+            );
+            cloudWriteOk = true;
+          }
+        }
+      } catch {
+        cloudWriteOk = false;
       }
-    } catch {
-      // Keep local snapshot even if cloud write fails.
+    }
+
+    if (payloadStoreOk || cloudWriteOk) {
+      savedPayload = candidatePayload;
+      break;
     }
   }
-  return localWriteOk || syncCloud;
+
+  const savedSomewhere = Boolean(payloadStoreOk || cloudWriteOk) && Boolean(savedPayload);
+  if (!savedSomewhere) return false;
+
+  setMyRouteShortcutLabel(routeName);
+  saveMyRouteMeta({ hasRoute: true, name: routeName });
+  upsertCustomRouteRegistryEntry(targetRouteId, routeName);
+  renderCustomRouteButtons();
+  setMyRouteShortcutFlag(true);
+  setMyRouteShortcutVisible(true);
+  return Boolean(localWriteOk || payloadStoreOk || cloudWriteOk);
 }
 
 function applyCustomRideDataPayload(customRideData) {
@@ -3498,7 +3627,14 @@ function renderMapPlanSelection() {
 async function pushCloudData() {
   if (!cloudReady()) return;
   const routeId = getRouteFromUrl();
-  const customRideData = buildCustomRideDataPayload();
+  let customRideData = buildCustomRideDataPayload();
+  if (isCustomRouteActive() && !hasValidCustomRideDataObject(customRideData)) {
+    customRideData = await resolveCustomRideDataForSync(routeId, customRideData);
+    if (!hasValidCustomRideDataObject(customRideData)) {
+      setCloudStatus("Custom route sync paused: GPX payload is missing. Re-open the route and save again.");
+      return;
+    }
+  }
   if (localAuthMode) {
     try {
       const config = parseForm();
@@ -3578,7 +3714,7 @@ async function loadCloudData() {
   if (!cloudReady()) return;
   const routeId = getRouteFromUrl();
   if (isRouteBuilderActive()) {
-    setCloudStatus("Create Your Own Ride is ready. Upload GPX and click Create New Route.");
+    setCloudStatus("Create Your Own Ride is ready. Upload GPX and click Create Route.");
     return;
   }
   if (localAuthMode) {
@@ -6658,10 +6794,6 @@ if (customApplyUploadBtn) {
       customRouteDisplayName = sanitizeCustomRouteName(customRouteNameInput?.value || file.name.replace(/\.gpx$/i, ""));
       const newRouteId = generateCustomRouteId(customRouteDisplayName);
       ensureCustomRouteDefinition(newRouteId, customRouteDisplayName);
-      upsertCustomRouteRegistryEntry(newRouteId, customRouteDisplayName);
-      renderCustomRouteButtons();
-      setMyRouteShortcutLabel(customRouteDisplayName);
-      saveMyRouteMeta({ hasRoute: true, name: customRouteDisplayName });
       if (customRouteNameInput) customRouteNameInput.value = customRouteDisplayName;
       const cumulative = buildTrackCumulativeMiles(points);
       const totalMiles = cumulative[cumulative.length - 1] || 0;
@@ -6716,14 +6848,23 @@ if (customApplyUploadBtn) {
         customRideDataOverride: explicitPayload
       });
       if (!persisted) {
-        setCloudStatus("Route tab created, but GPX save failed. Try once more and keep this page open.");
+        removeCustomRouteRegistryEntry(newRouteId);
+        removeCustomRoutePayload(newRouteId);
+        if (ROUTES[newRouteId]) delete ROUTES[newRouteId];
+        renderCustomRouteButtons();
+        setCloudStatus("GPX save failed, so the route tab was not created. Please try again.");
         return;
       }
-
-      upsertCustomRouteRegistryEntry(newRouteId, customRouteDisplayName);
-      renderCustomRouteButtons();
-      setMyRouteShortcutLabel(customRouteDisplayName);
-      saveMyRouteMeta({ hasRoute: true, name: customRouteDisplayName });
+      const verifyPayload = getCustomRoutePayload(newRouteId);
+      const verifyCloudPayload = await resolveCustomRideDataForSync(newRouteId, verifyPayload?.customRideData || null);
+      if (!hasValidCustomRideDataObject(verifyCloudPayload)) {
+        removeCustomRouteRegistryEntry(newRouteId);
+        removeCustomRoutePayload(newRouteId);
+        if (ROUTES[newRouteId]) delete ROUTES[newRouteId];
+        renderCustomRouteButtons();
+        setCloudStatus("GPX payload verification failed, so the route tab was not created. Please click Create Route again.");
+        return;
+      }
 
       setCloudStatus(`Created route: ${customRouteDisplayName}`);
       window.location.href = routeUrl(newRouteId);
@@ -6801,7 +6942,12 @@ if (routeSwitcherNav) {
     const button = event.target.closest(".route-btn[data-route]");
     if (!button) return;
     const routeId = String(button.dataset.route || "");
-    if (!routeId || !ROUTES[routeId]) return;
+    if (!routeId) return;
+    if (!ROUTES[routeId] && isNamedCustomRoute(routeId)) {
+      const registryEntry = loadCustomRouteRegistry().find((entry) => entry.id === routeId);
+      ensureCustomRouteDefinition(routeId, registryEntry?.name || "My Route");
+    }
+    if (!ROUTES[routeId]) return;
     if (ROUTES[routeId].comingSoon) {
       if (routeSwitcherNote) routeSwitcherNote.textContent = `${ROUTES[routeId].label} is coming next. Tour Divide and Colorado Trail are live now.`;
       return;
@@ -7136,6 +7282,7 @@ commentSectionSelect.addEventListener("change", () => {
 });
 
 migrateLegacyMyRouteStorage();
+compactCustomRoutePayloadStore();
 hydrateCustomRoutesFromRegistry();
 renderCustomRouteButtons();
 if (!applyRouteConfig(getRouteFromUrl())) {
