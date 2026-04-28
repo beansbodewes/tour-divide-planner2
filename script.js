@@ -437,6 +437,7 @@ const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
 const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
 const runtimeCustomRoutePayloads = new Map();
+const CUSTOM_ROUTE_HANDOFF_KEY = "bikepack-custom-route-handoff-v1";
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
     location: "Canada to New Mexico, Rocky Mountains",
@@ -681,6 +682,34 @@ function removeCustomRoutePayload(routeId) {
   if (!store[routeId]) return;
   delete store[routeId];
   saveCustomRoutePayloadStore(store);
+}
+
+function saveCustomRouteHandoff(routeId, payload) {
+  try {
+    sessionStorage.setItem(
+      CUSTOM_ROUTE_HANDOFF_KEY,
+      JSON.stringify({
+        routeId,
+        payload,
+        createdAt: Date.now()
+      })
+    );
+  } catch {
+    // Ignore session storage failures.
+  }
+}
+
+function consumeCustomRouteHandoff(routeId) {
+  try {
+    const raw = sessionStorage.getItem(CUSTOM_ROUTE_HANDOFF_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.routeId !== routeId) return null;
+    sessionStorage.removeItem(CUSTOM_ROUTE_HANDOFF_KEY);
+    return parsed.payload || null;
+  } catch {
+    return null;
+  }
 }
 
 async function saveCustomRouteRegistryToCloud() {
@@ -6897,6 +6926,13 @@ if (customApplyUploadBtn) {
         customRideData: explicitPayload,
         updatedAt: new Date().toISOString()
       });
+      saveCustomRouteHandoff(newRouteId, {
+        routeName: sanitizeCustomRouteName(customRouteDisplayName),
+        customRideData: explicitPayload,
+        config: parseForm() || buildFallbackConfigForMyRoute(),
+        plan: Array.isArray(plan) ? plan : [],
+        comments: Array.isArray(comments) ? comments : []
+      });
       const persisted = await persistMyRouteSnapshot({
         syncCloud: true,
         uploadedFileName: file.name,
@@ -7329,6 +7365,21 @@ hydrateCustomRoutesFromRegistry();
 renderCustomRouteButtons();
 if (!applyRouteConfig(getRouteFromUrl())) {
   applyRouteConfig(DEFAULT_ROUTE_ID);
+}
+if (isNamedCustomRoute(getRouteFromUrl())) {
+  const handoff = consumeCustomRouteHandoff(getRouteFromUrl());
+  if (handoff && hasValidCustomRideDataPayload(handoff)) {
+    applyCustomRideDataPayload(handoff.customRideData);
+    upsertCustomRoutePayload(getRouteFromUrl(), {
+      routeName: sanitizeCustomRouteName(handoff.routeName || "My Route"),
+      customRideData: handoff.customRideData,
+      updatedAt: new Date().toISOString()
+    });
+    if (handoff.config) applyPlannerConfig(handoff.config);
+    enforceRouteDistanceBaseline();
+    if (Array.isArray(handoff.plan) && handoff.plan.length) applyPlanArray(handoff.plan);
+    if (Array.isArray(handoff.comments)) applyCommentsArray(handoff.comments);
+  }
 }
 updateAccountToggleLabel();
 setupPlannerUnits();
