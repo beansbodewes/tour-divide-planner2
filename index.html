@@ -266,6 +266,35 @@
           </article>
         </div>
       </section>
+      <section id="custom-upload-panel" class="home-page custom-builder-page" aria-label="Create Your Own Ride" hidden>
+        <div class="home-card">
+          <p class="home-kicker">Create Your Own Ride</p>
+          <h2>Build a Custom Route</h2>
+          <p class="home-intro">
+            Add a name, choose how many resupply points to generate, and upload your GPX. We will create a full planner tab for that route.
+          </p>
+          <article class="home-block custom-builder-box">
+            <div class="control-grid custom-projection-grid">
+              <label>
+                Name of your ride
+                <input type="text" id="custom-route-name" maxlength="48" placeholder="My Route" />
+              </label>
+              <label>
+                Resupply points
+                <input type="number" id="custom-projected-resupplies" min="2" max="60" value="12" />
+              </label>
+              <label class="upload-dropzone" for="custom-gpx-file">
+                <input id="custom-gpx-file" type="file" accept=".gpx,application/gpx+xml,text/xml,application/xml" />
+                <strong>GPX file to upload</strong>
+                <span id="custom-gpx-status">No GPX uploaded yet.</span>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Create Route</button>
+            </div>
+          </article>
+        </div>
+      </section>
       <nav id="sections-nav" class="tabs" aria-label="Tour Divide Race sections">
         <button class="tab-btn active" data-tab="planner" type="button">Plan</button>
         <button class="tab-btn" data-tab="map" type="button">Map</button>
@@ -276,42 +305,6 @@
         <div class="layout">
           <section class="panel controls">
             <h2>Plan Setup</h2>
-            <section id="custom-upload-panel" class="custom-upload-panel" hidden>
-              <h3>Create Your Own Route</h3>
-              <label class="upload-dropzone" for="custom-gpx-file">
-                <input id="custom-gpx-file" type="file" accept=".gpx,application/gpx+xml,text/xml,application/xml" />
-                <strong>Drop GPX here, or click to upload</strong>
-                <span id="custom-gpx-status">No GPX uploaded yet.</span>
-              </label>
-              <div class="control-grid custom-projection-grid">
-                <label>
-                  Route name
-                  <input type="text" id="custom-route-name" maxlength="48" placeholder="My Route" />
-                </label>
-                <label>
-                  Projected days
-                  <input type="number" id="custom-projected-days" min="1" max="120" value="20" />
-                </label>
-                <label>
-                  Projected resupply points
-                  <input type="number" id="custom-projected-resupplies" min="2" max="60" value="12" />
-                </label>
-                <label>
-                  Planned rest days
-                  <input type="number" id="custom-rest-days" min="0" max="60" value="1" />
-                </label>
-                <label class="unit-toggle-field">
-                  <span>Units</span>
-                  <span class="unit-toggle-row">
-                    <input type="checkbox" id="custom-units-metric" />
-                    <span>Use kilometers + meters</span>
-                  </span>
-                </label>
-              </div>
-              <div class="button-row">
-                <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Create Route</button>
-              </div>
-            </section>
             <form id="plan-form" class="control-grid">
               <label>
                 Start date
@@ -651,11 +644,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=111"></script>
+    <script src="script.js?v=113"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "111";
+        const BUILD_VERSION = "113";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);

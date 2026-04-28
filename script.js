@@ -281,10 +281,7 @@ const customUploadPanel = document.getElementById("custom-upload-panel");
 const customGpxFileInput = document.getElementById("custom-gpx-file");
 const customGpxStatus = document.getElementById("custom-gpx-status");
 const customRouteNameInput = document.getElementById("custom-route-name");
-const customProjectedDaysInput = document.getElementById("custom-projected-days");
 const customProjectedResuppliesInput = document.getElementById("custom-projected-resupplies");
-const customRestDaysInput = document.getElementById("custom-rest-days");
-const customUnitsMetricInput = document.getElementById("custom-units-metric");
 const customApplyUploadBtn = document.getElementById("custom-apply-upload-btn");
 const customStopEditor = document.getElementById("custom-stop-editor");
 const customStopEditorNote = document.getElementById("custom-stop-editor-note");
@@ -961,12 +958,21 @@ function setViewMode(mode) {
   const standaloneMode = showHome || showCustomerService || showDonations;
   const isCreateRouteView = !standaloneMode && getRouteFromUrl() === "custom_ride";
   document.body.classList.toggle("home-only-mode", standaloneMode);
+  document.body.classList.toggle("custom-builder-only-mode", isCreateRouteView);
   if (homePage) homePage.hidden = !showHome;
   if (customerServicePage) customerServicePage.hidden = !showCustomerService;
   if (donationsPage) donationsPage.hidden = !showDonations;
+  if (customUploadPanel) customUploadPanel.hidden = !isCreateRouteView;
   if (sectionsNav) sectionsNav.hidden = standaloneMode || isCreateRouteView;
-  if (plannerTitle) plannerTitle.hidden = standaloneMode;
-  if (plannerSubhead) plannerSubhead.hidden = standaloneMode;
+  if (plannerTitle) plannerTitle.hidden = standaloneMode || isCreateRouteView;
+  if (plannerSubhead) plannerSubhead.hidden = standaloneMode || isCreateRouteView;
+  if (sectionsNav) sectionsNav.style.display = sectionsNav.hidden ? "none" : "";
+  if (plannerTitle) plannerTitle.style.display = plannerTitle.hidden ? "none" : "";
+  if (plannerSubhead) plannerSubhead.style.display = plannerSubhead.hidden ? "none" : "";
+  tabPanels.forEach((panel) => {
+    const hidePanel = standaloneMode || isCreateRouteView;
+    panel.style.display = hidePanel ? "none" : "";
+  });
   getRouteButtons().forEach((button) => {
     button.classList.toggle("active", !standaloneMode && button.dataset.route === getRouteFromUrl());
   });
@@ -1564,22 +1570,13 @@ function refreshCustomRouteVisibility(routeId) {
   const isBuilder = routeId === "custom_ride";
   const isMyRoute = isNamedCustomRoute(routeId);
   if (customUploadPanel) customUploadPanel.hidden = !isBuilder;
-  if (customUploadPanel) customUploadPanel.classList.toggle("custom-upload-panel--embedded", isBuilder);
+  if (customUploadPanel) customUploadPanel.classList.remove("custom-upload-panel--embedded");
   if (form) form.hidden = isBuilder;
   if (metricsPanel) metricsPanel.hidden = isBuilder;
   if (exportPanel) exportPanel.hidden = isBuilder;
   if (daysPanel) daysPanel.hidden = isBuilder;
-  if (planControlsPanel) planControlsPanel.classList.toggle("plan-controls--builder-only", isBuilder);
+  if (planControlsPanel) planControlsPanel.classList.remove("plan-controls--builder-only");
   if (customStopEditor) customStopEditor.hidden = !isMyRoute;
-  if (isBuilder && customProjectedDaysInput && totalDaysInput) {
-    customProjectedDaysInput.value = String(Math.max(1, Number(totalDaysInput.value || 20)));
-  }
-  if (isBuilder && customRestDaysInput && restDaysInput) {
-    customRestDaysInput.value = String(Math.max(0, Number(restDaysInput.value || 1)));
-  }
-  if (isBuilder && customUnitsMetricInput && planUnitsMetricInput) {
-    customUnitsMetricInput.checked = Boolean(planUnitsMetricInput.checked);
-  }
   if ((isBuilder || isMyRoute) && customRouteNameInput) {
     customRouteNameInput.value = customRouteDisplayName;
   }
@@ -6802,6 +6799,11 @@ if (customApplyUploadBtn) {
       setCloudStatus("Choose a GPX file first.");
       return;
     }
+    const existingCustomRoutes = loadCustomRouteRegistry();
+    if (existingCustomRoutes.length >= 5) {
+      setCloudStatus("You can create up to 5 custom routes. Delete one to add another.");
+      return;
+    }
 
     try {
       const xmlText = await file.text();
@@ -6818,16 +6820,10 @@ if (customApplyUploadBtn) {
       if (customRouteNameInput) customRouteNameInput.value = customRouteDisplayName;
       const cumulative = buildTrackCumulativeMiles(points);
       const totalMiles = cumulative[cumulative.length - 1] || 0;
-      const projectedDays = Math.max(1, Math.min(120, Number(customProjectedDaysInput?.value || 20)));
       const projectedStops = Math.max(2, Math.min(60, Number(customProjectedResuppliesInput?.value || 12)));
-      const projectedRestDays = Math.max(0, Math.min(60, Number(customRestDaysInput?.value || 1)));
-      const wantsMetric = Boolean(customUnitsMetricInput?.checked);
+      const projectedDays = Math.max(1, Math.min(120, Number(Math.round(totalMiles / 70) || 20)));
       totalDaysInput.value = String(projectedDays);
-      restDaysInput.value = String(projectedRestDays);
-      if (planUnitsMetricInput && planUnitsMetricInput.checked !== wantsMetric) {
-        planUnitsMetricInput.checked = wantsMetric;
-        setPlanUnitSystem(wantsMetric ? "metric" : "imperial", { skipRender: true });
-      }
+      restDaysInput.value = "1";
       if (startDateInput.value) finishDateInput.value = addDays(startDateInput.value, projectedDays - 1);
       setRouteDistanceInputMiles(Math.round(totalMiles));
       localStorage.removeItem(CUSTOM_STOPS_KEY);
