@@ -3812,17 +3812,26 @@ async function loadCloudData() {
   } catch (error) {
     const message = String(error?.message || "Unknown cloud load error");
     const transientUiRace = /parentNode|is not an object|Cannot read properties of undefined/i.test(message);
-    if (transientUiRace && cloudLoadRetryCount < 6) {
+    if (transientUiRace && cloudLoadRetryCount < 12) {
       cloudLoadRetryCount += 1;
-      setCloudStatus("Signed in. Finishing map setup...");
+      // Safari/first-load UI race: recover silently instead of surfacing a hard failure.
+      setCloudStatus("Signed in. Finalizing setup...");
       setTimeout(() => {
         cloudLoadInProgress = false;
         loadCloudData();
-      }, 500 + cloudLoadRetryCount * 200);
+      }, 500 + cloudLoadRetryCount * 250);
+      return;
+    }
+    if (transientUiRace) {
+      setCloudStatus("Signed in. Cloud sync may be delayed for a moment. Local data is still safe.");
+      setTimeout(() => {
+        cloudLoadInProgress = false;
+        loadCloudData();
+      }, 2500);
       return;
     }
     console.error("Cloud load error:", error);
-    setCloudStatus(`Cloud load failed (${message}). Using local data.`);
+    setCloudStatus("Cloud load failed. Using local data.");
   }
   } finally {
     cloudLoadInProgress = false;
