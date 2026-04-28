@@ -283,6 +283,8 @@ const customGpxStatus = document.getElementById("custom-gpx-status");
 const customRouteNameInput = document.getElementById("custom-route-name");
 const customProjectedDaysInput = document.getElementById("custom-projected-days");
 const customProjectedResuppliesInput = document.getElementById("custom-projected-resupplies");
+const customRestDaysInput = document.getElementById("custom-rest-days");
+const customUnitsMetricInput = document.getElementById("custom-units-metric");
 const customApplyUploadBtn = document.getElementById("custom-apply-upload-btn");
 const customStopEditor = document.getElementById("custom-stop-editor");
 const customStopEditorNote = document.getElementById("custom-stop-editor-note");
@@ -317,6 +319,8 @@ const plannerSubhead = document.getElementById("planner-subhead");
 const routeSwitcherNote = document.getElementById("route-switcher-note");
 const unsignedWarningBanner = document.getElementById("unsigned-warning-banner");
 const sectionsNav = document.getElementById("sections-nav");
+const exportPanel = document.querySelector(".panel.export");
+const daysPanel = document.querySelector(".panel.days");
 const routeProfileKicker = document.getElementById("route-profile-kicker");
 const siteTitle = document.querySelector(".site-title");
 
@@ -1563,10 +1567,18 @@ function refreshCustomRouteVisibility(routeId) {
   if (customUploadPanel) customUploadPanel.classList.toggle("custom-upload-panel--embedded", isBuilder);
   if (form) form.hidden = isBuilder;
   if (metricsPanel) metricsPanel.hidden = isBuilder;
+  if (exportPanel) exportPanel.hidden = isBuilder;
+  if (daysPanel) daysPanel.hidden = isBuilder;
   if (planControlsPanel) planControlsPanel.classList.toggle("plan-controls--builder-only", isBuilder);
   if (customStopEditor) customStopEditor.hidden = !isMyRoute;
   if (isBuilder && customProjectedDaysInput && totalDaysInput) {
     customProjectedDaysInput.value = String(Math.max(1, Number(totalDaysInput.value || 20)));
+  }
+  if (isBuilder && customRestDaysInput && restDaysInput) {
+    customRestDaysInput.value = String(Math.max(0, Number(restDaysInput.value || 1)));
+  }
+  if (isBuilder && customUnitsMetricInput && planUnitsMetricInput) {
+    customUnitsMetricInput.checked = Boolean(planUnitsMetricInput.checked);
   }
   if ((isBuilder || isMyRoute) && customRouteNameInput) {
     customRouteNameInput.value = customRouteDisplayName;
@@ -6808,7 +6820,14 @@ if (customApplyUploadBtn) {
       const totalMiles = cumulative[cumulative.length - 1] || 0;
       const projectedDays = Math.max(1, Math.min(120, Number(customProjectedDaysInput?.value || 20)));
       const projectedStops = Math.max(2, Math.min(60, Number(customProjectedResuppliesInput?.value || 12)));
+      const projectedRestDays = Math.max(0, Math.min(60, Number(customRestDaysInput?.value || 1)));
+      const wantsMetric = Boolean(customUnitsMetricInput?.checked);
       totalDaysInput.value = String(projectedDays);
+      restDaysInput.value = String(projectedRestDays);
+      if (planUnitsMetricInput && planUnitsMetricInput.checked !== wantsMetric) {
+        planUnitsMetricInput.checked = wantsMetric;
+        setPlanUnitSystem(wantsMetric ? "metric" : "imperial", { skipRender: true });
+      }
       if (startDateInput.value) finishDateInput.value = addDays(startDateInput.value, projectedDays - 1);
       setRouteDistanceInputMiles(Math.round(totalMiles));
       localStorage.removeItem(CUSTOM_STOPS_KEY);
