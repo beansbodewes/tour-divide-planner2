@@ -436,6 +436,7 @@ const CUSTOM_ROUTE_PAYLOADS_KEY = "bikepack-finisher-custom-route-payloads-v1";
 const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
 const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
+const runtimeCustomRoutePayloads = new Map();
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
     location: "Canada to New Mexico, Rocky Mountains",
@@ -649,27 +650,33 @@ function compactCustomRoutePayloadStore() {
 
 function getCustomRoutePayload(routeId) {
   if (!isNamedCustomRoute(routeId)) return null;
+  const runtimePayload = runtimeCustomRoutePayloads.get(routeId);
+  if (runtimePayload && hasValidCustomRideDataPayload(runtimePayload)) return runtimePayload;
   const store = loadCustomRoutePayloadStore();
   const payload = store[routeId];
   if (!payload || typeof payload !== "object") return null;
   if (!hasValidCustomRideDataPayload(payload)) return null;
+  runtimeCustomRoutePayloads.set(routeId, payload);
   return payload;
 }
 
 function upsertCustomRoutePayload(routeId, payload) {
   if (!isNamedCustomRoute(routeId) || !payload || typeof payload !== "object") return;
   if (!hasValidCustomRideDataPayload(payload)) return;
-  const store = loadCustomRoutePayloadStore();
-  store[routeId] = {
+  const normalizedPayload = {
     routeName: sanitizeCustomRouteName(payload.routeName || "My Route"),
     customRideData: payload.customRideData,
     updatedAt: payload.updatedAt || new Date().toISOString()
   };
+  runtimeCustomRoutePayloads.set(routeId, normalizedPayload);
+  const store = loadCustomRoutePayloadStore();
+  store[routeId] = normalizedPayload;
   return saveCustomRoutePayloadStore(store);
 }
 
 function removeCustomRoutePayload(routeId) {
   if (!isNamedCustomRoute(routeId)) return;
+  runtimeCustomRoutePayloads.delete(routeId);
   const store = loadCustomRoutePayloadStore();
   if (!store[routeId]) return;
   delete store[routeId];
@@ -712,6 +719,11 @@ async function loadCustomRouteRegistryFromCloud() {
       if (!isNamedCustomRoute(routeId)) return;
       const routeData = customRoutesMap[routeId] || {};
       if (!hasValidCustomRideDataPayload(routeData)) return;
+      upsertCustomRoutePayload(routeId, {
+        routeName: sanitizeCustomRouteName(routeData?.routeName || "My Route"),
+        customRideData: routeData.customRideData,
+        updatedAt: routeData.updatedAt || new Date().toISOString()
+      });
       cloudRoutes.push({
         id: routeId,
         name: sanitizeCustomRouteName(routeData?.routeName || "My Route")
@@ -6376,6 +6388,18 @@ async function initMap() {
   const mapElement = document.getElementById("route-map");
   if (!mapElement || typeof L === "undefined") return;
   ensureMapPlanPanel();
+  if (isCustomRouteActive() && customUploadedTrackPoints.length < 2) {
+    const customSnapshot = loadLocalCustomRouteSnapshot(activeRouteId());
+    if (customSnapshot && hasValidCustomRideDataPayload(customSnapshot)) {
+      applyCustomRideDataPayload(customSnapshot.customRideData);
+      if (!plan.length && customSnapshot.config) {
+        applyPlannerConfig(customSnapshot.config);
+        enforceRouteDistanceBaseline();
+        applyPlanArray(customSnapshot.plan);
+        applyCommentsArray(customSnapshot.comments);
+      }
+    }
+  }
 
   map = L.map("route-map", {
     zoomControl: true,
@@ -6864,6 +6888,11 @@ if (customApplyUploadBtn) {
         routeName: sanitizeCustomRouteName(customRouteDisplayName),
         sourcePointCount: points.length
       };
+      upsertCustomRoutePayload(newRouteId, {
+        routeName: sanitizeCustomRouteName(customRouteDisplayName),
+        customRideData: explicitPayload,
+        updatedAt: new Date().toISOString()
+      });
       const persisted = await persistMyRouteSnapshot({
         syncCloud: true,
         uploadedFileName: file.name,
