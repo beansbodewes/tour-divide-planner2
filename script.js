@@ -6888,6 +6888,10 @@ if (customApplyUploadBtn) {
         routeName: sanitizeCustomRouteName(customRouteDisplayName),
         sourcePointCount: points.length
       };
+      upsertCustomRouteRegistryEntry(newRouteId, customRouteDisplayName);
+      renderCustomRouteButtons();
+      setMyRouteShortcutFlag(true);
+      setMyRouteShortcutVisible(true);
       upsertCustomRoutePayload(newRouteId, {
         routeName: sanitizeCustomRouteName(customRouteDisplayName),
         customRideData: explicitPayload,
@@ -6901,25 +6905,10 @@ if (customApplyUploadBtn) {
         customRideDataOverride: explicitPayload
       });
       if (!persisted) {
-        removeCustomRouteRegistryEntry(newRouteId);
-        removeCustomRoutePayload(newRouteId);
-        if (ROUTES[newRouteId]) delete ROUTES[newRouteId];
-        renderCustomRouteButtons();
-        setCloudStatus("GPX save failed, so the route tab was not created. Please try again.");
-        return;
+        setCloudStatus(`Created route: ${customRouteDisplayName}. Save is pending—open the new tab and click Sync Now after sign in.`);
+      } else {
+        setCloudStatus(`Created route: ${customRouteDisplayName}`);
       }
-      const verifyPayload = getCustomRoutePayload(newRouteId);
-      const verifyCloudPayload = await resolveCustomRideDataForSync(newRouteId, verifyPayload?.customRideData || null);
-      if (!hasValidCustomRideDataObject(verifyCloudPayload)) {
-        removeCustomRouteRegistryEntry(newRouteId);
-        removeCustomRoutePayload(newRouteId);
-        if (ROUTES[newRouteId]) delete ROUTES[newRouteId];
-        renderCustomRouteButtons();
-        setCloudStatus("GPX payload verification failed, so the route tab was not created. Please click Create Route again.");
-        return;
-      }
-
-      setCloudStatus(`Created route: ${customRouteDisplayName}`);
       window.location.href = routeUrl(newRouteId);
     } catch {
       setCloudStatus("Could not read that GPX file.");
