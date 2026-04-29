@@ -224,22 +224,27 @@ const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
 const PLAN_UNITS_KEY = "tour-divide-plan-units-v1";
 const ROUTE_PROFILE_BASE_WIDTH = 2400;
-const RWGPS_ELEV_OUTLIER_FT = 100;
-const RWGPS_ELEV_MEDIAN_WINDOW_POINTS = 7;
-const RWGPS_MIN_ASCENT_STEP_M = 0.9;
-const RWGPS_TARGET_SAMPLE_COUNT = 40000;
-const RWGPS_MIN_SAMPLE_STEP_MI = 0.008;
-const RWGPS_MAX_SAMPLE_STEP_MI = 0.03;
+const RWGPS_ELEV_OUTLIER_FT = 180;
+const RWGPS_ELEV_MEDIAN_WINDOW_POINTS = 5;
+const RWGPS_MIN_ASCENT_STEP_M = 0.35;
+const RWGPS_TARGET_SAMPLE_COUNT = 60000;
+const RWGPS_MIN_SAMPLE_STEP_MI = 0.004;
+const RWGPS_MAX_SAMPLE_STEP_MI = 0.02;
 const RWGPS_PROFILE_MAX_SAMPLES = 2000;
 const AUTO_RWGPS_GAIN_FACTORS = {
-  tour_divide: 1.61,
-  great_divide_route: 1.64,
-  colorado_trail: 1.37,
-  azt_300: 1.12,
-  azt_800: 0.98,
-  peruvian_divide: 1.13,
+  tour_divide: 1.0,
+  great_divide_route: 1.0,
+  colorado_trail: 1.0,
+  azt_300: 1.0,
+  azt_800: 1.0,
+  peruvian_divide: 1.0,
   custom_ride: 1.0,
   my_route: 1.0
+};
+const RWGPS_ROUTE_GAIN_TARGETS_FT = {
+  tour_divide: 178678,
+  great_divide_route: 169020,
+  colorado_trail: 94639
 };
 const ROUTE_MILE_CALIBRATION_CURVES = {
   // RWGPS reference for GDMBR:
@@ -1905,6 +1910,15 @@ function setMapsLink(anchor, query) {
 
 function getAutoRwgpsCalibrationFactor() {
   const routeId = getRouteFromUrl();
+  const targetGainFt = Number(RWGPS_ROUTE_GAIN_TARGETS_FT[routeId]);
+  const rawGainFt = Number(trackCumulativeGainFt?.[trackCumulativeGainFt.length - 1] || 0);
+  if (Number.isFinite(targetGainFt) && targetGainFt > 0 && Number.isFinite(rawGainFt) && rawGainFt > 1000) {
+    const dynamicFactor = targetGainFt / rawGainFt;
+    if (Number.isFinite(dynamicFactor) && dynamicFactor > 0) {
+      // Guardrails prevent extreme values on malformed tracks.
+      return Math.max(0.6, Math.min(2.2, dynamicFactor));
+    }
+  }
   const factor = Number(AUTO_RWGPS_GAIN_FACTORS[routeId] ?? 1);
   if (!Number.isFinite(factor) || factor <= 0) return 1;
   return factor;
@@ -3035,6 +3049,13 @@ function renderMetrics(config, days) {
   const totalMiles = rideDays.reduce((sum, d) => sum + Number(d.miles || 0), 0);
   const totalGain = rideDays.reduce((sum, d) => sum + Number(d.gain || 0), 0);
   const totalLoss = rideDays.reduce((sum, d) => sum + Number(d.loss || 0), 0);
+  const routeId = getRouteFromUrl();
+  const routeDef = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  const waitingForGpxElevation =
+    routeDef &&
+    routeDef.gpxFile &&
+    (!Array.isArray(trackCumulativeGainFt) || trackCumulativeGainFt.length < 2) &&
+    (!Array.isArray(trackCumulativeLossFt) || trackCumulativeLossFt.length < 2);
 
   if (plannerTotalRouteDistance) {
     const routeMiles = Number(
@@ -3051,8 +3072,8 @@ function renderMetrics(config, days) {
     ["Ride Days", `${rideDays.length}`],
     ["Rest Days", `${config.restDays}`],
     ["Avg on Ride Days", formatDistanceWithUnitFromMiles(avgRideMiles)],
-    ["Total Planned Gain", formatElevationWithUnitFromFeet(totalGain)],
-    ["Total Planned Loss", formatElevationWithUnitFromFeet(totalLoss)]
+    ["Total Planned Gain", waitingForGpxElevation ? "Calculating..." : formatElevationWithUnitFromFeet(totalGain)],
+    ["Total Planned Loss", waitingForGpxElevation ? "Calculating..." : formatElevationWithUnitFromFeet(totalLoss)]
   ];
 
   metricList.innerHTML = "";
@@ -4005,6 +4026,7 @@ function initCloud() {
   if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
   firebaseAuth = firebase.auth();
   firestoreDb = firebase.firestore();
+  ensureFirebaseLocalPersistence();
   firebaseAuth
     .getRedirectResult()
     .then((result) => {
@@ -4023,6 +4045,7 @@ function initCloud() {
       signedOutUiTimer = null;
     }
 
+    const previousEmail = normalizeEmail(authUser?.email || "");
     authUser = user || null;
     if (authUser) {
       try {
@@ -4043,6 +4066,8 @@ function initCloud() {
     // Debounce transient signed-out blips that happen during provider/session refresh.
     signedOutUiTimer = setTimeout(() => {
       if (version !== authStateVersion || authUser) return;
+      purgeSignedInDataFromDevice(previousEmail);
+      resetUiAfterSignOut();
       setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
       setMyRouteShortcutVisible(false);
       updateAccountToggleLabel();
@@ -5074,7 +5099,7 @@ function buildRwgpsElevationEngine(trackPoints) {
   }
 
   // Distance-based smoothing gives route-agnostic behavior closer to RWGPS.
-  const smoothedSampleElevationMeters = smoothSeries(sampleElevationMeters, 5);
+  const smoothedSampleElevationMeters = smoothSeries(sampleElevationMeters, 3);
 
   const sampleCumulativeGainFt = new Array(sampleCount).fill(0);
   const sampleCumulativeLossFt = new Array(sampleCount).fill(0);
@@ -7341,6 +7366,72 @@ function setAuthBusyState(busy) {
   });
 }
 
+function purgeSignedInDataFromDevice(emailRaw = "") {
+  const email = normalizeEmail(emailRaw || "");
+  const routeDefs = Object.values(ROUTES || {}).filter((route) => route && route.storagePrefix);
+  const prefixes = Array.from(new Set(routeDefs.map((route) => route.storagePrefix)));
+
+  prefixes.forEach((prefix) => {
+    try {
+      localStorage.removeItem(`${prefix}-plan-v1`);
+      localStorage.removeItem(`${prefix}-comments-v1`);
+      localStorage.removeItem(`${prefix}-custom-resupply-stops-v1`);
+      sessionStorage.removeItem(`${prefix}-plan-v1`);
+      sessionStorage.removeItem(`${prefix}-comments-v1`);
+      sessionStorage.removeItem(`${prefix}-custom-resupply-stops-v1`);
+      if (email) {
+        localStorage.removeItem(`${prefix}-local-profile-v1:${email}`);
+        sessionStorage.removeItem(`${prefix}-local-profile-v1:${email}`);
+      }
+    } catch {
+      // Ignore storage cleanup failures.
+    }
+  });
+
+  try {
+    localStorage.removeItem(CUSTOM_ROUTE_REGISTRY_KEY);
+    sessionStorage.removeItem(CUSTOM_ROUTE_REGISTRY_SESSION_KEY);
+    localStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_KEY);
+    sessionStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY);
+    localStorage.removeItem(MY_ROUTE_META_KEY);
+    sessionStorage.removeItem(CUSTOM_ROUTE_HANDOFF_KEY);
+    if (email) {
+      localStorage.removeItem(legacyCustomRideLocalProfileKey(email));
+      localStorage.removeItem(customRideLocalProfileKey(email));
+      localStorage.removeItem(`${MY_ROUTE_SHORTCUT_KEY_PREFIX}${email}`);
+    }
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function resetUiAfterSignOut() {
+  runtimeCustomRoutePayloads.clear();
+  customUploadedTrackPoints = [];
+  customUploadedFile = null;
+  customRouteDisplayName = "My Route";
+  clearMyRouteMeta();
+  loadCustomRouteRegistry().forEach((entry) => {
+    if (isNamedCustomRoute(entry?.id) && ROUTES[entry.id]) {
+      delete ROUTES[entry.id];
+    }
+  });
+  saveCustomRouteRegistry([]);
+  renderCustomRouteButtons();
+  setMyRouteShortcutVisible(false);
+
+  if (isNamedCustomRoute(activeRouteId())) {
+    window.location.href = routeUrl("custom_ride");
+    return;
+  }
+
+  plan = [];
+  comments = [];
+  dayList.innerHTML = "";
+  metricList.innerHTML = "";
+  loadSavedPlan();
+}
+
 async function ensureFirebaseLocalPersistence() {
   if (localAuthMode || !firebaseAuth || !window.firebase?.auth?.Auth?.Persistence?.LOCAL) return;
   try {
@@ -7458,8 +7549,8 @@ if (signInGoogleBtn) {
     }
     try {
       setAuthBusyState(true);
-      await ensureFirebaseLocalPersistence();
       const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
       if (isSafariBrowser()) {
         setCloudStatus("Opening Google sign-in...");
         await firebaseAuth.signInWithRedirect(provider);
@@ -7491,8 +7582,11 @@ signOutBtn.addEventListener("click", async () => {
   if (authBusy) return;
   setAuthBusyState(true);
   if (localAuthMode) {
+    const previousEmail = normalizeEmail(authUser?.email || "");
     authUser = null;
     clearLocalSessionEmail();
+    purgeSignedInDataFromDevice(previousEmail);
+    resetUiAfterSignOut();
     setCloudStatus("Signed out of local account.");
     updateAccountToggleLabel();
     setMyRouteShortcutVisible(false);
@@ -7505,6 +7599,9 @@ signOutBtn.addEventListener("click", async () => {
     return;
   }
   try {
+    const previousEmail = normalizeEmail(authUser?.email || "");
+    purgeSignedInDataFromDevice(previousEmail);
+    resetUiAfterSignOut();
     await firebaseAuth.signOut();
   } finally {
     // onAuthStateChanged will set final UI state; keep controls responsive even if callback is delayed.
