@@ -407,6 +407,7 @@ let firestoreDb = null;
 let authUser = null;
 let cloudSyncTimer = null;
 let cloudLoadInProgress = false;
+let cloudLoadRetryTimer = null;
 let lastUserInputAt = 0;
 let localAuthMode = false;
 let authBusy = false;
@@ -3054,8 +3055,20 @@ function renderMetrics(config, days) {
   const waitingForGpxElevation =
     routeDef &&
     routeDef.gpxFile &&
+    totalGain <= 0 &&
+    totalLoss <= 0 &&
     (!Array.isArray(trackCumulativeGainFt) || trackCumulativeGainFt.length < 2) &&
     (!Array.isArray(trackCumulativeLossFt) || trackCumulativeLossFt.length < 2);
+
+  if (waitingForGpxElevation && Array.isArray(gpxTrackPoints) && gpxTrackPoints.length >= 2) {
+    try {
+      trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+      trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
+      recomputeDerivedFields();
+    } catch {
+      // Keep UI responsive and show existing totals until map/track catches up.
+    }
+  }
 
   if (plannerTotalRouteDistance) {
     const routeMiles = Number(
@@ -3991,8 +4004,13 @@ async function loadCloudData() {
     const message = String(error?.message || "Unknown cloud load error");
     const transientUiRace = /parentNode|is not an object|Cannot read properties of undefined/i.test(message);
     if (transientUiRace) {
-      // UI can transiently reflow while auth finishes. Avoid aggressive retry loops that can overwrite input.
-      setCloudStatus("Signed in. Cloud data will finish loading when the page is stable.");
+      // UI can transiently reflow while auth finishes. Retry once after the DOM settles.
+      if (cloudLoadRetryTimer) clearTimeout(cloudLoadRetryTimer);
+      cloudLoadRetryTimer = setTimeout(() => {
+        cloudLoadRetryTimer = null;
+        if (authUser) loadCloudData();
+      }, 500);
+      setCloudStatus("Signed in. Finishing cloud load...");
       return;
     }
     console.error("Cloud load error:", error);
@@ -4048,6 +4066,10 @@ function initCloud() {
     const previousEmail = normalizeEmail(authUser?.email || "");
     authUser = user || null;
     if (authUser) {
+      if (cloudLoadRetryTimer) {
+        clearTimeout(cloudLoadRetryTimer);
+        cloudLoadRetryTimer = null;
+      }
       try {
         await syncAllLocalCustomRoutesToCloud();
       } catch {
@@ -4059,6 +4081,16 @@ function initCloud() {
       await refreshMyRouteShortcutVisibility();
       if (version !== authStateVersion) return;
       updateAccountToggleLabel();
+      if (map) {
+        setTimeout(() => {
+          try {
+            map.invalidateSize();
+            ensureMapArtifacts();
+          } catch {
+            // No-op
+          }
+        }, 120);
+      }
       setAuthBusyState(false);
       return;
     }
