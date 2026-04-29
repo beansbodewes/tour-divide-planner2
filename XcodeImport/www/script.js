@@ -4003,7 +4003,9 @@ async function pushCloudData() {
     const config = parseForm();
     const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
     if (!docId) return;
+    let verifyCollection = PROFILE_COLLECTION;
     if (isCustomRouteActive()) {
+      verifyCollection = ROUTES.custom_ride.profileCollection;
       const customConfig = config || buildFallbackConfigForMyRoute();
       const customPlan = Array.isArray(plan) && plan.length ? plan : buildPlan(customConfig);
       await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
@@ -4035,9 +4037,21 @@ async function pushCloudData() {
         { merge: true }
       );
     }
-    setCloudStatus(`Synced to cloud for ${authUser.email}`);
-  } catch {
-    setCloudStatus("Cloud sync failed. Local data is still safe.");
+    // Verify write actually landed by reading the same doc back.
+    try {
+      const verifySnap = await firestoreDb.collection(verifyCollection).doc(docId).get();
+      if (!verifySnap?.exists) {
+        throw new Error("Write verification failed: document not found after sync.");
+      }
+    } catch (verifyError) {
+      const verifyMessage = String(verifyError?.message || "unknown verification error");
+      setCloudStatus(`Cloud sync verify failed: ${verifyMessage}`);
+      return;
+    }
+    setCloudStatus(`Synced to cloud for ${authUser.email} (${verifyCollection}:${docId.slice(0, 8)}...)`);
+  } catch (error) {
+    const message = String(error?.message || "unknown error");
+    setCloudStatus(`Cloud sync failed: ${message}`);
   }
 }
 
