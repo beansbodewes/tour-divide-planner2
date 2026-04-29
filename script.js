@@ -211,15 +211,9 @@ let CUSTOM_STOPS_KEY = "";
 let GPX_FILE = "";
 let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBCfePd4yItDfIwovYby_vvSEPrtPR8ivI",
-  authDomain: "bikepack-planner.firebaseapp.com",
-  projectId: "bikepack-planner",
-  storageBucket: "bikepack-planner.firebasestorage.app",
-  messagingSenderId: "862215840535",
-  appId: "1:862215840535:web:2007383a2fef6f15278d52",
-  measurementId: "G-5WKND9BS1M"
-};
+const SUPABASE_URL = "https://idvfsczcktulkgeqdzww.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_-RUH7QHKMzHVgbqOt6Dy8w_mBQdkd5j";
+const SUPABASE_DOCS_TABLE = "planner_documents";
 const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
 const PLAN_UNITS_KEY = "tour-divide-plan-units-v1";
@@ -404,6 +398,7 @@ let activeBaseMapName = "OpenStreetMap";
 let syncingMapAndPlan = false;
 let firebaseAuth = null;
 let firestoreDb = null;
+let supabaseClient = null;
 let authUser = null;
 let cloudSyncTimer = null;
 let cloudLoadInProgress = false;
@@ -449,6 +444,7 @@ const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
 const runtimeCustomRoutePayloads = new Map();
 const CUSTOM_ROUTE_HANDOFF_KEY = "bikepack-custom-route-handoff-v1";
+const CLOUD_DELETE_SENTINEL = Object.freeze({ __bikepackDelete: true });
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
     location: "Canada to New Mexico, Rocky Mountains",
@@ -2180,12 +2176,178 @@ function undoLastChange() {
 }
 
 function firebaseConfigured() {
-  return (
-    FIREBASE_CONFIG.apiKey &&
-    FIREBASE_CONFIG.authDomain &&
-    FIREBASE_CONFIG.projectId &&
-    FIREBASE_CONFIG.appId
+  return Boolean(
+    SUPABASE_URL &&
+      SUPABASE_PUBLISHABLE_KEY &&
+      window.supabase &&
+      typeof window.supabase.createClient === "function"
   );
+}
+
+function isPlainObject(value) {
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function mergeDocPayload(base, patch) {
+  const output = isPlainObject(base) ? { ...base } : {};
+  Object.entries(patch || {}).forEach(([key, value]) => {
+    if (value && value.__bikepackDelete) {
+      delete output[key];
+      return;
+    }
+    if (isPlainObject(value) && isPlainObject(output[key])) {
+      output[key] = mergeDocPayload(output[key], value);
+      return;
+    }
+    output[key] = value;
+  });
+  return output;
+}
+
+function normalizeSupabaseUser(user) {
+  if (!user) return null;
+  return {
+    uid: user.id,
+    email: user.email || "",
+    user_metadata: user.user_metadata || {}
+  };
+}
+
+function buildFirestoreAdapter() {
+  return {
+    collection(collectionName) {
+      return {
+        doc(docId) {
+          const key = `${collectionName}:${docId}`;
+          return {
+            async get() {
+              const { data, error } = await supabaseClient
+                .from(SUPABASE_DOCS_TABLE)
+                .select("payload")
+                .eq("doc_key", key)
+                .maybeSingle();
+              if (error) throw error;
+              return {
+                exists: Boolean(data),
+                data: () => (data?.payload && typeof data.payload === "object" ? data.payload : {})
+              };
+            },
+            async set(payload, options = {}) {
+              let nextPayload = payload && typeof payload === "object" ? { ...payload } : {};
+              if (options?.merge) {
+                const existing = await this.get();
+                nextPayload = mergeDocPayload(existing.exists ? existing.data() : {}, nextPayload);
+              }
+              const row = {
+                doc_key: key,
+                collection_name: String(collectionName || ""),
+                doc_id: String(docId || ""),
+                payload: nextPayload,
+                updated_at: new Date().toISOString()
+              };
+              const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" });
+              if (error) throw error;
+            }
+          };
+        }
+      };
+    }
+  };
+}
+
+function buildFirebaseAuthAdapter() {
+  const listeners = new Set();
+  const notify = (supabaseUser) => {
+    const normalized = normalizeSupabaseUser(supabaseUser);
+    listeners.forEach((listener) => {
+      try {
+        listener(normalized);
+      } catch {
+        // Ignore per-listener errors.
+      }
+    });
+  };
+
+  const authApi = {
+    async getRedirectResult() {
+      const { data } = await supabaseClient.auth.getSession();
+      return { user: normalizeSupabaseUser(data?.session?.user || null) };
+    },
+    onAuthStateChanged(listener) {
+      listeners.add(listener);
+      supabaseClient.auth
+        .getSession()
+        .then(({ data }) => listener(normalizeSupabaseUser(data?.session?.user || null)))
+        .catch(() => listener(null));
+      const { data: sub } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+        notify(session?.user || null);
+      });
+      return () => {
+        listeners.delete(listener);
+        try {
+          sub?.subscription?.unsubscribe?.();
+        } catch {
+          // Ignore unsubscribe issues.
+        }
+      };
+    },
+    async setPersistence() {
+      // Supabase persists by default in browser localStorage.
+    },
+    async createUserWithEmailAndPassword(email, password) {
+      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      if (error) throw error;
+      return { user: normalizeSupabaseUser(data?.user || null) };
+    },
+    async signInWithEmailAndPassword(email, password) {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      return { user: normalizeSupabaseUser(data?.user || null) };
+    },
+    async signInWithPopup(provider) {
+      const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+      const providerName = provider?.providerId || "google";
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: providerName,
+        options: { redirectTo }
+      });
+      if (error) throw error;
+    },
+    async signInWithRedirect(provider) {
+      return this.signInWithPopup(provider);
+    },
+    async signOut() {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) throw error;
+    }
+  };
+
+  return authApi;
+}
+
+function initSupabaseCompat() {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  });
+  firebaseAuth = buildFirebaseAuthAdapter();
+  firestoreDb = buildFirestoreAdapter();
+  window.firebase = window.firebase || {};
+  window.firebase.auth = window.firebase.auth || {};
+  window.firebase.auth.Auth = { Persistence: { LOCAL: "local" } };
+  window.firebase.auth.GoogleAuthProvider = class {
+    constructor() {
+      this.providerId = "google";
+    }
+    setCustomParameters() {}
+  };
+  window.firebase.firestore = window.firebase.firestore || {};
+  window.firebase.firestore.FieldValue = {
+    delete: () => CLOUD_DELETE_SENTINEL
+  };
 }
 
 function normalizeEmail(email) {
@@ -4022,7 +4184,7 @@ async function loadCloudData() {
 }
 
 function initCloud() {
-  if (!window.firebase || !firebaseConfigured()) {
+  if (!firebaseConfigured()) {
     localAuthMode = true;
     const sessionEmail = getLocalSessionEmail();
     if (sessionEmail) {
@@ -4041,9 +4203,7 @@ function initCloud() {
     return;
   }
   localAuthMode = false;
-  if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-  firebaseAuth = firebase.auth();
-  firestoreDb = firebase.firestore();
+  initSupabaseCompat();
   ensureFirebaseLocalPersistence();
   firebaseAuth
     .getRedirectResult()
@@ -7572,7 +7732,7 @@ if (signInGoogleBtn) {
   signInGoogleBtn.addEventListener("click", async () => {
     if (authBusy) return;
     if (localAuthMode) {
-      setCloudStatus("Google sign-in requires Firebase cloud auth mode.");
+      setCloudStatus("Google sign-in requires cloud auth mode.");
       return;
     }
     if (!firebaseAuth) {
@@ -7581,7 +7741,7 @@ if (signInGoogleBtn) {
     }
     try {
       setAuthBusyState(true);
-      const provider = new firebase.auth.GoogleAuthProvider();
+      const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       if (isSafariBrowser()) {
         setCloudStatus("Opening Google sign-in...");
@@ -7595,7 +7755,7 @@ if (signInGoogleBtn) {
       const popupBlocked = /popup|blocked|closed/i.test(message);
       if (popupBlocked) {
         try {
-          const provider = new firebase.auth.GoogleAuthProvider();
+          const provider = new window.firebase.auth.GoogleAuthProvider();
           await firebaseAuth.signInWithRedirect(provider);
           return;
         } catch (redirectError) {
