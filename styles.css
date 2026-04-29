@@ -472,10 +472,10 @@ h1 {
 .unsigned-warning-banner {
   margin: 0.55rem 0 0;
   padding: 0.62rem 0.8rem;
-  border: 1px solid #b63a3a;
+  border: 1px solid #2a8a55;
   border-radius: 10px;
-  background: #fde5e5;
-  color: #8a1f1f;
+  background: #e6f6ec;
+  color: #1d6b42;
   font-size: 0.9rem;
   font-weight: 700;
   position: sticky;
@@ -484,9 +484,15 @@ h1 {
 }
 
 .unsigned-warning-banner.is-signed-in {
-  background: #fbe4e4;
-  border-color: #b13a3a;
-  color: #7e1f1f;
+  background: #dff3e8;
+  border-color: #248450;
+  color: #165c38;
+}
+
+.unsigned-warning-banner.is-signed-out {
+  background: #ecf7ef;
+  border-color: #469966;
+  color: #1f6f45;
 }
 
 .tabs {

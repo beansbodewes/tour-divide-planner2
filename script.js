@@ -401,10 +401,12 @@ let firebaseAuth = null;
 let firestoreDb = null;
 let authUser = null;
 let cloudSyncTimer = null;
-let cloudLoadRetryCount = 0;
 let cloudLoadInProgress = false;
+let lastUserInputAt = 0;
 let localAuthMode = false;
 let authBusy = false;
+let authStateVersion = 0;
+let signedOutUiTimer = null;
 let undoStack = [];
 let latestSnapshot = "";
 let restoringUndo = false;
@@ -2033,6 +2035,21 @@ function setCloudStatus(text) {
   if (cloudStatus) cloudStatus.textContent = text;
 }
 
+function markUserEditingNow() {
+  lastUserInputAt = Date.now();
+}
+
+function isUserActivelyEditingPlanner() {
+  const active = document.activeElement;
+  if (
+    active &&
+    (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)
+  ) {
+    return true;
+  }
+  return Date.now() - lastUserInputAt < 6000;
+}
+
 function cloudReady() {
   return Boolean(authUser);
 }
@@ -2059,12 +2076,13 @@ function updateSignedInIndicators() {
   if (!unsignedWarningBanner) return;
   unsignedWarningBanner.hidden = false;
   if (isSignedIn) {
+    unsignedWarningBanner.classList.remove("is-signed-out");
     unsignedWarningBanner.classList.add("is-signed-in");
-    unsignedWarningBanner.textContent = `Signed in: ${email}. Your changes are connected to your account.`;
+    unsignedWarningBanner.textContent = `Signed in: ${email}.`;
   } else {
     unsignedWarningBanner.classList.remove("is-signed-in");
-    unsignedWarningBanner.textContent =
-      "Warning: You are not signed in. Changes can be lost on refresh/device switch. Sign in to save your data.";
+    unsignedWarningBanner.classList.add("is-signed-out");
+    unsignedWarningBanner.textContent = "Signed out. Sign in to save and sync your route data.";
   }
 }
 
@@ -3863,6 +3881,10 @@ async function loadCloudData() {
         }
         applyCustomRideDataPayload(data.customRideData);
       }
+      if (isUserActivelyEditingPlanner()) {
+        setCloudStatus(`Cloud data ready for ${authUser.email}. Finish typing, then click Sync Now.`);
+        return;
+      }
       applyPlannerConfig(data.config);
       enforceRouteDistanceBaseline();
       applyPlanArray(data.plan);
@@ -3899,6 +3921,10 @@ async function loadCloudData() {
         const localCustomSnapshot = loadLocalCustomRouteSnapshot(routeId);
         if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
           applyCustomRideDataPayload(localCustomSnapshot.customRideData);
+          if (isUserActivelyEditingPlanner()) {
+            setCloudStatus(`Local backup route ready for ${authUser.email}. Finish typing, then click Sync Now.`);
+            return;
+          }
           applyPlannerConfig(localCustomSnapshot.config);
           enforceRouteDistanceBaseline();
           applyPlanArray(localCustomSnapshot.plan);
@@ -3920,6 +3946,10 @@ async function loadCloudData() {
       }
       applyCustomRideDataPayload(data.customRideData);
     }
+    if (isUserActivelyEditingPlanner()) {
+      setCloudStatus(`Cloud data ready for ${authUser.email}. Finish typing, then click Sync Now.`);
+      return;
+    }
     applyPlannerConfig(data.config);
     enforceRouteDistanceBaseline();
     applyPlanArray(data.plan);
@@ -3935,27 +3965,13 @@ async function loadCloudData() {
       });
     }
     resetUndoBaseline();
-    cloudLoadRetryCount = 0;
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
   } catch (error) {
     const message = String(error?.message || "Unknown cloud load error");
     const transientUiRace = /parentNode|is not an object|Cannot read properties of undefined/i.test(message);
-    if (transientUiRace && cloudLoadRetryCount < 12) {
-      cloudLoadRetryCount += 1;
-      // Safari/first-load UI race: recover silently instead of surfacing a hard failure.
-      setCloudStatus("Signed in. Finalizing setup...");
-      setTimeout(() => {
-        cloudLoadInProgress = false;
-        loadCloudData();
-      }, 500 + cloudLoadRetryCount * 250);
-      return;
-    }
     if (transientUiRace) {
-      setCloudStatus("Signed in. Cloud sync may be delayed for a moment. Local data is still safe.");
-      setTimeout(() => {
-        cloudLoadInProgress = false;
-        loadCloudData();
-      }, 2500);
+      // UI can transiently reflow while auth finishes. Avoid aggressive retry loops that can overwrite input.
+      setCloudStatus("Signed in. Cloud data will finish loading when the page is stable.");
       return;
     }
     console.error("Cloud load error:", error);
@@ -4001,6 +4017,12 @@ function initCloud() {
       setCloudStatus(`Google sign-in failed: ${message}`);
     });
   firebaseAuth.onAuthStateChanged(async (user) => {
+    const version = ++authStateVersion;
+    if (signedOutUiTimer) {
+      clearTimeout(signedOutUiTimer);
+      signedOutUiTimer = null;
+    }
+
     authUser = user || null;
     if (authUser) {
       try {
@@ -4008,18 +4030,24 @@ function initCloud() {
       } catch {
         // Keep going even if pre-sync fails.
       }
+      if (version !== authStateVersion) return;
       await loadCloudData();
+      if (version !== authStateVersion) return;
       await refreshMyRouteShortcutVisibility();
+      if (version !== authStateVersion) return;
       updateAccountToggleLabel();
-      setUnsignedWarningVisible(false);
       setAuthBusyState(false);
-    } else {
+      return;
+    }
+
+    // Debounce transient signed-out blips that happen during provider/session refresh.
+    signedOutUiTimer = setTimeout(() => {
+      if (version !== authStateVersion || authUser) return;
       setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
       setMyRouteShortcutVisible(false);
       updateAccountToggleLabel();
-      setUnsignedWarningVisible(false);
       setAuthBusyState(false);
-    }
+    }, 900);
   });
 }
 
@@ -7460,18 +7488,30 @@ if (signInGoogleBtn) {
 }
 
 signOutBtn.addEventListener("click", async () => {
+  if (authBusy) return;
+  setAuthBusyState(true);
   if (localAuthMode) {
     authUser = null;
     clearLocalSessionEmail();
     setCloudStatus("Signed out of local account.");
     updateAccountToggleLabel();
     setMyRouteShortcutVisible(false);
-    setUnsignedWarningVisible(false);
+    updateSignedInIndicators();
+    setAuthBusyState(false);
     return;
   }
-  if (!firebaseAuth) return;
-  await firebaseAuth.signOut();
-  setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
+  if (!firebaseAuth) {
+    setAuthBusyState(false);
+    return;
+  }
+  try {
+    await firebaseAuth.signOut();
+  } finally {
+    // onAuthStateChanged will set final UI state; keep controls responsive even if callback is delayed.
+    setTimeout(() => {
+      if (!authUser) setAuthBusyState(false);
+    }, 1000);
+  }
 });
 
 syncNowBtn.addEventListener("click", async () => {
@@ -7516,6 +7556,21 @@ commentSectionSelect.addEventListener("change", () => {
   renderMapSectionComments(commentSectionSelect.value);
   drawSectionOverlays();
 });
+
+document.addEventListener(
+  "input",
+  () => {
+    markUserEditingNow();
+  },
+  true
+);
+document.addEventListener(
+  "change",
+  () => {
+    markUserEditingNow();
+  },
+  true
+);
 
 migrateLegacyMyRouteStorage();
 compactCustomRoutePayloadStore();
