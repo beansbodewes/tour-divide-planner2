@@ -3248,6 +3248,8 @@ function createDayCard(day, index) {
   };
 
   const syncMileage = () => {
+    const priorScrollY = window.scrollY;
+    const priorDayListScroll = dayList ? dayList.scrollTop : 0;
     plan[index] = {
       ...plan[index],
       miles: displayDistanceToMiles(Number(milesInput.value || 0))
@@ -3258,7 +3260,10 @@ function createDayCard(day, index) {
     const config = parseForm();
     if (config) renderMetrics(config, plan);
     renderPlan(plan);
-    if (!syncingMapAndPlan) updateStagesFromInput();
+    requestAnimationFrame(() => {
+      if (dayList) dayList.scrollTop = priorDayListScroll;
+      window.scrollTo(0, priorScrollY);
+    });
   };
 
   milesInput.addEventListener("change", syncMileage);
@@ -5584,7 +5589,14 @@ function ensureMapArtifacts() {
   }
 
   try {
-    renderRouteProfile();
+    const profileNeedsRender =
+      !routeProfile ||
+      !routeProfile.children ||
+      routeProfile.children.length === 0 ||
+      (routeProfileMeta && /loading|rendering/i.test(String(routeProfileMeta.textContent || "")));
+    if (profileNeedsRender) {
+      renderRouteProfile();
+    }
   } catch (error) {
     console.error("ensureMapArtifacts full profile render failed:", error);
   }
@@ -6333,9 +6345,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
   activeRouteGpxDistanceMiles = Number((trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0).toFixed(1));
 
-  // First-pass draw immediately from loaded GPX points.
-  // If anything later fails, users still see an elevation profile.
-  renderRouteProfileFallbackSimple();
+  // Keep profile source stable: render once from GPX pipeline and only fallback on failure.
 
   if (routeLine && map.hasLayer(routeLine)) map.removeLayer(routeLine);
   if (routeHoverLine && map.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
@@ -6425,6 +6435,7 @@ function applyTrackToMap(trackPoints, options = {}) {
   } catch (error) {
     console.error("renderRouteProfile failed:", error);
     if (routeProfileMeta) routeProfileMeta.textContent = "Elevation profile unavailable (render error).";
+    renderRouteProfileFallbackSimple();
   }
   try {
     drawSectionOverlays();
@@ -6467,8 +6478,7 @@ function applyTrackToMap(trackPoints, options = {}) {
     console.error("updateStagesFromInput failed:", error);
   }
 
-  // Always run a fallback profile pass shortly after map draw.
-  // This guarantees elevation renders even if an upstream render path silently fails.
+  // Run a post-draw integrity pass, but do not overwrite a valid profile render.
   setTimeout(() => {
     ensureMapArtifacts();
   }, 180);
