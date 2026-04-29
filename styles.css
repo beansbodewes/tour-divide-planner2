@@ -293,6 +293,17 @@ body {
 
 .account-menu {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+
+.signed-in-user-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-soft);
 }
 
 .site-title {
@@ -467,6 +478,15 @@ h1 {
   color: #8a1f1f;
   font-size: 0.9rem;
   font-weight: 700;
+  position: sticky;
+  top: 0.35rem;
+  z-index: 40;
+}
+
+.unsigned-warning-banner.is-signed-in {
+  background: #fbe4e4;
+  border-color: #b13a3a;
+  color: #7e1f1f;
 }
 
 .tabs {

@@ -30,6 +30,7 @@
         <h1 class="site-title">Bikepack Finisher</h1>
         <div class="account-menu">
           <button id="account-toggle-btn" class="btn" type="button" aria-expanded="false" aria-controls="account-dropdown">Sign In</button>
+          <p id="signed-in-user-label" class="signed-in-user-label" hidden>Not signed in</p>
           <section id="account-dropdown" class="account-dropdown" hidden>
             <p id="cloud-status">Cloud sync off (local-only mode).</p>
             <form id="auth-form" class="cloud-auth-form">
@@ -644,11 +645,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=119"></script>
+    <script src="script.js?v=120"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "119";
+        const BUILD_VERSION = "120";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);

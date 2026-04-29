@@ -302,6 +302,7 @@ const syncNowBtn = document.getElementById("sync-now-btn");
 const undoBtn = document.getElementById("undo-btn");
 const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
+const signedInUserLabel = document.getElementById("signed-in-user-label");
 const homeViewBtn = document.getElementById("home-view-btn");
 const customerServiceViewBtn = document.getElementById("customer-service-view-btn");
 const donationsViewBtn = document.getElementById("donations-view-btn");
@@ -2041,13 +2042,35 @@ function setUnsignedWarningVisible(visible) {
   unsignedWarningBanner.hidden = !visible;
 }
 
+function updateSignedInIndicators() {
+  const email = normalizeEmail(authUser?.email || "");
+  const isSignedIn = Boolean(email);
+
+  if (signedInUserLabel) {
+    if (isSignedIn) {
+      signedInUserLabel.hidden = false;
+      signedInUserLabel.textContent = `Signed in: ${email}`;
+    } else {
+      signedInUserLabel.hidden = true;
+      signedInUserLabel.textContent = "Not signed in";
+    }
+  }
+
+  if (!unsignedWarningBanner) return;
+  unsignedWarningBanner.hidden = false;
+  if (isSignedIn) {
+    unsignedWarningBanner.classList.add("is-signed-in");
+    unsignedWarningBanner.textContent = `Signed in: ${email}. Your changes are connected to your account.`;
+  } else {
+    unsignedWarningBanner.classList.remove("is-signed-in");
+    unsignedWarningBanner.textContent =
+      "Warning: You are not signed in. Changes can be lost on refresh/device switch. Sign in to save your data.";
+  }
+}
+
 function maybeWarnUnsignedChanges() {
   if (!appInitialized) return;
-  if (cloudReady()) {
-    setUnsignedWarningVisible(false);
-    return;
-  }
-  setUnsignedWarningVisible(true);
+  updateSignedInIndicators();
 }
 
 function stateSnapshot() {
@@ -2331,6 +2354,7 @@ function setMyRouteShortcutVisible(visible) {
 function updateAccountToggleLabel() {
   if (!accountToggleBtn) return;
   accountToggleBtn.textContent = authUser ? "Account" : "Sign In";
+  updateSignedInIndicators();
 }
 
 async function refreshMyRouteShortcutVisibility() {
