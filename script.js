@@ -211,6 +211,7 @@ let CUSTOM_STOPS_KEY = "";
 let GPX_FILE = "";
 let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
+const ACCOUNT_STATE_COLLECTION = "account_state_profiles";
 const SUPABASE_URL = "https://idvfsczcktulkgeqdzww.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_-RUH7QHKMzHVgbqOt6Dy8w_mBQdkd5j";
 const SUPABASE_DOCS_TABLE = "planner_documents";
@@ -303,9 +304,26 @@ const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
 const signedInUserLabel = document.getElementById("signed-in-user-label");
 const homeViewBtn = document.getElementById("home-view-btn");
+const liveTrackerViewBtn = document.getElementById("live-tracker-view-btn");
+const publishedRoutesViewBtn = document.getElementById("published-routes-view-btn");
 const customerServiceViewBtn = document.getElementById("customer-service-view-btn");
 const donationsViewBtn = document.getElementById("donations-view-btn");
 const homePage = document.getElementById("home-page");
+const liveTrackerPage = document.getElementById("live-tracker-page");
+const publishedRoutesPage = document.getElementById("published-routes-page");
+const publishedRouteList = document.getElementById("published-route-list");
+const publishedRoutesMapEl = document.getElementById("published-routes-map");
+const liveTrackerRouteSelect = document.getElementById("live-tracker-route-select");
+const liveTrackerPrivacyMode = document.getElementById("live-tracker-privacy-mode");
+const liveTrackerAccessCode = document.getElementById("live-tracker-access-code");
+const liveTrackerRiderSearch = document.getElementById("live-tracker-rider-search");
+const liveTrackerMapEl = document.getElementById("live-tracker-map");
+const liveTrackerMeta = document.getElementById("live-tracker-meta");
+const liveTrackerRiderList = document.getElementById("live-tracker-rider-list");
+const liveTrackerGarminLink = document.getElementById("live-tracker-garmin-link");
+const liveTrackerRefreshSeconds = document.getElementById("live-tracker-refresh-seconds");
+const liveTrackerConnectBtn = document.getElementById("live-tracker-connect-btn");
+const liveTrackerGarminStatus = document.getElementById("live-tracker-garmin-status");
 const customerServicePage = document.getElementById("customer-service-page");
 const donationsPage = document.getElementById("donations-page");
 const homeOpenActiveBtn = document.getElementById("home-open-active-btn");
@@ -346,11 +364,16 @@ const mapboxTokenBtn = document.getElementById("mapbox-token-btn");
 
 const commentForm = document.getElementById("comment-form");
 const commentSectionSelect = document.getElementById("comment-section");
+const commentMileInput = document.getElementById("comment-mile");
 const commentNameInput = document.getElementById("comment-name");
 const commentTextInput = document.getElementById("comment-text");
 const commentImageInput = document.getElementById("comment-image");
 const commentFeed = document.getElementById("comment-feed");
 const commentTemplate = document.getElementById("comment-template");
+const communityMapEl = document.getElementById("community-map");
+const commentImageLightbox = document.getElementById("comment-image-lightbox");
+const commentImageLightboxImg = document.getElementById("comment-image-lightbox-img");
+const commentImageLightboxClose = document.getElementById("comment-image-lightbox-close");
 const customerServiceForm = document.getElementById("customer-service-form");
 const customerServiceStatus = document.getElementById("customer-service-status");
 const csNameInput = document.getElementById("cs-name");
@@ -388,6 +411,9 @@ let trackCumulativeLossFt = [];
 const rwgpsElevationEngineCache = new WeakMap();
 let applyMapStyleImmediately = null;
 let dayMarkers = [];
+let communityMap = null;
+let communityMapRouteLine = null;
+let communityMapCommentLayer = null;
 let resupplyMarkers = [];
 let dragGuideLayer;
 let dragModeEnabled = false;
@@ -401,6 +427,8 @@ let firestoreDb = null;
 let supabaseClient = null;
 let authUser = null;
 let cloudSyncTimer = null;
+let cloudSyncInFlight = false;
+let cloudSyncQueued = false;
 let cloudLoadInProgress = false;
 let cloudLoadRetryTimer = null;
 let lastUserInputAt = 0;
@@ -408,6 +436,7 @@ let localAuthMode = false;
 let authBusy = false;
 let authStateVersion = 0;
 let signedOutUiTimer = null;
+let manualSignOutInProgress = false;
 let undoStack = [];
 let latestSnapshot = "";
 let restoringUndo = false;
@@ -427,6 +456,14 @@ let routeProfileBounds = null;
 let routeProfileInitializedView = false;
 let mapRenderWatchdogTimer = null;
 let activeRouteGpxDistanceMiles = null;
+let liveTrackerMap = null;
+let liveTrackerRouteLine = null;
+let liveTrackerRiderLayer = null;
+let liveTrackerLoadedRouteId = "";
+let liveTrackerLoadedTrackPoints = [];
+let liveTrackerRouteCache = new Map();
+let publishedRoutesMap = null;
+let publishedRoutesMapLayers = [];
 const CUSTOM_ROUTE_REGISTRY_KEY = "bikepack-finisher-custom-route-registry-v1";
 const CUSTOM_ROUTE_REGISTRY_SESSION_KEY = "bikepack-finisher-custom-route-registry-session-v1";
 const CUSTOM_ROUTE_ID_PREFIX = "my_route_";
@@ -500,6 +537,8 @@ function getRouteFromUrl() {
 function viewModeFromUrl() {
   const view = new URLSearchParams(window.location.search).get("view");
   if (view === "home") return "home";
+  if (view === "live-tracker") return "live_tracker";
+  if (view === "route-collection") return "route_collection";
   if (view === "customer-service") return "customer_service";
   if (view === "donations") return "donations";
   return "planner";
@@ -518,6 +557,16 @@ function homeUrl(routeId) {
 function customerServiceUrl(routeId) {
   if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=customer-service`;
   return `${window.location.pathname}?route=${routeId}&view=customer-service`;
+}
+
+function liveTrackerUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=live-tracker`;
+  return `${window.location.pathname}?route=${routeId}&view=live-tracker`;
+}
+
+function routeCollectionUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=route-collection`;
+  return `${window.location.pathname}?route=${routeId}&view=route-collection`;
 }
 
 function donationsUrl(routeId) {
@@ -978,9 +1027,6 @@ function migrateLegacyMyRouteStorage() {
 function renderCustomRouteButtons() {
   if (!routeSwitcherNav) return;
   routeSwitcherNav.querySelectorAll(".route-btn-user-route").forEach((node) => node.remove());
-  const preferredInsertNode = customerServiceViewBtn || donationsViewBtn || null;
-  const insertBeforeNode =
-    preferredInsertNode && routeSwitcherNav.contains(preferredInsertNode) ? preferredInsertNode : null;
   loadCustomRouteRegistry().forEach((entry) => {
     ensureCustomRouteDefinition(entry.id, entry.name);
     const button = document.createElement("button");
@@ -988,12 +1034,45 @@ function renderCustomRouteButtons() {
     button.type = "button";
     button.dataset.route = entry.id;
     button.textContent = entry.name;
-    if (insertBeforeNode) {
-      routeSwitcherNav.insertBefore(button, insertBeforeNode);
-    } else {
+    try {
+      const preferredInsertNode = customerServiceViewBtn || donationsViewBtn || null;
+      const insertBeforeNode =
+        preferredInsertNode && routeSwitcherNav.contains(preferredInsertNode) ? preferredInsertNode : null;
+      if (insertBeforeNode && routeSwitcherNav.contains(insertBeforeNode)) {
+        routeSwitcherNav.insertBefore(button, insertBeforeNode);
+      } else {
+        routeSwitcherNav.appendChild(button);
+      }
+    } catch {
       routeSwitcherNav.appendChild(button);
     }
   });
+}
+
+function buildAccountStatePayload() {
+  return {
+    customRouteRegistry: loadCustomRouteRegistry(),
+    customRoutePayloads: loadCustomRoutePayloadStore(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function applyAccountStatePayload(payload) {
+  if (!payload || typeof payload !== "object") return;
+  const registry = Array.isArray(payload.customRouteRegistry) ? payload.customRouteRegistry : [];
+  if (registry.length) {
+    saveCustomRouteRegistry(registry);
+    hydrateCustomRoutesFromRegistry();
+  }
+  if (payload.customRoutePayloads && typeof payload.customRoutePayloads === "object") {
+    saveCustomRoutePayloadStore(payload.customRoutePayloads);
+    Object.entries(payload.customRoutePayloads).forEach(([routeId, routePayload]) => {
+      if (!isNamedCustomRoute(routeId)) return;
+      if (!hasValidCustomRideDataPayload(routePayload)) return;
+      upsertCustomRoutePayload(routeId, routePayload);
+    });
+  }
+  renderCustomRouteButtons();
 }
 
 function getSavedMapboxToken() {
@@ -1040,13 +1119,18 @@ function updateMapboxTokenButtonLabel() {
 
 function setViewMode(mode) {
   const showHome = mode === "home";
+  const showLiveTracker = mode === "live_tracker";
+  const showRouteCollection = mode === "route_collection";
   const showCustomerService = mode === "customer_service";
   const showDonations = mode === "donations";
-  const standaloneMode = showHome || showCustomerService || showDonations;
+  const standaloneMode =
+    showHome || showLiveTracker || showRouteCollection || showCustomerService || showDonations;
   const isCreateRouteView = !standaloneMode && getRouteFromUrl() === "custom_ride";
   document.body.classList.toggle("home-only-mode", standaloneMode);
   document.body.classList.toggle("custom-builder-only-mode", isCreateRouteView);
   if (homePage) homePage.hidden = !showHome;
+  if (liveTrackerPage) liveTrackerPage.hidden = !showLiveTracker;
+  if (publishedRoutesPage) publishedRoutesPage.hidden = !showRouteCollection;
   if (customerServicePage) customerServicePage.hidden = !showCustomerService;
   if (donationsPage) donationsPage.hidden = !showDonations;
   if (customUploadPanel) customUploadPanel.hidden = !isCreateRouteView;
@@ -1066,10 +1150,14 @@ function setViewMode(mode) {
   if (routeSwitcherNote) {
     if (showHome) {
       routeSwitcherNote.textContent = "Home is active. Choose any route to open that planner.";
+    } else if (showLiveTracker) {
+      routeSwitcherNote.textContent = "Live Tracker is active. Follow route position updates in one place.";
+    } else if (showRouteCollection) {
+      routeSwitcherNote.textContent = "Route Collection is active. Add routes to your top bar or open one now.";
     } else if (showCustomerService) {
       routeSwitcherNote.textContent = "Customer Service is active. Submit a form and we will review it.";
     } else if (showDonations) {
-      routeSwitcherNote.textContent = "Donations + Suggestions is active. Thanks for supporting Bikepack Finisher.";
+      routeSwitcherNote.textContent = "Donations + Suggestions is active. Thanks for supporting Bikepack Finishers.";
     } else {
       routeSwitcherNote.textContent = `${(ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID]).label} is active now. Switch routes anytime.`;
     }
@@ -1083,8 +1171,17 @@ function setViewMode(mode) {
     panel.hidden = standaloneMode || (isCreateRouteView && panel.dataset.tabPanel !== "planner");
   });
   if (homeViewBtn) homeViewBtn.classList.toggle("active", showHome);
+  if (liveTrackerViewBtn) liveTrackerViewBtn.classList.toggle("active", showLiveTracker);
+  if (publishedRoutesViewBtn) publishedRoutesViewBtn.classList.toggle("active", showRouteCollection);
   if (customerServiceViewBtn) customerServiceViewBtn.classList.toggle("active", showCustomerService);
   if (donationsViewBtn) donationsViewBtn.classList.toggle("active", showDonations);
+  if (showLiveTracker) {
+    scheduleLiveTrackerRefresh();
+  }
+  if (showRouteCollection) {
+    renderPublishedRoutesCollection();
+    setTimeout(() => renderPublishedRoutesMap(), 30);
+  }
   if (!standaloneMode && map) {
     setTimeout(() => {
       map.invalidateSize();
@@ -1100,6 +1197,191 @@ function setViewMode(mode) {
       }
     }, 30);
   }
+}
+
+function getLiveTrackerSelectableRoutes() {
+  const routeIds = Object.keys(ROUTES).filter((routeId) => {
+    const route = ROUTES[routeId];
+    if (!route) return false;
+    if (routeId === "custom_ride") return false;
+    if (isNamedCustomRoute(routeId)) return false;
+    return Boolean(String(route.gpxFile || "").trim());
+  });
+  return routeIds.map((routeId) => ({
+    id: routeId,
+    label: ROUTES[routeId]?.label || routeId,
+    gpxFile: ROUTES[routeId]?.gpxFile || ""
+  }));
+}
+
+function ensureLiveTrackerMap() {
+  if (!liveTrackerMapEl || !window.L) return null;
+  if (liveTrackerMap) return liveTrackerMap;
+  liveTrackerMap = L.map(liveTrackerMapEl, { zoomControl: true, preferCanvas: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 19
+  }).addTo(liveTrackerMap);
+  liveTrackerRouteLine = L.polyline([], {
+    color: "#c23d35",
+    weight: 4,
+    opacity: 0.95
+  }).addTo(liveTrackerMap);
+  liveTrackerRiderLayer = L.layerGroup().addTo(liveTrackerMap);
+  return liveTrackerMap;
+}
+
+function setLiveTrackerMeta(text) {
+  if (liveTrackerMeta) liveTrackerMeta.textContent = text;
+}
+
+function setLiveTrackerRiderText(text) {
+  if (liveTrackerRiderList) liveTrackerRiderList.textContent = text;
+}
+
+function setLiveTrackerGarminText(text) {
+  if (liveTrackerGarminStatus) liveTrackerGarminStatus.textContent = text;
+}
+
+function milesFromTrackPoints(trackPoints) {
+  if (!Array.isArray(trackPoints) || trackPoints.length < 2) return 0;
+  let miles = 0;
+  for (let i = 1; i < trackPoints.length; i++) {
+    miles += haversineMiles(trackPoints[i - 1], trackPoints[i]);
+  }
+  return miles;
+}
+
+function buildLiveTrackerRouteOptions() {
+  if (!liveTrackerRouteSelect) return;
+  const selectableRoutes = getLiveTrackerSelectableRoutes();
+  const currentValue = String(liveTrackerRouteSelect.value || "");
+  liveTrackerRouteSelect.innerHTML = "";
+  selectableRoutes.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.label;
+    liveTrackerRouteSelect.appendChild(option);
+  });
+  if (!selectableRoutes.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No GPX routes available";
+    liveTrackerRouteSelect.appendChild(option);
+    liveTrackerRouteSelect.value = "";
+    return;
+  }
+  const requestedRoute = getRouteFromUrl();
+  const target =
+    selectableRoutes.some((entry) => entry.id === currentValue) ? currentValue :
+    selectableRoutes.some((entry) => entry.id === requestedRoute) ? requestedRoute :
+    selectableRoutes[0].id;
+  liveTrackerRouteSelect.value = target;
+}
+
+async function loadLiveTrackerRouteData(routeId) {
+  if (!routeId || !ROUTES[routeId]) return null;
+  if (liveTrackerRouteCache.has(routeId)) return liveTrackerRouteCache.get(routeId);
+  const gpxFile = String(ROUTES[routeId].gpxFile || "").trim();
+  if (!gpxFile) return null;
+  const trackPoints = await loadGpxTrackPoints(gpxFile);
+  liveTrackerRouteCache.set(routeId, trackPoints);
+  return trackPoints;
+}
+
+function renderLiveTrackerRoute(trackPoints, routeId) {
+  const trackerMap = ensureLiveTrackerMap();
+  if (!trackerMap || !liveTrackerRouteLine) return;
+  const drawPoints = getRouteDrawPoints(trackPoints || []);
+  const latLngs = drawPoints.map((point) => [point.lat, point.lon]);
+  liveTrackerRouteLine.setLatLngs(latLngs);
+  if (latLngs.length) {
+    const bounds = liveTrackerRouteLine.getBounds();
+    if (bounds && bounds.isValid && bounds.isValid()) {
+      trackerMap.fitBounds(bounds, { padding: [12, 12] });
+    }
+  }
+  const totalMiles = milesFromTrackPoints(trackPoints || []);
+  const routeLabel = ROUTES[routeId]?.label || "Route";
+  setLiveTrackerMeta(
+    `${routeLabel} loaded • ${formatMilesWithUnits(totalMiles)} total • ${trackPoints.length.toLocaleString()} track points`
+  );
+  setLiveTrackerRiderText("No live riders connected yet. Garmin sync setup is saved below.");
+  setTimeout(() => {
+    try {
+      trackerMap.invalidateSize();
+    } catch {
+      // no-op
+    }
+  }, 50);
+}
+
+async function refreshLiveTrackerRoute() {
+  if (!liveTrackerPage || liveTrackerPage.hidden) return;
+  if (!liveTrackerRouteSelect) return;
+  const selectedRouteId = String(liveTrackerRouteSelect.value || "");
+  if (!selectedRouteId) {
+    setLiveTrackerMeta("No route selected.");
+    return;
+  }
+  if (selectedRouteId === liveTrackerLoadedRouteId && liveTrackerLoadedTrackPoints.length) {
+    renderLiveTrackerRoute(liveTrackerLoadedTrackPoints, selectedRouteId);
+    return;
+  }
+  setLiveTrackerMeta("Loading tracker route...");
+  try {
+    const trackPoints = await loadLiveTrackerRouteData(selectedRouteId);
+    if (!Array.isArray(trackPoints) || trackPoints.length < 2) {
+      setLiveTrackerMeta("Could not load selected GPX route.");
+      return;
+    }
+    liveTrackerLoadedRouteId = selectedRouteId;
+    liveTrackerLoadedTrackPoints = trackPoints;
+    renderLiveTrackerRoute(trackPoints, selectedRouteId);
+  } catch (error) {
+    setLiveTrackerMeta(`Could not load selected GPX route (${error?.message || "Unknown error"}).`);
+  }
+}
+
+function scheduleLiveTrackerRefresh() {
+  buildLiveTrackerRouteOptions();
+  ensureLiveTrackerMap();
+  refreshLiveTrackerRoute();
+}
+
+function setupLiveTracker() {
+  if (!liveTrackerPage) return;
+  buildLiveTrackerRouteOptions();
+  ensureLiveTrackerMap();
+  if (liveTrackerRouteSelect) {
+    liveTrackerRouteSelect.addEventListener("change", () => {
+      liveTrackerLoadedRouteId = "";
+      liveTrackerLoadedTrackPoints = [];
+      refreshLiveTrackerRoute();
+    });
+  }
+  if (liveTrackerPrivacyMode) {
+    liveTrackerPrivacyMode.addEventListener("change", () => {
+      const mode = liveTrackerPrivacyMode.value === "private" ? "Private" : "Public";
+      setLiveTrackerRiderText(`${mode} tracking mode selected.`);
+    });
+  }
+  if (liveTrackerConnectBtn) {
+    liveTrackerConnectBtn.addEventListener("click", () => {
+      const url = String(liveTrackerGarminLink?.value || "").trim();
+      const refresh = Number(liveTrackerRefreshSeconds?.value || 60);
+      if (!url) {
+        setLiveTrackerGarminText("Please add a Garmin share URL first.");
+        return;
+      }
+      const sanitizedRefresh = Number.isFinite(refresh) ? Math.max(15, Math.min(600, Math.round(refresh))) : 60;
+      if (liveTrackerRefreshSeconds) liveTrackerRefreshSeconds.value = String(sanitizedRefresh);
+      setLiveTrackerGarminText(`Tracker setup saved (refresh every ${sanitizedRefresh}s).`);
+    });
+  }
+  setLiveTrackerMeta("Select a route to load live tracker.");
+  setLiveTrackerRiderText("No live riders loaded.");
+  setLiveTrackerGarminText("No Garmin link saved yet.");
 }
 
 function gpxCandidates(fileName) {
@@ -1497,6 +1779,99 @@ function renderHomeRouteCollection() {
   });
 }
 
+function getPublishedRouteIds() {
+  return [
+    "tour_divide",
+    "great_divide_route",
+    "colorado_trail",
+    "azt_300",
+    "azt_800",
+    "peruvian_divide"
+  ];
+}
+
+function renderPublishedRoutesCollection() {
+  if (!publishedRouteList) return;
+  publishedRouteList.innerHTML = "";
+  getPublishedRouteIds().forEach((routeId) => {
+    const route = ROUTES[routeId];
+    if (!route) return;
+    const detail = HOME_ROUTE_DETAILS[routeId] || HOME_ROUTE_DETAILS.custom_ride;
+    const card = document.createElement("article");
+    card.className = "published-route-card";
+    card.innerHTML = `
+      <h3>${route.label}</h3>
+      <p>${detail.ridingType}</p>
+      <div class="published-route-meta">
+        <div><strong>Distance:</strong><br/>${formatHomeMiles(route.defaultDistance)}</div>
+        <div><strong>Location:</strong><br/>${detail.location}</div>
+        <div><strong>Default days:</strong><br/>${route.defaultDays || "n/a"}</div>
+      </div>
+      <div class="button-row">
+        <button class="btn" type="button" data-route-open="${routeId}">Open Route</button>
+      </div>
+    `;
+    const openBtn = card.querySelector(`[data-route-open="${routeId}"]`);
+    if (openBtn) {
+      openBtn.addEventListener("click", () => {
+        window.location.href = routeUrl(routeId);
+      });
+    }
+    publishedRouteList.appendChild(card);
+  });
+}
+
+function ensurePublishedRoutesMap() {
+  if (!publishedRoutesMapEl || !window.L) return null;
+  if (publishedRoutesMap) return publishedRoutesMap;
+  publishedRoutesMap = L.map(publishedRoutesMapEl, { zoomControl: true, preferCanvas: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(publishedRoutesMap);
+  return publishedRoutesMap;
+}
+
+async function renderPublishedRoutesMap() {
+  const mapInst = ensurePublishedRoutesMap();
+  if (!mapInst) return;
+  publishedRoutesMapLayers.forEach((layer) => {
+    try {
+      mapInst.removeLayer(layer);
+    } catch {
+      // Ignore remove failures.
+    }
+  });
+  publishedRoutesMapLayers = [];
+
+  const bounds = L.latLngBounds([]);
+  for (const routeId of getPublishedRouteIds()) {
+    const route = ROUTES[routeId];
+    if (!route?.gpxFile) continue;
+    try {
+      const points = await loadGpxTrackPoints(route.gpxFile);
+      if (!Array.isArray(points) || points.length < 2) continue;
+      const latLngs = points.map((pt) => [pt.lat, pt.lon]);
+      const line = L.polyline(latLngs, {
+        color: "#bf3d33",
+        weight: 3,
+        opacity: 0.9
+      }).addTo(mapInst);
+      line.bindTooltip(route.label, { sticky: true });
+      publishedRoutesMapLayers.push(line);
+      bounds.extend(line.getBounds());
+    } catch {
+      // Ignore single-route load errors.
+    }
+  }
+
+  setTimeout(() => mapInst.invalidateSize(), 30);
+  if (bounds.isValid()) {
+    mapInst.fitBounds(bounds, { padding: [20, 20], animate: false });
+  } else {
+    mapInst.setView([39.2, -106.5], 4);
+  }
+}
+
 function setupCustomerServiceForm() {
   if (!customerServiceForm) return;
   customerServiceForm.addEventListener("submit", (event) => {
@@ -1550,7 +1925,7 @@ function setupCustomerServiceForm() {
           ? "Account / Sign In"
           : "Other";
     const routeLabel = route ? (ROUTES[route]?.label || route) : "Not route-specific";
-    const subject = encodeURIComponent(`[Bikepack Finisher] ${topicLabel} - ${name}`);
+    const subject = encodeURIComponent(`[Bikepack Finishers] ${topicLabel} - ${name}`);
     const body = encodeURIComponent(
       `Name: ${name}\nEmail: ${email}\nTopic: ${topicLabel}\nRoute: ${routeLabel}\n\nMessage:\n${message}\n`
     );
@@ -1609,7 +1984,7 @@ function setupDonationSuggestionForm() {
         ? "Suggestion"
         : "Donation + Suggestion";
     const amountLabel = submission.amount > 0 ? `$${submission.amount}` : "No amount entered";
-    const subject = encodeURIComponent(`[Bikepack Finisher] ${typeLabel} - ${name}`);
+    const subject = encodeURIComponent(`[Bikepack Finishers] ${typeLabel} - ${name}`);
     const body = encodeURIComponent(
       `Name: ${name}\nEmail: ${email}\nType: ${typeLabel}\nAmount: ${amountLabel}\n\nMessage:\n${message}\n`
     );
@@ -1812,7 +2187,7 @@ function refreshResupplyUIAfterChange() {
 }
 
 function enforceSiteBranding() {
-  if (siteTitle) siteTitle.textContent = "Bikepack Finisher";
+  if (siteTitle) siteTitle.textContent = "Bikepack Finishers";
 }
 
 function applyRouteConfig(routeId) {
@@ -1843,7 +2218,7 @@ function applyRouteConfig(routeId) {
     sortResupplyPointsByMile();
   }
 
-  document.title = `Bikepack Finisher | ${route.label}`;
+  document.title = `Bikepack Finishers | ${route.label}`;
   enforceSiteBranding();
   if (plannerTitle) plannerTitle.textContent = route.plannerTitle;
   if (routeSwitcherNote) routeSwitcherNote.textContent = `${route.label} is active now. Switch routes anytime.`;
@@ -2305,7 +2680,7 @@ function buildFirebaseAuthAdapter() {
       return { user: normalizeSupabaseUser(data?.user || null) };
     },
     async signInWithPopup(provider) {
-      const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+      const redirectTo = `${window.location.origin}`;
       const providerName = provider?.providerId || "google";
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: providerName,
@@ -2317,8 +2692,11 @@ function buildFirebaseAuthAdapter() {
       return this.signInWithPopup(provider);
     },
     async signOut() {
-      const { error } = await supabaseClient.auth.signOut();
-      if (error) throw error;
+      const firstAttempt = await supabaseClient.auth.signOut({ scope: "local" });
+      if (firstAttempt?.error) {
+        const fallbackAttempt = await supabaseClient.auth.signOut();
+        if (fallbackAttempt?.error) throw fallbackAttempt.error;
+      }
     }
   };
 
@@ -3862,7 +4240,8 @@ function ensureMapPlanPanel() {
   if (mapPlanPanelEl && mapPlanTitleEl && mapPlanSubheadEl && mapPlanContentEl) return true;
   if (!markerList) return false;
   const markerPanel = markerList.closest(".panel");
-  if (!markerPanel || !markerPanel.parentElement) return false;
+  const panelParent = markerPanel?.parentElement || null;
+  if (!markerPanel || !panelParent) return false;
 
   let panel = document.getElementById("map-plan-panel");
   if (!panel) {
@@ -3890,11 +4269,19 @@ function ensureMapPlanPanel() {
     header.appendChild(subhead);
     panel.appendChild(header);
     panel.appendChild(content);
-    markerPanel.parentElement.insertBefore(panel, markerPanel.nextSibling);
+    try {
+      panelParent.insertBefore(panel, markerPanel.nextSibling);
+    } catch {
+      panelParent.appendChild(panel);
+    }
   }
 
-  if (panel.parentElement === markerPanel.parentElement) {
-    markerPanel.parentElement.insertBefore(panel, markerPanel.nextSibling);
+  if (panel.parentElement === panelParent) {
+    try {
+      panelParent.insertBefore(panel, markerPanel.nextSibling);
+    } catch {
+      panelParent.appendChild(panel);
+    }
   }
 
   mapPlanPanelEl = panel;
@@ -3967,6 +4354,12 @@ function renderMapPlanSelection() {
 }
 
 async function pushCloudData() {
+  if (cloudSyncInFlight) {
+    cloudSyncQueued = true;
+    return;
+  }
+  cloudSyncInFlight = true;
+  try {
   if (!cloudReady()) return;
   const routeId = getRouteFromUrl();
   let customRideData = buildCustomRideDataPayload();
@@ -3988,9 +4381,9 @@ async function pushCloudData() {
         updatedAt: new Date().toISOString()
       });
       if (result.ok && result.degraded) {
-        setCloudStatus(`Saved locally for ${authUser.email} (images trimmed to fit storage).`);
+        setCloudStatus(`Auto-saved locally for ${authUser.email} (images trimmed to fit storage).`);
       } else if (result.ok) {
-        setCloudStatus(`Saved to local account: ${authUser.email}`);
+        setCloudStatus(`Auto-saved locally for ${authUser.email}.`);
       } else {
         setCloudStatus("Local account save failed (browser storage full).");
       }
@@ -4003,6 +4396,8 @@ async function pushCloudData() {
     const config = parseForm();
     const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
     if (!docId) return;
+    const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
+    const accountStatePayload = buildAccountStatePayload();
     let verifyCollection = PROFILE_COLLECTION;
     if (isCustomRouteActive()) {
       verifyCollection = ROUTES.custom_ride.profileCollection;
@@ -4037,21 +4432,35 @@ async function pushCloudData() {
         { merge: true }
       );
     }
+    await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).set(accountStatePayload, { merge: true });
     // Verify write actually landed by reading the same doc back.
     try {
       const verifySnap = await firestoreDb.collection(verifyCollection).doc(docId).get();
       if (!verifySnap?.exists) {
         throw new Error("Write verification failed: document not found after sync.");
       }
+      const verifyAccountSnap = await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).get();
+      if (!verifyAccountSnap?.exists) {
+        throw new Error("Account-state verification failed: document not found after sync.");
+      }
     } catch (verifyError) {
       const verifyMessage = String(verifyError?.message || "unknown verification error");
       setCloudStatus(`Cloud sync verify failed: ${verifyMessage}`);
       return;
     }
-    setCloudStatus(`Synced to cloud for ${authUser.email} (${verifyCollection}:${docId.slice(0, 8)}...)`);
+    setCloudStatus(`Auto-synced for ${authUser.email} (${verifyCollection}:${docId.slice(0, 8)}...)`);
   } catch (error) {
     const message = String(error?.message || "unknown error");
     setCloudStatus(`Cloud sync failed: ${message}`);
+  }
+  } finally {
+    cloudSyncInFlight = false;
+    if (cloudSyncQueued) {
+      cloudSyncQueued = false;
+      setTimeout(() => {
+        pushCloudData();
+      }, 200);
+    }
   }
 }
 
@@ -4060,7 +4469,7 @@ function scheduleCloudSync() {
   if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
     pushCloudData();
-  }, 700);
+  }, 900);
 }
 
 async function loadCloudData() {
@@ -4091,10 +4500,6 @@ async function loadCloudData() {
         }
         applyCustomRideDataPayload(data.customRideData);
       }
-      if (isUserActivelyEditingPlanner()) {
-        setCloudStatus(`Cloud data ready for ${authUser.email}. Finish typing, then click Sync Now.`);
-        return;
-      }
       applyPlannerConfig(data.config);
       enforceRouteDistanceBaseline();
       applyPlanArray(data.plan);
@@ -4103,12 +4508,24 @@ async function loadCloudData() {
         applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
       }
       setCloudStatus(`Loaded local account data for ${authUser.email}`);
+      scheduleCloudSync();
     } catch {
       setCloudStatus("Failed to load local account data.");
     }
     return;
   }
   try {
+    const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
+    if (accountStateDocId) {
+      try {
+        const accountStateSnap = await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).get();
+        if (accountStateSnap?.exists) {
+          applyAccountStatePayload(accountStateSnap.data() || {});
+        }
+      } catch {
+        // Ignore account-state read failures so route load can still continue.
+      }
+    }
     let data = null;
     let usedLegacyCustomRouteData = false;
     const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
@@ -4131,10 +4548,6 @@ async function loadCloudData() {
         const localCustomSnapshot = loadLocalCustomRouteSnapshot(routeId);
         if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
           applyCustomRideDataPayload(localCustomSnapshot.customRideData);
-          if (isUserActivelyEditingPlanner()) {
-            setCloudStatus(`Local backup route ready for ${authUser.email}. Finish typing, then click Sync Now.`);
-            return;
-          }
           applyPlannerConfig(localCustomSnapshot.config);
           enforceRouteDistanceBaseline();
           applyPlanArray(localCustomSnapshot.plan);
@@ -4143,6 +4556,7 @@ async function loadCloudData() {
             applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
           }
           setCloudStatus(`Loaded local backup route for ${authUser.email}.`);
+          scheduleCloudSync();
           return;
         }
       }
@@ -4151,14 +4565,23 @@ async function loadCloudData() {
     }
     if (isCustomRouteActive()) {
       if (!hasValidCustomRideDataPayload(data)) {
-        setCloudStatus(`Signed in as ${authUser.email}. No saved route GPX yet.`);
-        return;
+        const localCustomSnapshot = loadLocalCustomRouteSnapshot(routeId);
+        if (localCustomSnapshot && hasValidCustomRideDataPayload(localCustomSnapshot)) {
+          applyCustomRideDataPayload(localCustomSnapshot.customRideData);
+          data = {
+            ...(typeof data === "object" && data ? data : {}),
+            config: data?.config || localCustomSnapshot.config,
+            plan: Array.isArray(data?.plan) && data.plan.length ? data.plan : localCustomSnapshot.plan,
+            comments: Array.isArray(data?.comments) ? data.comments : localCustomSnapshot.comments
+          };
+          setCloudStatus(`Cloud GPX missing for this route. Loaded local GPX backup for ${authUser.email}.`);
+        } else {
+          setCloudStatus(`Signed in as ${authUser.email}. No saved route GPX yet.`);
+          return;
+        }
+      } else {
+        applyCustomRideDataPayload(data.customRideData);
       }
-      applyCustomRideDataPayload(data.customRideData);
-    }
-    if (isUserActivelyEditingPlanner()) {
-      setCloudStatus(`Cloud data ready for ${authUser.email}. Finish typing, then click Sync Now.`);
-      return;
     }
     applyPlannerConfig(data.config);
     enforceRouteDistanceBaseline();
@@ -4176,6 +4599,7 @@ async function loadCloudData() {
     }
     resetUndoBaseline();
     setCloudStatus(`Loaded cloud data for ${authUser.email}`);
+    scheduleCloudSync();
   } catch (error) {
     const message = String(error?.message || "Unknown cloud load error");
     const transientUiRace = /parentNode|is not an object|Cannot read properties of undefined/i.test(message);
@@ -4237,7 +4661,7 @@ function initCloud() {
       signedOutUiTimer = null;
     }
 
-    const previousEmail = normalizeEmail(authUser?.email || "");
+    if (manualSignOutInProgress && user) return;
     authUser = user || null;
     if (authUser) {
       if (cloudLoadRetryTimer) {
@@ -4265,6 +4689,7 @@ function initCloud() {
           }
         }, 120);
       }
+      scheduleCloudSync();
       setAuthBusyState(false);
       return;
     }
@@ -4272,10 +4697,10 @@ function initCloud() {
     // Debounce transient signed-out blips that happen during provider/session refresh.
     signedOutUiTimer = setTimeout(() => {
       if (version !== authStateVersion || authUser) return;
-      purgeSignedInDataFromDevice(previousEmail);
-      resetUiAfterSignOut();
+      manualSignOutInProgress = false;
+      // Keep current local planner state on transient auth blips.
+      // Only explicit sign-out should clear the working session.
       setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
-      setMyRouteShortcutVisible(false);
       updateAccountToggleLabel();
       setAuthBusyState(false);
     }, 900);
@@ -5003,6 +5428,15 @@ function setupTabs() {
           // noop
         }
       }, 350);
+    }
+
+    if (tabName === "social") {
+      setTimeout(() => {
+        refreshCommunityMap();
+        if (communityMap) {
+          communityMap.invalidateSize();
+        }
+      }, 40);
     }
   };
 
@@ -6312,7 +6746,10 @@ function renderMapSectionComments(sectionName) {
   }
 
   const sectionComments = comments
-    .filter((comment) => comment.section === selectedSectionName)
+    .filter(
+      (comment) =>
+        String(comment.routeId || "") === String(activeRouteId()) && comment.section === selectedSectionName
+    )
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   if (!sectionComments.length) {
@@ -6337,6 +6774,7 @@ function renderMapSectionComments(sectionName) {
       image.className = "map-comment-image";
       image.alt = "Section comment image";
       image.src = comment.image;
+      image.addEventListener("click", () => openCommentImageLightbox(comment.image));
       item.appendChild(image);
     }
 
@@ -6400,27 +6838,111 @@ function drawSectionOverlays() {
 }
 
 function setupCommentSections() {
-  commentSectionSelect.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "Choose a route section";
-  placeholder.selected = true;
-  placeholder.disabled = true;
-  commentSectionSelect.appendChild(placeholder);
-
-  for (let i = 0; i < resupplyPoints.length - 1; i++) {
-    const start = resupplyPoints[i];
-    const end = resupplyPoints[i + 1];
-    const option = document.createElement("option");
-    option.value = `${start.name} to ${end.name}`;
-    option.textContent = option.value;
-    commentSectionSelect.appendChild(option);
+  if (!commentMileInput) return;
+  const routeMiles = Number(activeRouteGpxDistanceMiles || getRouteDistanceInputMiles() || 0);
+  commentMileInput.min = "0";
+  if (routeMiles > 0) {
+    commentMileInput.max = routeMiles.toFixed(1);
+    commentMileInput.placeholder = `0 - ${routeMiles.toFixed(1)}`;
+  } else {
+    commentMileInput.removeAttribute("max");
+    commentMileInput.placeholder = "e.g. 155.0";
   }
+}
 
-  const hasSelected = Array.from(commentSectionSelect.options).some(
-    (option) => option.value === selectedSectionName
-  );
-  if (!hasSelected) selectedSectionName = "";
+function sectionNameForMile(mile) {
+  const value = Number(mile || 0);
+  if (!Number.isFinite(value) || !resupplyPoints.length) return "General route note";
+  let current = resupplyPoints[0];
+  for (let i = 1; i < resupplyPoints.length; i++) {
+    const next = resupplyPoints[i];
+    if (value <= Number(next.mile || 0)) return `${current.name} to ${next.name}`;
+    current = next;
+  }
+  return `${current.name} and beyond`;
+}
+
+function normalizeCommentMile(raw) {
+  const maxMile = Number(activeRouteGpxDistanceMiles || getRouteDistanceInputMiles() || 0);
+  let mile = Number(raw);
+  if (!Number.isFinite(mile)) return null;
+  mile = Math.max(0, mile);
+  if (maxMile > 0) mile = Math.min(mile, maxMile);
+  return mile;
+}
+
+function commentPointFromMile(mile) {
+  if (!Array.isArray(gpxTrackPoints) || gpxTrackPoints.length < 2 || !Array.isArray(trackCumulativeMiles) || !trackCumulativeMiles.length) {
+    return null;
+  }
+  const point = pointAtMile(gpxTrackPoints, trackCumulativeMiles, mile);
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return null;
+  return point;
+}
+
+function ensureCommunityMap() {
+  if (!communityMapEl || communityMap) return;
+  communityMap = L.map(communityMapEl, { zoomControl: true, preferCanvas: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(communityMap);
+  communityMapRouteLine = L.polyline([], {
+    color: "#bb2f2c",
+    weight: 3,
+    opacity: 0.9
+  }).addTo(communityMap);
+  communityMapCommentLayer = L.layerGroup().addTo(communityMap);
+}
+
+function refreshCommunityMap() {
+  ensureCommunityMap();
+  if (!communityMap || !communityMapRouteLine || !communityMapCommentLayer) return;
+
+  const points = getRouteDrawPoints(gpxTrackPoints).map((p) => [p.lat, p.lon]);
+  communityMapRouteLine.setLatLngs(points);
+  communityMapCommentLayer.clearLayers();
+
+  const visibleComments = comments
+    .filter((comment) => String(comment.routeId || "") === String(activeRouteId()))
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  visibleComments.forEach((comment) => {
+    const mile = normalizeCommentMile(comment.mileMarker ?? comment.mile);
+    if (mile === null) return;
+    const pt = commentPointFromMile(mile);
+    if (!pt) return;
+    const marker = L.circleMarker([pt.lat, pt.lon], {
+      radius: 5,
+      color: "#ffffff",
+      weight: 1.5,
+      fillColor: "#1e5cc8",
+      fillOpacity: 0.95
+    });
+    marker.bindTooltip(`${comment.name}: Mile ${mile.toFixed(1)}`, { direction: "top", offset: [0, -8] });
+    marker.addTo(communityMapCommentLayer);
+  });
+
+  if (points.length > 1) {
+    const bounds = L.latLngBounds(points);
+    communityMap.fitBounds(bounds.pad(0), { animate: false, padding: [0, 0] });
+    const extraZoom = Math.min((communityMap.getMaxZoom?.() || 18), communityMap.getZoom() + 1);
+    communityMap.setView(bounds.getCenter(), extraZoom, { animate: false });
+  } else {
+    communityMap.setView([45, -113], 4);
+  }
+}
+
+function openCommentImageLightbox(src) {
+  if (!commentImageLightbox || !commentImageLightboxImg || !src) return;
+  commentImageLightboxImg.src = src;
+  commentImageLightbox.hidden = false;
+}
+
+function closeCommentImageLightbox() {
+  if (!commentImageLightbox || !commentImageLightboxImg) return;
+  commentImageLightbox.hidden = true;
+  commentImageLightboxImg.src = "";
 }
 
 function makeResupplyIcon() {
@@ -7066,7 +7588,24 @@ function loadComments() {
 
   try {
     const parsed = JSON.parse(raw);
-    comments = Array.isArray(parsed) ? parsed : [];
+    comments = Array.isArray(parsed)
+      ? parsed
+          .map((entry) => {
+            if (!entry || typeof entry !== "object") return null;
+            const mileRaw = entry.mileMarker ?? entry.mile;
+            const mile = Number(mileRaw);
+            return {
+              routeId: entry.routeId || DEFAULT_ROUTE_ID,
+              section: String(entry.section || "General route note"),
+              mileMarker: Number.isFinite(mile) ? mile : 0,
+              name: String(entry.name || "Rider"),
+              text: String(entry.text || ""),
+              image: typeof entry.image === "string" ? entry.image : "",
+              createdAt: entry.createdAt || new Date().toISOString()
+            };
+          })
+          .filter(Boolean)
+      : [];
   } catch {
     comments = [];
   }
@@ -7096,23 +7635,28 @@ function persistComments() {
 function renderComments() {
   commentFeed.innerHTML = "";
 
-  if (!comments.length) {
+  const routeComments = comments.filter((comment) => String(comment.routeId || "") === String(activeRouteId()));
+  if (!routeComments.length) {
     commentFeed.innerHTML = '<p class="empty-note">No comments yet. Be the first to post a section update.</p>';
     renderMapSectionComments(selectedSectionName);
+    refreshCommunityMap();
     return;
   }
 
-  const sorted = [...comments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const sorted = [...routeComments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   sorted.forEach((comment) => {
     const node = commentTemplate.content.firstElementChild.cloneNode(true);
     node.querySelector(".comment-section").textContent = comment.section;
     node.querySelector(".comment-meta").textContent = `${comment.name} • ${niceDate(new Date(comment.createdAt))}`;
+    const mile = normalizeCommentMile(comment.mileMarker ?? comment.mile);
+    node.querySelector(".comment-mile").textContent = mile === null ? "" : `Mile ${mile.toFixed(1)}`;
     node.querySelector(".comment-body").textContent = comment.text;
 
     const image = node.querySelector(".comment-image");
     if (comment.image) {
       image.src = comment.image;
       image.style.display = "block";
+      image.addEventListener("click", () => openCommentImageLightbox(comment.image));
     } else {
       image.remove();
     }
@@ -7121,6 +7665,7 @@ function renderComments() {
   });
 
   renderMapSectionComments(selectedSectionName);
+  refreshCommunityMap();
 }
 
 function fileToDataUrl(file) {
@@ -7136,20 +7681,24 @@ function setupCommentForm() {
   commentForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const section = commentSectionSelect.value;
+    const mile = normalizeCommentMile(commentMileInput?.value);
     const name = commentNameInput.value.trim();
     const text = commentTextInput.value.trim();
     const imageFile = commentImageInput.files && commentImageInput.files[0] ? commentImageInput.files[0] : null;
 
-    if (!section || !name || !text) return;
+    if (mile === null || !name || !text) return;
 
     let image = "";
     if (imageFile) {
       image = await fileToDataUrl(imageFile);
     }
 
+    const section = sectionNameForMile(mile);
+
     comments.push({
+      routeId: activeRouteId(),
       section,
+      mileMarker: mile,
       name,
       text,
       image,
@@ -7158,6 +7707,7 @@ function setupCommentForm() {
 
     persistComments();
     renderComments();
+    if (commentMileInput) commentMileInput.value = "";
     commentTextInput.value = "";
     commentImageInput.value = "";
   });
@@ -7318,7 +7868,7 @@ if (customApplyUploadBtn) {
         comments: Array.isArray(comments) ? comments : []
       });
       const persisted = await persistMyRouteSnapshot({
-        syncCloud: false,
+        syncCloud: !localAuthMode && cloudReady(),
         uploadedFileName: file.name,
         routeId: newRouteId,
         routeName: customRouteDisplayName,
@@ -7787,6 +8337,7 @@ if (signInGoogleBtn) {
 signOutBtn.addEventListener("click", async () => {
   if (authBusy) return;
   setAuthBusyState(true);
+  manualSignOutInProgress = true;
   if (localAuthMode) {
     const previousEmail = normalizeEmail(authUser?.email || "");
     authUser = null;
@@ -7798,10 +8349,12 @@ signOutBtn.addEventListener("click", async () => {
     setMyRouteShortcutVisible(false);
     updateSignedInIndicators();
     setAuthBusyState(false);
+    manualSignOutInProgress = false;
     return;
   }
   if (!firebaseAuth) {
     setAuthBusyState(false);
+    manualSignOutInProgress = false;
     return;
   }
   try {
@@ -7809,10 +8362,16 @@ signOutBtn.addEventListener("click", async () => {
     purgeSignedInDataFromDevice(previousEmail);
     resetUiAfterSignOut();
     await firebaseAuth.signOut();
+    authUser = null;
+    setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
+    setMyRouteShortcutVisible(false);
+    updateAccountToggleLabel();
+    updateSignedInIndicators();
   } finally {
     // onAuthStateChanged will set final UI state; keep controls responsive even if callback is delayed.
     setTimeout(() => {
       if (!authUser) setAuthBusyState(false);
+      if (!authUser) manualSignOutInProgress = false;
     }, 1000);
   }
 });
@@ -7822,6 +8381,7 @@ syncNowBtn.addEventListener("click", async () => {
     setCloudStatus("Sign in first to sync to cloud.");
     return;
   }
+  setCloudStatus("Manual sync requested...");
   await pushCloudData();
 });
 
@@ -7834,6 +8394,18 @@ if (undoBtn) {
 if (homeViewBtn) {
   homeViewBtn.addEventListener("click", () => {
     window.location.href = homeUrl(getRouteFromUrl());
+  });
+}
+
+if (liveTrackerViewBtn) {
+  liveTrackerViewBtn.addEventListener("click", () => {
+    window.location.href = liveTrackerUrl(getRouteFromUrl());
+  });
+}
+
+if (publishedRoutesViewBtn) {
+  publishedRoutesViewBtn.addEventListener("click", () => {
+    window.location.href = routeCollectionUrl(getRouteFromUrl());
   });
 }
 
@@ -7855,9 +8427,23 @@ if (homeOpenActiveBtn) {
   });
 }
 
-commentSectionSelect.addEventListener("change", () => {
-  renderMapSectionComments(commentSectionSelect.value);
-  drawSectionOverlays();
+if (commentSectionSelect) {
+  commentSectionSelect.addEventListener("change", () => {
+    renderMapSectionComments(commentSectionSelect.value);
+    drawSectionOverlays();
+  });
+}
+
+if (commentImageLightboxClose) {
+  commentImageLightboxClose.addEventListener("click", closeCommentImageLightbox);
+}
+if (commentImageLightbox) {
+  commentImageLightbox.addEventListener("click", (event) => {
+    if (event.target === commentImageLightbox) closeCommentImageLightbox();
+  });
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeCommentImageLightbox();
 });
 
 document.addEventListener(
@@ -7900,6 +8486,7 @@ if (isNamedCustomRoute(getRouteFromUrl())) {
 updateAccountToggleLabel();
 setupPlannerUnits();
 renderHomeRouteCollection();
+renderPublishedRoutesCollection();
 setViewMode(viewModeFromUrl());
 enforceSiteBranding();
 setDragButtonState();
@@ -7909,6 +8496,7 @@ refreshMyRouteShortcutVisibility();
 setupTabs();
 setupCustomerServiceForm();
 setupDonationSuggestionForm();
+setupLiveTracker();
 setupRouteProfileScroll();
 setupCommentSections();
 setupCommentForm();
