@@ -4302,6 +4302,7 @@ function setMapPlanSelection(selection) {
   if (!selection || !Number.isInteger(selection.dayIndex) || selection.dayIndex < 0) {
     mapPlanSelection = null;
     renderMapPlanSelection();
+    if (selectedSectionName) renderMapSectionComments(selectedSectionName);
     return;
   }
   mapPlanSelection = {
@@ -4309,6 +4310,16 @@ function setMapPlanSelection(selection) {
     stopIndex: Number.isInteger(selection.stopIndex) ? selection.stopIndex : null
   };
   renderMapPlanSelection();
+  const focusMile = mileForMapSelection(mapPlanSelection);
+  const dayLabel = plan[mapPlanSelection.dayIndex] ? `Day ${plan[mapPlanSelection.dayIndex].id}` : `Day ${mapPlanSelection.dayIndex + 1}`;
+  const stopLabel =
+    Number.isInteger(mapPlanSelection.stopIndex) && resupplyPoints[mapPlanSelection.stopIndex]
+      ? String(resupplyPoints[mapPlanSelection.stopIndex].name || "").trim()
+      : "";
+  const focusLabel = stopLabel ? `${stopLabel} (${dayLabel})` : dayLabel;
+  if (Number.isFinite(focusMile)) {
+    renderMapSectionComments("", { focusMile, focusLabel });
+  }
 }
 
 function renderMapPlanSelection() {
@@ -4356,18 +4367,18 @@ function renderMapPlanSelection() {
 async function pushCloudData() {
   if (cloudSyncInFlight) {
     cloudSyncQueued = true;
-    return;
+    return { ok: false, queued: true, message: "Sync already in progress. Queued next sync." };
   }
   cloudSyncInFlight = true;
   try {
-  if (!cloudReady()) return;
+  if (!cloudReady()) return { ok: false, message: "Cloud mode is not ready." };
   const routeId = getRouteFromUrl();
   let customRideData = buildCustomRideDataPayload();
   if (isCustomRouteActive() && !hasValidCustomRideDataObject(customRideData)) {
     customRideData = await resolveCustomRideDataForSync(routeId, customRideData);
     if (!hasValidCustomRideDataObject(customRideData)) {
       setCloudStatus("Custom route sync paused: GPX payload is missing. Re-open the route and save again.");
-      return;
+      return { ok: false, message: "Custom route sync paused: GPX payload missing." };
     }
   }
   if (localAuthMode) {
@@ -4390,7 +4401,7 @@ async function pushCloudData() {
     } catch {
       setCloudStatus("Local account save failed.");
     }
-    return;
+    return { ok: true, local: true, message: "Saved in local-account mode." };
   }
   try {
     const config = parseForm();
@@ -4446,12 +4457,14 @@ async function pushCloudData() {
     } catch (verifyError) {
       const verifyMessage = String(verifyError?.message || "unknown verification error");
       setCloudStatus(`Cloud sync verify failed: ${verifyMessage}`);
-      return;
+      return { ok: false, message: `Cloud sync verify failed: ${verifyMessage}` };
     }
     setCloudStatus(`Auto-synced for ${authUser.email} (${verifyCollection}:${docId.slice(0, 8)}...)`);
+    return { ok: true, message: `Synced ${verifyCollection}:${docId.slice(0, 8)}...` };
   } catch (error) {
     const message = String(error?.message || "unknown error");
     setCloudStatus(`Cloud sync failed: ${message}`);
+    return { ok: false, message: `Cloud sync failed: ${message}` };
   }
   } finally {
     cloudSyncInFlight = false;
@@ -4474,6 +4487,14 @@ function scheduleCloudSync() {
 
 async function loadCloudData() {
   if (cloudLoadInProgress) return;
+  if (isUserActivelyEditingPlanner()) {
+    if (cloudLoadRetryTimer) clearTimeout(cloudLoadRetryTimer);
+    cloudLoadRetryTimer = setTimeout(() => {
+      cloudLoadRetryTimer = null;
+      if (authUser) loadCloudData();
+    }, 800);
+    return;
+  }
   cloudLoadInProgress = true;
   try {
   if (!cloudReady()) return;
@@ -6611,8 +6632,62 @@ function nearestValidElevation(points, index) {
   return null;
 }
 
-function renderMapSectionComments(sectionName) {
+function buildWindowProfileByMile(focusMile, beforeMiles = 50, afterMiles = 50) {
+  if (!gpxTrackPoints.length || !trackCumulativeMiles.length || !Number.isFinite(focusMile)) return null;
+  const totalMiles = trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0;
+  const startMile = Math.max(0, focusMile - Math.max(0, beforeMiles));
+  const endMile = Math.min(totalMiles, focusMile + Math.max(0, afterMiles));
+  if (!(endMile > startMile)) return null;
+
+  const startIdx = nearestIndexByDistance(trackCumulativeMiles, startMile);
+  const endIdx = nearestIndexByDistance(trackCumulativeMiles, endMile);
+  const lo = Math.max(0, Math.min(startIdx, endIdx));
+  const hi = Math.min(gpxTrackPoints.length - 1, Math.max(startIdx, endIdx));
+  if (hi - lo < 1) return null;
+
+  const points = gpxTrackPoints.slice(lo, hi + 1);
+  const firstAbs = trackCumulativeMiles[lo] || 0;
+  const cumulativeMiles = points.map((_, idx) => (trackCumulativeMiles[lo + idx] || firstAbs) - firstAbs);
+  const elevation = computeSectionElevation(points);
+  const sectionDistanceMi = cumulativeMiles[cumulativeMiles.length - 1] || Math.max(0, endMile - startMile);
+  const profileSamples = elevation.profileSamples.length > 1 ? elevation.profileSamples : points.map((pt) => pt.ele ?? null).filter((v) => v !== null);
+
+  return {
+    name: "Marker focus window",
+    startMile: startMile.toFixed(1),
+    endMile: endMile.toFixed(1),
+    elevationGainFt: elevation.elevationGainFt,
+    minEleFt: elevation.minEleFt,
+    maxEleFt: elevation.maxEleFt,
+    totalDistanceMi: elevation.totalDistanceMi,
+    sectionDistanceMi,
+    cumulativeMiles,
+    absoluteMiles: trackCumulativeMiles.slice(lo, hi + 1),
+    startTrackMile: firstAbs,
+    endTrackMile: trackCumulativeMiles[hi] || firstAbs,
+    profileSamples,
+    points,
+    focusMile
+  };
+}
+
+function mileForMapSelection(selection) {
+  if (!selection || !Number.isInteger(selection.dayIndex)) return null;
+  if (Number.isInteger(selection.stopIndex) && resupplyPoints[selection.stopIndex]) {
+    const stopMile = Number(resupplyPoints[selection.stopIndex].mile);
+    return Number.isFinite(stopMile) ? stopMile : null;
+  }
+  const day = stageOptions[selection.dayIndex];
+  if (!day) return null;
+  const dayMile = Number(day.endMile ?? day.startMile ?? 0);
+  return Number.isFinite(dayMile) ? dayMile : null;
+}
+
+function renderMapSectionComments(sectionName, options = null) {
   selectedSectionName = sectionName || "";
+  const focusMile =
+    options && Number.isFinite(Number(options.focusMile)) ? Number(options.focusMile) : null;
+  const focusLabel = options && options.focusLabel ? String(options.focusLabel) : "";
 
   if (!mapSectionTitle || !mapSectionComments || !mapSectionElevation || !mapSectionProfile || !mapSectionProfileMeta) {
     return;
@@ -6638,6 +6713,27 @@ function renderMapSectionComments(sectionName) {
   mapSectionProfile.onmousemove = null;
   mapSectionProfile.onmouseleave = null;
 
+  if (focusMile !== null) {
+    const windowInfo = buildWindowProfileByMile(focusMile, 50, 50);
+    mapSectionTitle.textContent = focusLabel || `Marker @ ${formatRouteDistanceWithUnits(focusMile)}`;
+    if (!windowInfo) {
+      mapSectionElevation.textContent = "Elevation: n/a";
+      mapSectionComments.innerHTML = '<p class="empty-note">Elevation window unavailable for this marker.</p>';
+      mapSectionProfileMeta.textContent = "Could not compute +/-50 mile elevation window.";
+      return;
+    }
+    mapSectionElevation.textContent = `Elevation Gain (+/-50 mi): ${formatElevationWithUnitFromFeet(windowInfo.elevationGainFt)}`;
+    renderMapSectionCommentsProfile(windowInfo, {
+      metaPrefix: `${formatRouteDistanceWithUnits(Math.max(0, focusMile - 50))} to ${formatRouteDistanceWithUnits(
+        focusMile + 50
+      )}`,
+      hoverDistanceMode: "absolute"
+    });
+    mapSectionComments.innerHTML =
+      '<p class="empty-note">Marker focus view: showing elevation 50 miles before and 50 miles after selected point.</p>';
+    return;
+  }
+
   if (!selectedSectionName) {
     mapSectionComments.innerHTML =
       '<p class="empty-note">Tap a section between major resupplies to view comments.</p>';
@@ -6648,98 +6744,7 @@ function renderMapSectionComments(sectionName) {
   if (sectionInfo) {
     mapSectionElevation.textContent = `Elevation Gain: ${formatElevationWithUnitFromFeet(sectionInfo.elevationGainFt)}`;
     if (sectionInfo.profileSamples.length > 1) {
-      const minEle = Math.min(...sectionInfo.profileSamples);
-      const maxEle = Math.max(...sectionInfo.profileSamples);
-      const range = Math.max(maxEle - minEle, 1);
-      const left = 12;
-      const right = 112;
-      const top = 6;
-      const bottom = 42;
-      const points = sectionInfo.profileSamples
-        .map((ele, index) => {
-          const x = left + (index / (sectionInfo.profileSamples.length - 1)) * (right - left);
-          const y = top + ((maxEle - ele) / range) * (bottom - top);
-          return `${x.toFixed(2)},${y.toFixed(2)}`;
-        })
-        .join(" ");
-
-      const midEleFt = Math.round(((sectionInfo.minEleFt + sectionInfo.maxEleFt) / 2) / 100) * 100;
-      const midTickY = top + (bottom - top) / 2;
-      const halfDistance = formatDistanceValueFromMiles(sectionInfo.totalDistanceMi / 2);
-      const totalDistance = formatDistanceValueFromMiles(sectionInfo.totalDistanceMi);
-      const maxEleText = formatElevationValueFromFeet(sectionInfo.maxEleFt);
-      const midEleText = formatElevationValueFromFeet(midEleFt);
-      const minEleText = formatElevationValueFromFeet(sectionInfo.minEleFt);
-
-      mapSectionProfile.innerHTML = [
-        '<rect x="0" y="0" width="120" height="52" fill="#f6f2e8"></rect>',
-        '<line x1="12" y1="6" x2="12" y2="42" stroke="#9f9687" stroke-width="0.6"></line>',
-        '<line x1="12" y1="42" x2="112" y2="42" stroke="#9f9687" stroke-width="0.6"></line>',
-        `<line x1="12" y1="${midTickY}" x2="112" y2="${midTickY}" stroke="#e2d8c8" stroke-width="0.5"></line>`,
-        `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
-        `<text x="14" y="49" font-size="3.5" fill="#5f695f">0</text>`,
-        `<text x="59" y="49" font-size="3.5" fill="#5f695f">${halfDistance}</text>`,
-        `<text x="104" y="49" font-size="3.5" fill="#5f695f">${totalDistance}</text>`,
-        `<text x="1.2" y="9" font-size="3.2" fill="#5f695f">${maxEleText}</text>`,
-        `<text x="1.2" y="${(midTickY + 1.5).toFixed(2)}" font-size="3.2" fill="#5f695f">${midEleText}</text>`,
-        `<text x="1.2" y="42" font-size="3.2" fill="#5f695f">${minEleText}</text>`
-      ].join("");
-      mapSectionProfileMeta.textContent = `Min ${formatElevationWithUnitFromFeet(sectionInfo.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
-        sectionInfo.maxEleFt
-      )}`;
-
-      const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      hoverLine.setAttribute("x1", "12");
-      hoverLine.setAttribute("y1", "6");
-      hoverLine.setAttribute("x2", "12");
-      hoverLine.setAttribute("y2", "42");
-      hoverLine.setAttribute("stroke", "#b03030");
-      hoverLine.setAttribute("stroke-width", "0.7");
-      hoverLine.setAttribute("visibility", "hidden");
-      mapSectionProfile.appendChild(hoverLine);
-
-      const hoverDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      hoverDot.setAttribute("cx", "12");
-      hoverDot.setAttribute("cy", "42");
-      hoverDot.setAttribute("r", "1.5");
-      hoverDot.setAttribute("fill", "#c62828");
-      hoverDot.setAttribute("stroke", "#ffffff");
-      hoverDot.setAttribute("stroke-width", "0.45");
-      hoverDot.setAttribute("visibility", "hidden");
-      mapSectionProfile.appendChild(hoverDot);
-
-      mapSectionProfile.onmousemove = (event) => {
-        const rect = mapSectionProfile.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        const svgX = ((event.clientX - rect.left) / rect.width) * 120;
-        const clampedX = Math.max(left, Math.min(right, svgX));
-        const ratio = (clampedX - left) / (right - left);
-        const targetDist = ratio * sectionInfo.sectionDistanceMi;
-        const nearestIndex = nearestIndexByDistance(sectionInfo.cumulativeMiles, targetDist);
-        const nearestEleM = nearestValidElevation(sectionInfo.points, nearestIndex);
-        if (nearestEleM === null) return;
-
-        const nearestEleFt = Math.round(nearestEleM * 3.28084);
-        const y = top + ((maxEle - nearestEleM) / range) * (bottom - top);
-        const clampedY = Math.max(top, Math.min(bottom, y));
-        hoverLine.setAttribute("x1", clampedX.toFixed(2));
-        hoverLine.setAttribute("x2", clampedX.toFixed(2));
-        hoverLine.setAttribute("visibility", "visible");
-        hoverDot.setAttribute("cx", clampedX.toFixed(2));
-        hoverDot.setAttribute("cy", clampedY.toFixed(2));
-        hoverDot.setAttribute("visibility", "visible");
-        mapSectionProfileMeta.textContent = `Distance ${formatRouteDistanceWithUnits(targetDist)} / ${formatRouteDistanceWithUnits(
-          sectionInfo.sectionDistanceMi
-        )} • Elevation ${formatElevationWithUnitFromFeet(nearestEleFt)}`;
-      };
-
-      mapSectionProfile.onmouseleave = () => {
-        hoverLine.setAttribute("visibility", "hidden");
-        hoverDot.setAttribute("visibility", "hidden");
-        mapSectionProfileMeta.textContent = `Min ${formatElevationWithUnitFromFeet(sectionInfo.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
-          sectionInfo.maxEleFt
-        )}`;
-      };
+      renderMapSectionCommentsProfile(sectionInfo);
     } else {
       mapSectionProfileMeta.textContent = "Elevation profile unavailable for this section.";
     }
@@ -6780,6 +6785,107 @@ function renderMapSectionComments(sectionName) {
 
     mapSectionComments.appendChild(item);
   });
+}
+
+function renderMapSectionCommentsProfile(sectionInfo, options = {}) {
+  if (!mapSectionProfile || !mapSectionProfileMeta || !sectionInfo || !Array.isArray(sectionInfo.profileSamples)) return;
+  const metaPrefix = options.metaPrefix ? `${String(options.metaPrefix)} • ` : "";
+  const hoverDistanceMode = options.hoverDistanceMode === "absolute" ? "absolute" : "relative";
+  const minEle = Math.min(...sectionInfo.profileSamples);
+  const maxEle = Math.max(...sectionInfo.profileSamples);
+  const range = Math.max(maxEle - minEle, 1);
+  const left = 12;
+  const right = 112;
+  const top = 6;
+  const bottom = 42;
+  const points = sectionInfo.profileSamples
+    .map((ele, index) => {
+      const x = left + (index / (sectionInfo.profileSamples.length - 1)) * (right - left);
+      const y = top + ((maxEle - ele) / range) * (bottom - top);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+
+  const midEleFt = Math.round(((sectionInfo.minEleFt + sectionInfo.maxEleFt) / 2) / 100) * 100;
+  const midTickY = top + (bottom - top) / 2;
+  const halfDistance = formatDistanceValueFromMiles(sectionInfo.totalDistanceMi / 2);
+  const totalDistance = formatDistanceValueFromMiles(sectionInfo.totalDistanceMi);
+  const maxEleText = formatElevationValueFromFeet(sectionInfo.maxEleFt);
+  const midEleText = formatElevationValueFromFeet(midEleFt);
+  const minEleText = formatElevationValueFromFeet(sectionInfo.minEleFt);
+
+  mapSectionProfile.innerHTML = [
+    '<rect x="0" y="0" width="120" height="52" fill="#f6f2e8"></rect>',
+    '<line x1="12" y1="6" x2="12" y2="42" stroke="#9f9687" stroke-width="0.6"></line>',
+    '<line x1="12" y1="42" x2="112" y2="42" stroke="#9f9687" stroke-width="0.6"></line>',
+    `<line x1="12" y1="${midTickY}" x2="112" y2="${midTickY}" stroke="#e2d8c8" stroke-width="0.5"></line>`,
+    `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
+    `<text x="14" y="49" font-size="3.5" fill="#5f695f">0</text>`,
+    `<text x="59" y="49" font-size="3.5" fill="#5f695f">${halfDistance}</text>`,
+    `<text x="104" y="49" font-size="3.5" fill="#5f695f">${totalDistance}</text>`,
+    `<text x="1.2" y="9" font-size="3.2" fill="#5f695f">${maxEleText}</text>`,
+    `<text x="1.2" y="${(midTickY + 1.5).toFixed(2)}" font-size="3.2" fill="#5f695f">${midEleText}</text>`,
+    `<text x="1.2" y="42" font-size="3.2" fill="#5f695f">${minEleText}</text>`
+  ].join("");
+  mapSectionProfileMeta.textContent = `${metaPrefix}Min ${formatElevationWithUnitFromFeet(sectionInfo.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
+    sectionInfo.maxEleFt
+  )}`;
+
+  const hoverLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  hoverLine.setAttribute("x1", "12");
+  hoverLine.setAttribute("y1", "6");
+  hoverLine.setAttribute("x2", "12");
+  hoverLine.setAttribute("y2", "42");
+  hoverLine.setAttribute("stroke", "#b03030");
+  hoverLine.setAttribute("stroke-width", "0.7");
+  hoverLine.setAttribute("visibility", "hidden");
+  mapSectionProfile.appendChild(hoverLine);
+
+  const hoverDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  hoverDot.setAttribute("cx", "12");
+  hoverDot.setAttribute("cy", "42");
+  hoverDot.setAttribute("r", "1.5");
+  hoverDot.setAttribute("fill", "#c62828");
+  hoverDot.setAttribute("stroke", "#ffffff");
+  hoverDot.setAttribute("stroke-width", "0.45");
+  hoverDot.setAttribute("visibility", "hidden");
+  mapSectionProfile.appendChild(hoverDot);
+
+  mapSectionProfile.onmousemove = (event) => {
+    const rect = mapSectionProfile.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const svgX = ((event.clientX - rect.left) / rect.width) * 120;
+    const clampedX = Math.max(left, Math.min(right, svgX));
+    const ratio = (clampedX - left) / (right - left);
+    const targetDist = ratio * sectionInfo.sectionDistanceMi;
+    const nearestIndex = nearestIndexByDistance(sectionInfo.cumulativeMiles, targetDist);
+    const nearestEleM = nearestValidElevation(sectionInfo.points, nearestIndex);
+    if (nearestEleM === null) return;
+
+    const nearestEleFt = Math.round(nearestEleM * 3.28084);
+    const y = top + ((maxEle - nearestEleM) / range) * (bottom - top);
+    const clampedY = Math.max(top, Math.min(bottom, y));
+    hoverLine.setAttribute("x1", clampedX.toFixed(2));
+    hoverLine.setAttribute("x2", clampedX.toFixed(2));
+    hoverLine.setAttribute("visibility", "visible");
+    hoverDot.setAttribute("cx", clampedX.toFixed(2));
+    hoverDot.setAttribute("cy", clampedY.toFixed(2));
+    hoverDot.setAttribute("visibility", "visible");
+    const absoluteDist = (sectionInfo.startTrackMile || 0) + targetDist;
+    const distText =
+      hoverDistanceMode === "absolute"
+        ? formatRouteDistanceWithUnits(absoluteDist)
+        : `${formatRouteDistanceWithUnits(targetDist)} / ${formatRouteDistanceWithUnits(sectionInfo.sectionDistanceMi)}`;
+    mapSectionProfileMeta.textContent = `${metaPrefix}Distance ${distText} • Elevation ${formatElevationWithUnitFromFeet(nearestEleFt)}`;
+  };
+
+  mapSectionProfile.onmouseleave = () => {
+    hoverLine.setAttribute("visibility", "hidden");
+    hoverDot.setAttribute("visibility", "hidden");
+    mapSectionProfileMeta.textContent = `${metaPrefix}Min ${formatElevationWithUnitFromFeet(sectionInfo.minEleFt)} • Max ${formatElevationWithUnitFromFeet(
+      sectionInfo.maxEleFt
+    )}`;
+  };
 }
 
 function drawSectionOverlays() {
@@ -8381,8 +8487,29 @@ syncNowBtn.addEventListener("click", async () => {
     setCloudStatus("Sign in first to sync to cloud.");
     return;
   }
+  if (authBusy) return;
+  setAuthBusyState(true);
   setCloudStatus("Manual sync requested...");
-  await pushCloudData();
+  try {
+    const result = await pushCloudData();
+    if (result?.ok) {
+      setCloudStatus("Manual sync complete. Refreshing from cloud...");
+      if (authUser && !cloudLoadInProgress && !isUserActivelyEditingPlanner()) {
+        await loadCloudData();
+      }
+      setCloudStatus(`Manual sync complete and refreshed from cloud. ${result.message || ""}`.trim());
+    } else if (result?.queued) {
+      setCloudStatus("Sync already running. Queued another sync.");
+    } else if (result?.message) {
+      setCloudStatus(result.message);
+    } else {
+      setCloudStatus("Manual sync finished with unknown status.");
+    }
+  } catch (error) {
+    setCloudStatus(`Manual sync failed: ${String(error?.message || "unknown error")}`);
+  } finally {
+    setAuthBusyState(false);
+  }
 });
 
 if (undoBtn) {
