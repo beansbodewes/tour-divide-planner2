@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#1e241f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Bikepack Finisher" />
-    <title>Bikepack Finisher</title>
+    <meta name="apple-mobile-web-app-title" content="Bikepack Finishers" />
+    <title>Bikepack Finishers</title>
     <link rel="manifest" href="manifest.webmanifest?v=103" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -27,7 +27,7 @@
     <div class="bg-grid" aria-hidden="true"></div>
     <header class="hero">
       <div class="hero-top">
-        <h1 class="site-title">Bikepack Finisher</h1>
+        <h1 class="site-title">Bikepack Finishers</h1>
         <div class="account-menu">
           <button id="account-toggle-btn" class="btn" type="button" aria-expanded="false" aria-controls="account-dropdown">Sign In</button>
           <p id="signed-in-user-label" class="signed-in-user-label" hidden>Not signed in</p>
@@ -57,16 +57,18 @@
         <p class="route-switcher-label">Route Collection</p>
         <nav class="route-switcher" aria-label="Choose route family">
           <button id="home-view-btn" class="route-btn" type="button">Home</button>
+          <button id="published-routes-view-btn" class="route-btn" type="button">Route Collection</button>
+          <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
+          <button id="live-tracker-view-btn" class="route-btn route-btn-accent" type="button">Live Tracker</button>
+          <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
+          <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
           <button class="route-btn active" data-route="tour_divide" type="button">Tour Divide Race</button>
           <button class="route-btn" data-route="great_divide_route" type="button">Great Divide Touring Route</button>
           <button class="route-btn" data-route="colorado_trail" type="button">Colorado Trail</button>
           <button class="route-btn" data-route="azt_300" type="button">AZT 300</button>
           <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
           <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
-          <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
           <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="my_route" type="button" hidden>My Route</button>
-          <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
-          <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
         </nav>
         <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
       </section>
@@ -80,9 +82,9 @@
     </header>
 
     <main class="app-shell">
-      <section id="home-page" class="home-page" aria-label="Welcome to Bikepack Finisher">
+      <section id="home-page" class="home-page" aria-label="Welcome to Bikepack Finishers">
         <div class="home-card">
-          <p class="home-kicker">Bikepack Finisher</p>
+          <p class="home-kicker">Bikepack Finishers</p>
           <h1>Plan Faster, Ride Smarter</h1>
           <p class="home-intro">
             Build your route day by day, map every resupply stop, and keep all your notes in one place.
@@ -143,7 +145,7 @@
       </section>
       <section id="customer-service-page" class="home-page" aria-label="Customer Service" hidden>
         <div class="home-card">
-          <p class="home-kicker">Bikepack Finisher</p>
+          <p class="home-kicker">Bikepack Finishers</p>
           <h2>Customer Service</h2>
           <p class="home-intro">
             Send us your bug report, feature request, or account issue. We review submissions and follow up by email.
@@ -201,7 +203,7 @@
       </section>
       <section id="donations-page" class="home-page" aria-label="Donations and Suggestions" hidden>
         <div class="home-card">
-          <p class="home-kicker">Bikepack Finisher</p>
+          <p class="home-kicker">Bikepack Finishers</p>
           <h2>Donations + Suggestions</h2>
           <p class="home-intro">
             If this tool helps your planning, donations help keep it running. You can also send product suggestions.
@@ -218,7 +220,7 @@
             </div>
             <div class="donation-tier">
               <h3>Custom</h3>
-              <p>Any amount helps keep Bikepack Finisher improving.</p>
+              <p>Any amount helps keep Bikepack Finishers improving.</p>
             </div>
           </article>
           <div class="button-row" style="margin-top: 0.6rem;">
@@ -265,6 +267,42 @@
               Submissions are saved locally and open your email app.
             </p>
           </article>
+        </div>
+      </section>
+      <section id="live-tracker-page" class="home-page" aria-label="Live Tracker" hidden>
+        <div class="home-card">
+          <p class="home-kicker">Bikepack Finishers</p>
+          <h2>Live Tracker</h2>
+          <p class="home-intro">
+            Live tracking is available here. Use this page to follow rider position against a GPX route in real time.
+          </p>
+          <article class="home-block">
+            <div class="control-grid">
+              <label>
+                Tracker route
+                <select id="live-tracker-route-select"></select>
+              </label>
+            </div>
+            <div id="live-tracker-map" class="community-map" aria-label="Live tracker map"></div>
+            <div id="live-tracker-meta" class="route-switcher-note">Select a route to load live tracker.</div>
+          </article>
+        </div>
+      </section>
+
+      <section id="published-routes-page" class="home-page" aria-label="Published Routes" hidden>
+        <div class="home-card">
+          <p class="home-kicker">Route Collection</p>
+          <h2>Published Routes</h2>
+          <p class="home-intro">
+            Browse published routes, preview their summaries, and add any route to your top bar to edit.
+          </p>
+          <section class="home-route-collection" aria-label="Published route list">
+            <div id="published-route-list" class="published-route-list"></div>
+          </section>
+          <section class="home-block" aria-label="Published routes map">
+            <h3 style="margin-top:0;">Published Route Map</h3>
+            <div id="published-routes-map" class="community-map"></div>
+          </section>
         </div>
       </section>
       <section id="custom-upload-panel" class="home-page custom-builder-page" aria-label="Create Your Own Ride" hidden>
@@ -361,6 +399,7 @@
               </label>
               <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
               <button id="export-excel-btn" class="btn" type="button">Export Excel</button>
+              <button id="publish-route-btn" class="btn" type="button">Publish Route</button>
             </div>
           </section>
 
@@ -471,11 +510,12 @@
         <div class="layout social-layout">
           <section class="panel comment-form-panel">
             <h2>Section Discussion</h2>
-            <p>Post notes by route section so other riders can prep better.</p>
+            <p>Post notes by mile marker so other riders can prep better.</p>
+            <div id="community-map" class="community-map" aria-label="Community comment map"></div>
             <form id="comment-form" class="comment-form">
               <label>
-                Route section
-                <select id="comment-section" required></select>
+                Mile marker
+                <input id="comment-mile" type="number" min="0" step="0.1" placeholder="e.g. 155.0" required />
               </label>
               <label>
                 Name
@@ -631,10 +671,15 @@
           <p class="comment-section"></p>
           <p class="comment-meta"></p>
         </div>
+        <p class="comment-mile"></p>
         <p class="comment-body"></p>
         <img class="comment-image" alt="Route note image" />
       </article>
     </template>
+    <div id="comment-image-lightbox" class="comment-image-lightbox" hidden>
+      <button id="comment-image-lightbox-close" class="comment-image-lightbox-close" type="button" aria-label="Close image">×</button>
+      <img id="comment-image-lightbox-img" alt="Expanded comment image" />
+    </div>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -643,11 +688,11 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=122"></script>
+    <script src="script.js?v=126"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "122";
+        const BUILD_VERSION = "124";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);
