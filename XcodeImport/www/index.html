@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=32" />
+    <link rel="stylesheet" href="styles.css?v=33" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -59,16 +59,10 @@
           <button id="home-view-btn" class="route-btn" type="button">Home</button>
           <button id="published-routes-view-btn" class="route-btn" type="button">Route Collection</button>
           <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
+          <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="my_route" type="button" hidden>My Route</button>
           <button id="live-tracker-view-btn" class="route-btn route-btn-accent" type="button">Live Tracker</button>
           <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
           <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
-          <button class="route-btn active" data-route="tour_divide" type="button">Tour Divide Race</button>
-          <button class="route-btn" data-route="great_divide_route" type="button">Great Divide Touring Route</button>
-          <button class="route-btn" data-route="colorado_trail" type="button">Colorado Trail</button>
-          <button class="route-btn" data-route="azt_300" type="button">AZT 300</button>
-          <button class="route-btn" data-route="azt_800" type="button">AZT 800</button>
-          <button class="route-btn" data-route="peruvian_divide" type="button">Peruvian Divide Trail</button>
-          <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="my_route" type="button" hidden>My Route</button>
         </nav>
         <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
       </section>
@@ -282,19 +276,54 @@
                 Tracker route
                 <select id="live-tracker-route-select"></select>
               </label>
+              <label>
+                View mode
+                <select id="live-tracker-privacy-mode">
+                  <option value="public">Show all riders</option>
+                  <option value="private">Friends + family (code)</option>
+                </select>
+              </label>
+              <label>
+                Family/friend code
+                <input id="live-tracker-access-code" type="text" placeholder="Enter access code" />
+              </label>
+              <label>
+                Search rider
+                <input id="live-tracker-rider-search" type="text" placeholder="Type rider name" />
+              </label>
             </div>
             <div id="live-tracker-map" class="community-map" aria-label="Live tracker map"></div>
             <div id="live-tracker-meta" class="route-switcher-note">Select a route to load live tracker.</div>
+            <div id="live-tracker-rider-list" class="route-switcher-note">No riders loaded.</div>
+          </article>
+          <article class="home-block">
+            <h3>Garmin InReach Link Setup</h3>
+            <p class="route-switcher-note">
+              Connect a Garmin share link so your rider location can auto-refresh. This is a setup scaffold for now.
+            </p>
+            <div class="control-grid">
+              <label>
+                Garmin share URL / feed URL
+                <input id="live-tracker-garmin-link" type="url" placeholder="https://share.garmin.com/..." />
+              </label>
+              <label>
+                Update interval (seconds)
+                <input id="live-tracker-refresh-seconds" type="number" min="15" max="600" step="5" value="60" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="live-tracker-connect-btn" type="button" class="btn">Save Tracker Setup</button>
+            </div>
+            <div id="live-tracker-garmin-status" class="route-switcher-note">No Garmin link saved yet.</div>
           </article>
         </div>
       </section>
-
       <section id="published-routes-page" class="home-page" aria-label="Published Routes" hidden>
         <div class="home-card">
           <p class="home-kicker">Route Collection</p>
           <h2>Published Routes</h2>
           <p class="home-intro">
-            Browse published routes, preview their summaries, and add any route to your top bar to edit.
+            Browse route summaries, open any route planner, and pin routes to your top bar.
           </p>
           <section class="home-route-collection" aria-label="Published route list">
             <div id="published-route-list" class="published-route-list"></div>
@@ -399,7 +428,6 @@
               </label>
               <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
               <button id="export-excel-btn" class="btn" type="button">Export Excel</button>
-              <button id="publish-route-btn" class="btn" type="button">Publish Route</button>
             </div>
           </section>
 
@@ -688,7 +716,7 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=126"></script>
+    <script src="script.js?v=33"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";

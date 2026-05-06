@@ -218,6 +218,8 @@ const SUPABASE_DOCS_TABLE = "planner_documents";
 const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
 const PLAN_UNITS_KEY = "tour-divide-plan-units-v1";
+const PINNED_BUILTIN_ROUTES_KEY = "bikepack-finishers-pinned-builtin-routes-v1";
+const BUILTIN_ROUTE_IDS = ["tour_divide", "great_divide_route", "colorado_trail", "azt_300", "azt_800", "peruvian_divide"];
 const ROUTE_PROFILE_BASE_WIDTH = 2400;
 const RWGPS_ELEV_OUTLIER_FT = 180;
 const RWGPS_ELEV_MEDIAN_WINDOW_POINTS = 5;
@@ -1024,6 +1026,73 @@ function migrateLegacyMyRouteStorage() {
   upsertCustomRouteRegistryEntry(migratedRouteId, routeName);
 }
 
+function normalizePinnedBuiltinRouteIds(list) {
+  if (!Array.isArray(list)) return [];
+  const unique = [];
+  list.forEach((routeId) => {
+    const id = String(routeId || "").trim();
+    if (!BUILTIN_ROUTE_IDS.includes(id)) return;
+    if (unique.includes(id)) return;
+    unique.push(id);
+  });
+  return unique;
+}
+
+function getPinnedBuiltinRouteIds() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PINNED_BUILTIN_ROUTES_KEY) || "[]");
+    return normalizePinnedBuiltinRouteIds(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function savePinnedBuiltinRouteIds(routeIds) {
+  const normalized = normalizePinnedBuiltinRouteIds(routeIds);
+  try {
+    localStorage.setItem(PINNED_BUILTIN_ROUTES_KEY, JSON.stringify(normalized));
+  } catch {
+    // Ignore storage write failures.
+  }
+  return normalized;
+}
+
+function isBuiltinRoutePinned(routeId) {
+  return getPinnedBuiltinRouteIds().includes(String(routeId || ""));
+}
+
+function setBuiltinRoutePinned(routeId, pinned) {
+  const id = String(routeId || "");
+  if (!BUILTIN_ROUTE_IDS.includes(id)) return;
+  const current = getPinnedBuiltinRouteIds();
+  const next = current.filter((item) => item !== id);
+  if (pinned) next.push(id);
+  savePinnedBuiltinRouteIds(next);
+  renderPinnedBuiltinRouteButtons();
+  if (viewModeFromUrl() === "route_collection") renderPublishedRoutesCollection();
+  scheduleCloudSync();
+}
+
+function renderPinnedBuiltinRouteButtons() {
+  if (!routeSwitcherNav) return;
+  routeSwitcherNav.querySelectorAll(".route-btn-builtin-route").forEach((node) => node.remove());
+  const insertBeforeNode = routeSwitcherNav.querySelector('.route-btn[data-route="custom_ride"]') || null;
+  getPinnedBuiltinRouteIds().forEach((routeId) => {
+    const route = ROUTES[routeId];
+    if (!route) return;
+    const button = document.createElement("button");
+    button.className = "route-btn route-btn-builtin-route";
+    button.type = "button";
+    button.dataset.route = routeId;
+    button.textContent = route.label;
+    if (insertBeforeNode && routeSwitcherNav.contains(insertBeforeNode)) {
+      routeSwitcherNav.insertBefore(button, insertBeforeNode);
+    } else {
+      routeSwitcherNav.appendChild(button);
+    }
+  });
+}
+
 function renderCustomRouteButtons() {
   if (!routeSwitcherNav) return;
   routeSwitcherNav.querySelectorAll(".route-btn-user-route").forEach((node) => node.remove());
@@ -1051,6 +1120,7 @@ function renderCustomRouteButtons() {
 
 function buildAccountStatePayload() {
   return {
+    pinnedBuiltinRouteIds: getPinnedBuiltinRouteIds(),
     customRouteRegistry: loadCustomRouteRegistry(),
     customRoutePayloads: loadCustomRoutePayloadStore(),
     updatedAt: new Date().toISOString()
@@ -1059,6 +1129,10 @@ function buildAccountStatePayload() {
 
 function applyAccountStatePayload(payload) {
   if (!payload || typeof payload !== "object") return;
+  if (Array.isArray(payload.pinnedBuiltinRouteIds)) {
+    savePinnedBuiltinRouteIds(payload.pinnedBuiltinRouteIds);
+    renderPinnedBuiltinRouteButtons();
+  }
   const registry = Array.isArray(payload.customRouteRegistry) ? payload.customRouteRegistry : [];
   if (registry.length) {
     saveCustomRouteRegistry(registry);
@@ -1780,14 +1854,7 @@ function renderHomeRouteCollection() {
 }
 
 function getPublishedRouteIds() {
-  return [
-    "tour_divide",
-    "great_divide_route",
-    "colorado_trail",
-    "azt_300",
-    "azt_800",
-    "peruvian_divide"
-  ];
+  return [...BUILTIN_ROUTE_IDS];
 }
 
 function renderPublishedRoutesCollection() {
@@ -1808,9 +1875,18 @@ function renderPublishedRoutesCollection() {
         <div><strong>Default days:</strong><br/>${route.defaultDays || "n/a"}</div>
       </div>
       <div class="button-row">
+        <button class="btn" type="button" data-route-pin="${routeId}">
+          ${isBuiltinRoutePinned(routeId) ? "Remove from Top Bar" : "Add to Top Bar"}
+        </button>
         <button class="btn" type="button" data-route-open="${routeId}">Open Route</button>
       </div>
     `;
+    const pinBtn = card.querySelector(`[data-route-pin="${routeId}"]`);
+    if (pinBtn) {
+      pinBtn.addEventListener("click", () => {
+        setBuiltinRoutePinned(routeId, !isBuiltinRoutePinned(routeId));
+      });
+    }
     const openBtn = card.querySelector(`[data-route-open="${routeId}"]`);
     if (openBtn) {
       openBtn.addEventListener("click", () => {
@@ -8591,6 +8667,7 @@ document.addEventListener(
 migrateLegacyMyRouteStorage();
 compactCustomRoutePayloadStore();
 hydrateCustomRoutesFromRegistry();
+renderPinnedBuiltinRouteButtons();
 renderCustomRouteButtons();
 if (!applyRouteConfig(getRouteFromUrl())) {
   applyRouteConfig(DEFAULT_ROUTE_ID);
