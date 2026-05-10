@@ -2033,17 +2033,20 @@ function openPublishConfirmModal(record) {
 function updatePublishRoutePanel() {
   if (!publishRoutePanel) return;
   const routeId = getRouteFromUrl();
+  const isBuilderRoute = routeId === "custom_ride";
   const isCustomRoute = isNamedCustomRoute(routeId);
-  publishRoutePanel.hidden = !isCustomRoute;
-  if (!isCustomRoute) return;
+  const isPublishableRoute = isBuilderRoute || isCustomRoute;
+  publishRoutePanel.hidden = false;
 
   const hasRoutePayload = hasValidCustomRideDataObject(buildCustomRideDataPayload() || getCustomRoutePayload(routeId)?.customRideData);
   const currentPublish = activePublishedRouteForCurrentUser();
 
   if (publishRouteCopy) {
-    publishRouteCopy.textContent = currentPublish
-      ? "Your published version can be updated anytime. Other riders can import it into their own planner."
-      : "Share a custom route so other riders can import it into their own planner.";
+    publishRouteCopy.textContent = !isPublishableRoute
+      ? "Publishing is for custom routes. Open one of your saved custom routes here to share it with other riders."
+      : currentPublish
+        ? "Your published version can be updated anytime. Other riders can import it into their own planner."
+        : "Share a custom route so other riders can import it into their own planner.";
   }
 
   if (publishRouteBadge) publishRouteBadge.hidden = !currentPublish;
@@ -2051,6 +2054,17 @@ function updatePublishRoutePanel() {
 
   if (currentPublish && publishVisibilitySelect) {
     publishVisibilitySelect.value = currentPublish.publishMode;
+  }
+
+  if (!isPublishableRoute) {
+    if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishRouteBtn) {
+      publishRouteBtn.disabled = true;
+      publishRouteBtn.textContent = "Publish Route";
+    }
+    if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    setPublishRouteStatus("Create or open a custom route to publish it from this section.", false);
+    return;
   }
 
   if (!hasRoutePayload) {
