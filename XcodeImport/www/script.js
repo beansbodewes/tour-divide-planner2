@@ -212,6 +212,7 @@ let GPX_FILE = "";
 let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
 const ACCOUNT_STATE_COLLECTION = "account_state_profiles";
+const PUBLISHED_ROUTES_COLLECTION = "published_route_profiles";
 const SUPABASE_URL = "https://idvfsczcktulkgeqdzww.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_-RUH7QHKMzHVgbqOt6Dy8w_mBQdkd5j";
 const SUPABASE_DOCS_TABLE = "planner_documents";
@@ -292,6 +293,19 @@ const customDeleteRouteBtn = document.getElementById("custom-delete-route-btn");
 const exportBtn = document.getElementById("export-btn");
 const exportExcelBtn = document.getElementById("export-excel-btn");
 const exportFormatSelect = document.getElementById("export-format");
+const publishRoutePanel = document.getElementById("publish-route-panel");
+const publishRouteBadge = document.getElementById("publish-route-badge");
+const publishRouteCopy = document.getElementById("publish-route-copy");
+const publishVisibilitySelect = document.getElementById("publish-visibility");
+const publishRouteBtn = document.getElementById("publish-route-btn");
+const unpublishRouteBtn = document.getElementById("unpublish-route-btn");
+const publishRouteStatus = document.getElementById("publish-route-status");
+const publishConfirmModal = document.getElementById("publish-confirm-modal");
+const publishConfirmSummary = document.getElementById("publish-confirm-summary");
+const publishConfirmRouteName = document.getElementById("publish-confirm-route-name");
+const publishConfirmMode = document.getElementById("publish-confirm-mode");
+const publishConfirmCancelBtn = document.getElementById("publish-confirm-cancel-btn");
+const publishConfirmSubmitBtn = document.getElementById("publish-confirm-submit-btn");
 const cloudStatus = document.getElementById("cloud-status");
 const authForm = document.getElementById("auth-form");
 const authEmailInput = document.getElementById("auth-email");
@@ -466,6 +480,8 @@ let liveTrackerLoadedTrackPoints = [];
 let liveTrackerRouteCache = new Map();
 let publishedRoutesMap = null;
 let publishedRoutesMapLayers = [];
+let publishedCommunityRoutes = [];
+let pendingPublishRecord = null;
 const CUSTOM_ROUTE_REGISTRY_KEY = "bikepack-finisher-custom-route-registry-v1";
 const CUSTOM_ROUTE_REGISTRY_SESSION_KEY = "bikepack-finisher-custom-route-registry-session-v1";
 const CUSTOM_ROUTE_ID_PREFIX = "my_route_";
@@ -478,6 +494,7 @@ const MY_ROUTE_SHORTCUT_KEY_PREFIX = "bikepack-finisher-my-route-shortcut-v1:";
 const MY_ROUTE_META_KEY = "bikepack-finisher-my-route-meta-v1";
 const CUSTOM_ROUTE_PAYLOADS_KEY = "bikepack-finisher-custom-route-payloads-v1";
 const CUSTOM_ROUTE_PAYLOADS_SESSION_KEY = "bikepack-finisher-custom-route-payloads-session-v1";
+const PUBLISHED_ROUTES_CACHE_KEY = "bikepack-finisher-published-routes-cache-v1";
 const MAP_ROUTE_DRAW_MAX_POINTS = 20000;
 const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
@@ -1098,11 +1115,20 @@ function renderCustomRouteButtons() {
   routeSwitcherNav.querySelectorAll(".route-btn-user-route").forEach((node) => node.remove());
   loadCustomRouteRegistry().forEach((entry) => {
     ensureCustomRouteDefinition(entry.id, entry.name);
+    const published = activePublishedRouteForRouteId(entry.id);
     const button = document.createElement("button");
-    button.className = "route-btn route-btn-my route-btn-user-route";
+    button.className = `route-btn route-btn-my route-btn-user-route${published ? " is-published" : ""}`;
     button.type = "button";
     button.dataset.route = entry.id;
-    button.textContent = entry.name;
+    const label = document.createElement("span");
+    label.textContent = entry.name;
+    button.appendChild(label);
+    if (published) {
+      const badge = document.createElement("span");
+      badge.className = "route-btn-badge";
+      badge.textContent = "Published";
+      button.appendChild(badge);
+    }
     try {
       const preferredInsertNode = customerServiceViewBtn || donationsViewBtn || null;
       const insertBeforeNode =
@@ -1254,8 +1280,10 @@ function setViewMode(mode) {
   }
   if (showRouteCollection) {
     renderPublishedRoutesCollection();
+    loadPublishedCommunityRoutes();
     setTimeout(() => renderPublishedRoutesMap(), 30);
   }
+  updatePublishRoutePanel();
   if (!standaloneMode && map) {
     setTimeout(() => {
       map.invalidateSize();
@@ -1812,6 +1840,10 @@ function buildHomeRouteRow(routeId) {
       window.location.href = routeUrl(routeId);
     });
   }
+  row.addEventListener("click", (event) => {
+    if (event.target.closest("button, a, input, select, textarea, label")) return;
+    window.location.href = routeUrl(routeId);
+  });
 
   const distanceEl = row.querySelector(".home-distance-value");
   const gainEl = row.querySelector(".home-gain-value");
@@ -1851,6 +1883,455 @@ function renderHomeRouteCollection() {
     const row = buildHomeRouteRow(routeId);
     if (row) homeRouteList.appendChild(row);
   });
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (char) => {
+    if (char === "&") return "&amp;";
+    if (char === "<") return "&lt;";
+    if (char === ">") return "&gt;";
+    if (char === '"') return "&quot;";
+    return "&#39;";
+  });
+}
+
+function publishedRouteDocId(routeId, ownerId) {
+  const safeOwner = String(ownerId || "").trim();
+  const safeRouteId = String(routeId || "").trim();
+  if (!safeOwner || !safeRouteId) return "";
+  return `${safeOwner}__${safeRouteId}`;
+}
+
+function publishedRouteModeLabel(mode) {
+  return mode === "resupply_only" ? "Route + Resupply Stops" : "Full Route + Days";
+}
+
+function publishedRouteModeSummary(mode) {
+  return mode === "resupply_only"
+    ? "Shared route line plus the rider's resupply stops."
+    : "Shared route line, resupply stops, and the rider's day-by-day plan.";
+}
+
+function loadPublishedRoutesCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PUBLISHED_ROUTES_CACHE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map((entry) => normalizePublishedRouteRecord(entry)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePublishedRoutesCache(routes) {
+  try {
+    localStorage.setItem(PUBLISHED_ROUTES_CACHE_KEY, JSON.stringify(Array.isArray(routes) ? routes : []));
+  } catch {
+    // Ignore cache write failures.
+  }
+}
+
+function normalizePublishedRouteRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  const publishId = String(record.publishId || record.id || "").trim();
+  const ownerId = String(record.ownerId || "").trim();
+  const routeName = sanitizeCustomRouteName(record.routeName || "Shared Route");
+  const publishMode = record.publishMode === "resupply_only" ? "resupply_only" : "full";
+  const trackPoints = Array.isArray(record.trackPoints)
+    ? record.trackPoints.map(normalizeStoredTrackPoint).filter(Boolean)
+    : [];
+  const resupply = Array.isArray(record.resupplyPoints)
+    ? record.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+    : [];
+  if (trackPoints.length < 2) return null;
+  const routeDistance = Number(record.routeDistance);
+  const totalDays = Number(record.totalDays);
+  const restDays = Number(record.restDays);
+  return {
+    publishId,
+    ownerId,
+    sourceRouteId: String(record.sourceRouteId || "").trim(),
+    routeName,
+    publishMode,
+    authorLabel: sanitizeCustomRouteName(record.authorLabel || "Rider"),
+    routeDistance: Number.isFinite(routeDistance) ? Number(routeDistance.toFixed(1)) : milesFromTrackPoints(trackPoints),
+    totalDays: publishMode === "full" && Number.isFinite(totalDays) ? Math.max(1, Math.round(totalDays)) : null,
+    restDays: publishMode === "full" && Number.isFinite(restDays) ? Math.max(0, Math.round(restDays)) : null,
+    trackPoints: trackPoints.map((point) => ({ ...point })),
+    resupplyPoints: resupply.map((point) => ({ ...point, isCustom: true })),
+    config: publishMode === "full" && record.config && typeof record.config === "object" ? { ...record.config } : null,
+    plan: publishMode === "full" && Array.isArray(record.plan) ? record.plan.map(normalizeDay) : [],
+    publishedAt: String(record.publishedAt || record.updatedAt || new Date().toISOString()),
+    updatedAt: String(record.updatedAt || record.publishedAt || new Date().toISOString())
+  };
+}
+
+function buildImportedPublishedRouteConfig(record) {
+  const totalMiles = Number(record?.routeDistance || 0) || milesFromTrackPoints(record?.trackPoints || []);
+  const sharedDays = Number(record?.totalDays);
+  const totalDays = Number.isFinite(sharedDays) && sharedDays > 0
+    ? Math.max(1, Math.round(sharedDays))
+    : Math.max(1, Math.min(120, Math.round(totalMiles / 70) || 12));
+  const restDays = Number.isFinite(Number(record?.restDays)) ? Math.max(0, Math.round(Number(record.restDays))) : 1;
+  const startDate = localDateString(new Date());
+  return {
+    startDate,
+    finishDate: addDays(startDate, totalDays - 1),
+    totalDays,
+    restDays,
+    routeDistance: totalMiles,
+    rideDays: Math.max(totalDays - restDays, 1),
+    avgRideMiles: totalMiles / Math.max(totalDays - restDays, 1)
+  };
+}
+
+function activePublishedRouteForRouteId(routeId, ownerId = authUser?.uid || "") {
+  const safeRouteId = String(routeId || "").trim();
+  const safeOwnerId = String(ownerId || "").trim();
+  if (!safeRouteId || !safeOwnerId) return null;
+  return (
+    publishedCommunityRoutes.find(
+      (entry) => entry.ownerId === safeOwnerId && entry.sourceRouteId === safeRouteId
+    ) || null
+  );
+}
+
+function activePublishedRouteForCurrentUser() {
+  const routeId = activeRouteId();
+  if (!isNamedCustomRoute(routeId)) return null;
+  return activePublishedRouteForRouteId(routeId);
+}
+
+function setPublishRouteStatus(text, isError = false) {
+  if (!publishRouteStatus) return;
+  publishRouteStatus.textContent = String(text || "").trim();
+  publishRouteStatus.classList.toggle("status-error", Boolean(isError));
+}
+
+function closePublishConfirmModal() {
+  pendingPublishRecord = null;
+  if (!publishConfirmModal) return;
+  publishConfirmModal.hidden = true;
+  publishConfirmModal.setAttribute("aria-hidden", "true");
+}
+
+function openPublishConfirmModal(record) {
+  if (!publishConfirmModal || !record) return;
+  pendingPublishRecord = record;
+  if (publishConfirmRouteName) publishConfirmRouteName.textContent = record.routeName;
+  if (publishConfirmMode) publishConfirmMode.textContent = publishedRouteModeLabel(record.publishMode);
+  if (publishConfirmSummary) {
+    publishConfirmSummary.textContent = record.publishMode === "resupply_only"
+      ? "This will share the route line and all saved resupply stops, but it will keep your day-by-day plan private."
+      : "This will share the route line, all resupply stops, and your saved day-by-day plan and day count.";
+  }
+  if (publishConfirmSubmitBtn) {
+    publishConfirmSubmitBtn.textContent = activePublishedRouteForCurrentUser() ? "Update Published Route" : "Publish Now";
+  }
+  publishConfirmModal.hidden = false;
+  publishConfirmModal.setAttribute("aria-hidden", "false");
+}
+
+function updatePublishRoutePanel() {
+  if (!publishRoutePanel) return;
+  const routeId = getRouteFromUrl();
+  const isBuilderRoute = routeId === "custom_ride";
+  const isCustomRoute = isNamedCustomRoute(routeId);
+  const isPublishableRoute = isBuilderRoute || isCustomRoute;
+  publishRoutePanel.hidden = false;
+
+  const hasRoutePayload = hasValidCustomRideDataObject(buildCustomRideDataPayload() || getCustomRoutePayload(routeId)?.customRideData);
+  const currentPublish = activePublishedRouteForCurrentUser();
+
+  if (publishRouteCopy) {
+    publishRouteCopy.textContent = !isPublishableRoute
+      ? "Publishing is for custom routes. Open one of your saved custom routes here to share it with other riders."
+      : currentPublish
+        ? "Your published version can be updated anytime. Other riders can import it into their own planner."
+        : "Share a custom route so other riders can import it into their own planner.";
+  }
+
+  if (publishRouteBadge) publishRouteBadge.hidden = !currentPublish;
+  if (unpublishRouteBtn) unpublishRouteBtn.hidden = !currentPublish;
+
+  if (currentPublish && publishVisibilitySelect) {
+    publishVisibilitySelect.value = currentPublish.publishMode;
+  }
+
+  if (!isPublishableRoute) {
+    if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishRouteBtn) {
+      publishRouteBtn.disabled = true;
+      publishRouteBtn.textContent = "Publish Route";
+    }
+    if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    setPublishRouteStatus("Create or open a custom route to publish it from this section.", false);
+    return;
+  }
+
+  if (!hasRoutePayload) {
+    if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishRouteBtn) {
+      publishRouteBtn.disabled = true;
+      publishRouteBtn.textContent = "Publish Route";
+    }
+    if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    setPublishRouteStatus("Upload or open a saved custom route before publishing.", true);
+    return;
+  }
+
+  if (!authUser) {
+    if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishRouteBtn) {
+      publishRouteBtn.disabled = true;
+      publishRouteBtn.textContent = "Publish Route";
+    }
+    if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    setPublishRouteStatus("Sign in first so you can publish this route for other riders.", true);
+    return;
+  }
+
+  if (!supabaseClient || localAuthMode) {
+    if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishRouteBtn) {
+      publishRouteBtn.disabled = true;
+      publishRouteBtn.textContent = "Publish Route";
+    }
+    if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    setPublishRouteStatus("Public publishing is unavailable in local-account mode.", true);
+    return;
+  }
+
+  if (publishVisibilitySelect) publishVisibilitySelect.disabled = false;
+  if (publishRouteBtn) {
+    publishRouteBtn.disabled = false;
+    publishRouteBtn.textContent = currentPublish ? "Update Published Route" : "Publish Route";
+  }
+  if (unpublishRouteBtn) unpublishRouteBtn.disabled = false;
+  if (currentPublish) {
+    setPublishRouteStatus(
+      `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}". Publishing again will update it.`
+    );
+  } else {
+    setPublishRouteStatus("Choose what to share, then publish your route to the collection.");
+  }
+}
+
+async function loadPublishedCommunityRoutes(options = {}) {
+  const force = Boolean(options.force);
+  if (!force && publishedCommunityRoutes.length) return publishedCommunityRoutes;
+
+  if (!supabaseClient) {
+    publishedCommunityRoutes = loadPublishedRoutesCache();
+    renderCustomRouteButtons();
+    renderPublishedRoutesCollection();
+    if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+    updatePublishRoutePanel();
+    return publishedCommunityRoutes;
+  }
+
+  try {
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_DOCS_TABLE)
+      .select("doc_id,payload,updated_at")
+      .eq("collection_name", PUBLISHED_ROUTES_COLLECTION)
+      .order("updated_at", { ascending: false });
+    if (error) throw error;
+    publishedCommunityRoutes = Array.isArray(data)
+      ? data
+          .map((row) =>
+            normalizePublishedRouteRecord({
+              ...(row?.payload && typeof row.payload === "object" ? row.payload : {}),
+              publishId: row?.doc_id || "",
+              updatedAt: row?.updated_at || row?.payload?.updatedAt || new Date().toISOString()
+            })
+          )
+          .filter(Boolean)
+      : [];
+    savePublishedRoutesCache(publishedCommunityRoutes);
+  } catch (error) {
+    console.error("Published routes load failed:", error);
+    publishedCommunityRoutes = loadPublishedRoutesCache();
+  }
+
+  renderCustomRouteButtons();
+  renderPublishedRoutesCollection();
+  if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+  updatePublishRoutePanel();
+  return publishedCommunityRoutes;
+}
+
+function buildPublishedRouteRecord(mode = "full") {
+  const routeId = activeRouteId();
+  if (!isNamedCustomRoute(routeId)) return null;
+  const routePayload =
+    buildCustomRideDataPayload() ||
+    getCustomRoutePayload(routeId)?.customRideData ||
+    loadLocalCustomRouteSnapshot(routeId)?.customRideData ||
+    null;
+  if (!hasValidCustomRideDataObject(routePayload)) return null;
+
+  const config =
+    parseForm() ||
+    loadLocalCustomRouteSnapshot(routeId)?.config ||
+    buildFallbackConfigForMyRoute();
+  const planToPublish = Array.isArray(plan) && plan.length
+    ? plan.map(normalizeDay)
+    : Array.isArray(loadLocalCustomRouteSnapshot(routeId)?.plan)
+      ? loadLocalCustomRouteSnapshot(routeId).plan.map(normalizeDay)
+      : buildPlan(config).map(normalizeDay);
+  const routeName = sanitizeCustomRouteName(customRouteDisplayName || ROUTES[routeId]?.label || routePayload.routeName || "My Route");
+  const authorBase = normalizeEmail(authUser?.email || "").split("@")[0] || "Rider";
+  const trimmedPayload = withTrackPointLimit(routePayload, 1600) || routePayload;
+  const currentPublish = activePublishedRouteForCurrentUser();
+  const nowIso = new Date().toISOString();
+
+  return {
+    publishId: publishedRouteDocId(routeId, authUser?.uid || ""),
+    ownerId: String(authUser?.uid || ""),
+    sourceRouteId: routeId,
+    routeName,
+    publishMode: mode === "resupply_only" ? "resupply_only" : "full",
+    authorLabel: sanitizeCustomRouteName(authorBase),
+    routeDistance: Number(Number(config.routeDistance || milesFromTrackPoints(trimmedPayload.trackPoints)).toFixed(1)),
+    totalDays: mode === "resupply_only" ? null : Math.max(1, Math.round(Number(config.totalDays || planToPublish.length || 1))),
+    restDays: mode === "resupply_only" ? null : Math.max(0, Math.round(Number(config.restDays || 0))),
+    trackPoints: trimmedPayload.trackPoints.map((point) => ({ ...point })),
+    resupplyPoints: (trimmedPayload.resupplyPoints || []).map((point) => ({ ...point, isCustom: true })),
+    config: mode === "resupply_only" ? null : { ...config },
+    plan: mode === "resupply_only" ? [] : planToPublish,
+    publishedAt: currentPublish?.publishedAt || nowIso,
+    updatedAt: nowIso
+  };
+}
+
+async function savePublishedRouteRecord(record) {
+  if (!record) {
+    setPublishRouteStatus("This route needs a saved GPX and route data before it can be published.", true);
+    return;
+  }
+
+  if (publishRouteBtn) {
+    publishRouteBtn.disabled = true;
+    publishRouteBtn.textContent = "Publishing...";
+  }
+  setPublishRouteStatus("Publishing route to the collection...");
+
+  try {
+    const row = {
+      doc_key: `${PUBLISHED_ROUTES_COLLECTION}:${record.publishId}`,
+      collection_name: PUBLISHED_ROUTES_COLLECTION,
+      doc_id: record.publishId,
+      payload: record,
+      updated_at: record.updatedAt
+    };
+    const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" });
+    if (error) throw error;
+    await loadPublishedCommunityRoutes({ force: true });
+    setPublishRouteStatus(`Published: ${record.routeName} (${publishedRouteModeLabel(record.publishMode)}).`);
+  } catch (error) {
+    const message = String(error?.message || "unknown error");
+    console.error("Publish route failed:", error);
+    setPublishRouteStatus(`Could not publish route (${message}).`, true);
+  } finally {
+    updatePublishRoutePanel();
+  }
+}
+
+function publishCurrentRoute() {
+  if (!authUser) {
+    updatePublishRoutePanel();
+    return;
+  }
+  if (!supabaseClient || localAuthMode) {
+    updatePublishRoutePanel();
+    return;
+  }
+  const publishMode = publishVisibilitySelect?.value === "resupply_only" ? "resupply_only" : "full";
+  const record = buildPublishedRouteRecord(publishMode);
+  if (!record) {
+    setPublishRouteStatus("This route needs a saved GPX and route data before it can be published.", true);
+    return;
+  }
+  openPublishConfirmModal(record);
+}
+
+async function unpublishCurrentRoute() {
+  const currentPublish = activePublishedRouteForCurrentUser();
+  if (!currentPublish || !supabaseClient || localAuthMode) {
+    updatePublishRoutePanel();
+    return;
+  }
+  const confirmed = window.confirm(`Unpublish "${currentPublish.routeName}" from the route collection?`);
+  if (!confirmed) return;
+
+  if (unpublishRouteBtn) {
+    unpublishRouteBtn.disabled = true;
+    unpublishRouteBtn.textContent = "Unpublishing...";
+  }
+  setPublishRouteStatus("Removing your route from the public collection...");
+
+  try {
+    const docKey = `${PUBLISHED_ROUTES_COLLECTION}:${currentPublish.publishId}`;
+    const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).delete().eq("doc_key", docKey);
+    if (error) throw error;
+    publishedCommunityRoutes = publishedCommunityRoutes.filter((entry) => entry.publishId !== currentPublish.publishId);
+    savePublishedRoutesCache(publishedCommunityRoutes);
+    renderPublishedRoutesCollection();
+    if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+    setPublishRouteStatus("Route unpublished. Other riders will no longer see it in the route collection.");
+  } catch (error) {
+    const message = String(error?.message || "unknown error");
+    console.error("Unpublish route failed:", error);
+    setPublishRouteStatus(`Could not unpublish route (${message}).`, true);
+  } finally {
+    if (unpublishRouteBtn) unpublishRouteBtn.textContent = "Unpublish Route";
+    updatePublishRoutePanel();
+  }
+}
+
+async function importPublishedRoute(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return;
+  const routeName = sanitizeCustomRouteName(normalized.routeName || "Shared Route");
+  const newRouteId = generateCustomRouteId(routeName);
+  const config = normalized.publishMode === "full" && normalized.config
+    ? { ...normalized.config }
+    : buildImportedPublishedRouteConfig(normalized);
+  const importedPlan = normalized.publishMode === "full" && normalized.plan.length
+    ? normalized.plan.map(normalizeDay)
+    : buildPlan(config);
+  const customRideData = {
+    trackPoints: normalized.trackPoints.map((point) => ({ ...point })),
+    resupplyPoints: normalized.resupplyPoints.map((point) => ({ ...point, isCustom: true })),
+    uploadedFileName: `${routeName} (published route)`,
+    routeName,
+    sourcePointCount: normalized.trackPoints.length
+  };
+
+  ensureCustomRouteDefinition(newRouteId, routeName);
+  upsertCustomRouteRegistryEntry(newRouteId, routeName);
+  upsertCustomRoutePayload(newRouteId, {
+    routeName,
+    customRideData,
+    updatedAt: new Date().toISOString()
+  });
+  saveCustomRouteHandoff(newRouteId, {
+    routeName,
+    customRideData,
+    config,
+    plan: importedPlan,
+    comments: []
+  });
+  await persistMyRouteSnapshot({
+    syncCloud: Boolean(cloudReady() && !localAuthMode),
+    routeId: newRouteId,
+    routeName,
+    customRideDataOverride: customRideData,
+    configOverride: config,
+    planOverride: importedPlan,
+    commentsOverride: [],
+    resupplyPointsOverride: customRideData.resupplyPoints
+  });
+  window.location.assign(routeUrl(newRouteId));
 }
 
 function getPublishedRouteIds() {
@@ -1893,6 +2374,50 @@ function renderPublishedRoutesCollection() {
         window.location.href = routeUrl(routeId);
       });
     }
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button, a, input, select, textarea, label")) return;
+      window.location.href = routeUrl(routeId);
+    });
+    publishedRouteList.appendChild(card);
+  });
+
+  publishedCommunityRoutes.forEach((record) => {
+    const card = document.createElement("article");
+    card.className = "published-route-card is-community";
+    const safeName = escapeHtml(record.routeName);
+    const safeAuthor = escapeHtml(record.authorLabel || "Rider");
+    const isOwnedByCurrentUser = String(record.ownerId || "") === String(authUser?.uid || "");
+    const metaDays = record.publishMode === "full" && record.totalDays ? record.totalDays : "Not shared";
+    const updatedText = niceDate(new Date(record.updatedAt || record.publishedAt || Date.now()));
+    card.innerHTML = `
+      <h3>${safeName}</h3>
+      <div class="published-route-badges">
+        <span class="published-route-mode">${escapeHtml(publishedRouteModeLabel(record.publishMode))}</span>
+        ${isOwnedByCurrentUser ? '<span class="published-route-badge-chip">Your Published Route</span>' : ""}
+      </div>
+      <p>${escapeHtml(publishedRouteModeSummary(record.publishMode))}</p>
+      <div class="published-route-meta">
+        <div><strong>Distance:</strong><br/>${formatHomeMiles(record.routeDistance)}</div>
+        <div><strong>Resupply stops:</strong><br/>${record.resupplyPoints.length}</div>
+        <div><strong>Days shared:</strong><br/>${metaDays}</div>
+        <div><strong>Published by:</strong><br/>${safeAuthor}</div>
+        <div><strong>Updated:</strong><br/>${escapeHtml(updatedText)}</div>
+        <div><strong>Type:</strong><br/>Custom rider route</div>
+      </div>
+      <div class="button-row">
+        <button class="btn" type="button" data-published-import="${escapeHtml(record.publishId)}">Import Route</button>
+      </div>
+    `;
+    const importBtn = card.querySelector("[data-published-import]");
+    if (importBtn) {
+      importBtn.addEventListener("click", () => {
+        importPublishedRoute(record);
+      });
+    }
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button, a, input, select, textarea, label")) return;
+      importPublishedRoute(record);
+    });
     publishedRouteList.appendChild(card);
   });
 }
@@ -1940,12 +2465,72 @@ async function renderPublishedRoutesMap() {
     }
   }
 
+  publishedCommunityRoutes.forEach((record) => {
+    if (!Array.isArray(record.trackPoints) || record.trackPoints.length < 2) return;
+    try {
+      const latLngs = record.trackPoints.map((pt) => [pt.lat, pt.lon]);
+      const line = L.polyline(latLngs, {
+        color: "#1d7f5b",
+        weight: 3,
+        opacity: 0.85,
+        dashArray: record.publishMode === "resupply_only" ? "7 5" : null
+      }).addTo(mapInst);
+      line.bindTooltip(`${record.routeName} • ${publishedRouteModeLabel(record.publishMode)}`, { sticky: true });
+      publishedRoutesMapLayers.push(line);
+      bounds.extend(line.getBounds());
+    } catch {
+      // Ignore individual community route draw failures.
+    }
+  });
+
   setTimeout(() => mapInst.invalidateSize(), 30);
   if (bounds.isValid()) {
     mapInst.fitBounds(bounds, { padding: [20, 20], animate: false });
   } else {
     mapInst.setView([39.2, -106.5], 4);
   }
+}
+
+function setupPublishRoutePanel() {
+  if (!publishRouteBtn) return;
+  publishRouteBtn.addEventListener("click", () => {
+    publishCurrentRoute();
+  });
+  if (unpublishRouteBtn) {
+    unpublishRouteBtn.addEventListener("click", () => {
+      unpublishCurrentRoute();
+    });
+  }
+  if (publishVisibilitySelect) {
+    publishVisibilitySelect.addEventListener("change", () => {
+      const current = activePublishedRouteForCurrentUser();
+      if (!current) {
+        setPublishRouteStatus("Choose what to share, then publish your route to the collection.");
+        return;
+      }
+      setPublishRouteStatus(
+        `This will update your published route to "${publishedRouteModeLabel(publishVisibilitySelect.value)}".`
+      );
+    });
+  }
+  if (publishConfirmCancelBtn) {
+    publishConfirmCancelBtn.addEventListener("click", () => {
+      closePublishConfirmModal();
+    });
+  }
+  if (publishConfirmSubmitBtn) {
+    publishConfirmSubmitBtn.addEventListener("click", async () => {
+      const record = pendingPublishRecord;
+      closePublishConfirmModal();
+      await savePublishedRouteRecord(record);
+    });
+  }
+  if (publishConfirmModal) {
+    publishConfirmModal.addEventListener("click", (event) => {
+      if (event.target === publishConfirmModal) closePublishConfirmModal();
+    });
+  }
+  updatePublishRoutePanel();
 }
 
 function setupCustomerServiceForm() {
@@ -4727,12 +5312,16 @@ function initCloud() {
       loadCloudData();
       refreshMyRouteShortcutVisibility();
       updateAccountToggleLabel();
+      loadPublishedCommunityRoutes({ force: true });
+      updatePublishRoutePanel();
       setUnsignedWarningVisible(false);
     } else {
       authUser = null;
       setCloudStatus("Local account mode active. Sign up or sign in below.");
       setMyRouteShortcutVisible(false);
       updateAccountToggleLabel();
+      loadPublishedCommunityRoutes({ force: true });
+      updatePublishRoutePanel();
       setUnsignedWarningVisible(false);
     }
     return;
@@ -4773,9 +5362,12 @@ function initCloud() {
       if (version !== authStateVersion) return;
       await loadCloudData();
       if (version !== authStateVersion) return;
+      await loadPublishedCommunityRoutes({ force: true });
+      if (version !== authStateVersion) return;
       await refreshMyRouteShortcutVisibility();
       if (version !== authStateVersion) return;
       updateAccountToggleLabel();
+      updatePublishRoutePanel();
       if (map) {
         setTimeout(() => {
           try {
@@ -4799,6 +5391,8 @@ function initCloud() {
       // Only explicit sign-out should clear the working session.
       setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
       updateAccountToggleLabel();
+      loadPublishedCommunityRoutes({ force: true });
+      updatePublishRoutePanel();
       setAuthBusyState(false);
     }, 900);
   });
@@ -8647,6 +9241,7 @@ if (commentImageLightbox) {
 }
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeCommentImageLightbox();
+  if (event.key === "Escape") closePublishConfirmModal();
 });
 
 document.addEventListener(
@@ -8698,6 +9293,7 @@ setupAccountMenu();
 initCloud();
 refreshMyRouteShortcutVisibility();
 setupTabs();
+setupPublishRoutePanel();
 setupCustomerServiceForm();
 setupDonationSuggestionForm();
 setupLiveTracker();
@@ -8707,6 +9303,8 @@ setupCommentForm();
 loadComments();
 renderComments();
 loadSavedPlan();
+loadPublishedCommunityRoutes();
+updatePublishRoutePanel();
 initMap();
 
 if (!plan.length) {

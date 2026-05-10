@@ -181,10 +181,22 @@ body {
   border-radius: 12px;
   background: #fffcf6;
   padding: 0.75rem;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
 .published-route-card h3 {
   margin: 0 0 0.3rem;
+}
+
+.published-route-card p {
+  margin-bottom: 0;
+}
+
+.published-route-card:hover {
+  transform: translateY(-1px);
+  border-color: #b9a98f;
+  box-shadow: 0 10px 24px rgba(25, 39, 31, 0.08);
 }
 
 .published-route-meta {
@@ -203,6 +215,143 @@ body {
   font-size: 0.92rem;
 }
 
+.published-route-card.is-community {
+  border-color: #b9d3c0;
+  background: linear-gradient(140deg, #f7fcf7, #eef8f0);
+}
+
+.published-route-mode {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.2rem;
+  padding: 0.24rem 0.55rem;
+  border-radius: 999px;
+  background: #e4f2e7;
+  color: #20563b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.published-route-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+}
+
+.published-route-badge-chip,
+.publish-route-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.26rem 0.62rem;
+  border-radius: 999px;
+  background: #1d7f5b;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.published-route-badge-chip::before,
+.publish-route-badge::before {
+  content: "";
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.publish-route-panel {
+  grid-column: span 12;
+}
+
+.publish-route-badge {
+  margin: 0 0 0.65rem;
+  background: linear-gradient(135deg, #1d7f5b, #266948);
+}
+
+.publish-route-panel .control-grid {
+  margin-top: 0.85rem;
+}
+
+.publish-route-panel .button-row {
+  margin-top: 0.75rem;
+  align-items: center;
+}
+
+.publish-route-panel select:disabled,
+.publish-route-panel button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.route-btn-user-route.is-published {
+  border-color: #2b8c63;
+  background: #e8f7ee;
+}
+
+.route-btn-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.45rem;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(29, 127, 91, 0.14);
+  color: #1c6548;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.publish-confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(12, 18, 14, 0.56);
+  backdrop-filter: blur(4px);
+}
+
+.publish-confirm-card {
+  width: min(560px, 100%);
+  border: 1px solid #cdbfa7;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fffdf8, #f5efe4);
+  box-shadow: 0 28px 70px rgba(16, 24, 19, 0.3);
+  padding: 1.2rem;
+}
+
+.publish-confirm-summary {
+  margin: 0.65rem 0 0;
+  color: var(--ink-soft);
+}
+
+.publish-confirm-grid {
+  margin-top: 0.95rem;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.publish-confirm-grid div {
+  border: 1px dashed #d7ccb8;
+  border-radius: 12px;
+  background: #fffdfa;
+  padding: 0.7rem;
+}
+
+.publish-confirm-grid p {
+  margin: 0.2rem 0 0;
+  color: var(--ink-soft);
+}
+
 .home-route-row {
   border: 1px solid #dccfb9;
   border-radius: 12px;
@@ -212,6 +361,14 @@ body {
   grid-template-columns: 260px minmax(0, 1fr);
   gap: 0.8rem;
   align-items: center;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.home-route-row:hover {
+  transform: translateY(-1px);
+  border-color: #b9a98f;
+  box-shadow: 0 10px 24px rgba(25, 39, 31, 0.08);
 }
 
 .home-route-link {

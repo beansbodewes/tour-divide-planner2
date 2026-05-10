@@ -431,6 +431,30 @@
             </div>
           </section>
 
+          <section id="publish-route-panel" class="panel publish-route-panel">
+            <h2>Publish Route</h2>
+            <div id="publish-route-badge" class="publish-route-badge" hidden>Published</div>
+            <p id="publish-route-copy">
+              Share a custom route so other riders can import it into their own planner.
+            </p>
+            <div class="control-grid">
+              <label>
+                Publish option
+                <select id="publish-visibility">
+                  <option value="full">Full route + day-by-day details</option>
+                  <option value="resupply_only">Route + resupply stops only</option>
+                </select>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="publish-route-btn" class="btn btn-primary" type="button">Publish Route</button>
+              <button id="unpublish-route-btn" class="btn" type="button" hidden>Unpublish Route</button>
+            </div>
+            <p id="publish-route-status" class="route-switcher-note" aria-live="polite">
+              Publishing is available for custom routes you create.
+            </p>
+          </section>
+
           <section class="panel days">
             <div class="days-header">
               <h2>Daily Roadbook</h2>
@@ -708,6 +732,29 @@
       <button id="comment-image-lightbox-close" class="comment-image-lightbox-close" type="button" aria-label="Close image">×</button>
       <img id="comment-image-lightbox-img" alt="Expanded comment image" />
     </div>
+    <div id="publish-confirm-modal" class="publish-confirm-modal" hidden aria-hidden="true">
+      <div class="publish-confirm-card" role="dialog" aria-modal="true" aria-labelledby="publish-confirm-title">
+        <p class="home-kicker">Publish Route</p>
+        <h3 id="publish-confirm-title">Confirm What You Want To Share</h3>
+        <p id="publish-confirm-summary" class="publish-confirm-summary">
+          Full route sharing includes your route line, resupply stops, and day-by-day plan.
+        </p>
+        <div class="publish-confirm-grid">
+          <div>
+            <strong>Route name</strong>
+            <p id="publish-confirm-route-name">My Route</p>
+          </div>
+          <div>
+            <strong>Publish mode</strong>
+            <p id="publish-confirm-mode">Full route + day-by-day details</p>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="publish-confirm-cancel-btn" class="btn" type="button">Cancel</button>
+          <button id="publish-confirm-submit-btn" class="btn btn-primary" type="button">Publish Now</button>
+        </div>
+      </div>
+    </div>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -720,7 +767,7 @@
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "124";
+        const BUILD_VERSION = "126";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);
