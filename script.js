@@ -946,6 +946,19 @@ async function saveCustomRouteRegistryToCloud() {
   }
 }
 
+async function saveAccountStateToCloud() {
+  if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
+  const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
+  if (!accountStateDocId) return;
+  try {
+    await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).set(buildAccountStatePayload(), {
+      merge: true
+    });
+  } catch {
+    // Ignore account-state write failures.
+  }
+}
+
 async function loadCustomRouteRegistryFromCloud() {
   if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
   try {
@@ -1124,6 +1137,7 @@ function removeCustomRouteById(routeId) {
   removeCustomRouteRegistryEntry(routeId);
   if (ROUTES[routeId]) delete ROUTES[routeId];
   renderCustomRouteButtons();
+  void saveAccountStateToCloud();
   return true;
 }
 
@@ -1287,18 +1301,26 @@ function applyAccountStatePayload(payload) {
     savePinnedBuiltinRouteIds(payload.pinnedBuiltinRouteIds);
     renderPinnedBuiltinRouteButtons();
   }
-  const registry = Array.isArray(payload.customRouteRegistry) ? payload.customRouteRegistry : [];
-  if (registry.length) {
-    saveCustomRouteRegistry(registry);
-    hydrateCustomRoutesFromRegistry();
-  }
-  if (payload.customRoutePayloads && typeof payload.customRoutePayloads === "object") {
-    saveCustomRoutePayloadStore(payload.customRoutePayloads);
-    Object.entries(payload.customRoutePayloads).forEach(([routeId, routePayload]) => {
+  const payloadStore = payload.customRoutePayloads && typeof payload.customRoutePayloads === "object"
+    ? payload.customRoutePayloads
+    : {};
+  const validPayloadRouteIds = new Set();
+  if (Object.keys(payloadStore).length) {
+    saveCustomRoutePayloadStore(payloadStore);
+    Object.entries(payloadStore).forEach(([routeId, routePayload]) => {
       if (!isNamedCustomRoute(routeId)) return;
       if (!hasValidCustomRideDataPayload(routePayload)) return;
+      validPayloadRouteIds.add(routeId);
       upsertCustomRoutePayload(routeId, routePayload);
     });
+  }
+  const registry = Array.isArray(payload.customRouteRegistry) ? payload.customRouteRegistry : [];
+  if (registry.length) {
+    const filteredRegistry = validPayloadRouteIds.size
+      ? registry.filter((entry) => validPayloadRouteIds.has(String(entry?.id || "")))
+      : registry;
+    saveCustomRouteRegistry(filteredRegistry);
+    hydrateCustomRoutesFromRegistry();
   }
   renderCustomRouteButtons();
 }
@@ -4154,6 +4176,7 @@ async function deleteCustomRouteData() {
     } catch {
       // Keep local delete state even if cloud cleanup fails.
     }
+    await saveAccountStateToCloud();
   }
 
   setCloudStatus("Custom route deleted.");
