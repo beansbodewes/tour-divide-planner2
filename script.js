@@ -460,6 +460,8 @@ let publishedRoutesMap = null;
 let publishedRoutesMapLayers = [];
 let publishedCommunityRoutes = [];
 let pendingPublishRecord = null;
+let appliedRouteId = "";
+let appliedViewMode = "";
 const CUSTOM_ROUTE_REGISTRY_KEY = "bikepack-finisher-custom-route-registry-v1";
 const CUSTOM_ROUTE_REGISTRY_SESSION_KEY = "bikepack-finisher-custom-route-registry-session-v1";
 const CUSTOM_ROUTE_ID_PREFIX = "my_route_";
@@ -569,6 +571,130 @@ function routeCollectionUrl(routeId) {
 function donationsUrl(routeId) {
   if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=donations`;
   return `${window.location.pathname}?route=${routeId}&view=donations`;
+}
+
+function clearRenderedRouteLayers() {
+  hideMapHoverMarker();
+  hideMapHoverSnapshot();
+  clearRouteProfileHover();
+  if (stageLayer) stageLayer.clearLayers();
+  if (resupplyLayer) resupplyLayer.clearLayers();
+  if (sectionLayer) sectionLayer.clearLayers();
+  if (dragGuideLayer) dragGuideLayer.clearLayers();
+  if (routeLine && map?.hasLayer(routeLine)) map.removeLayer(routeLine);
+  if (routeHoverLine && map?.hasLayer(routeHoverLine)) map.removeLayer(routeHoverLine);
+  if (routeLineHalo && map?.hasLayer(routeLineHalo)) map.removeLayer(routeLineHalo);
+  routeLine = null;
+  routeHoverLine = null;
+  routeLineHalo = null;
+  dayMarkers = [];
+  resupplyMarkers = [];
+  routeSections = [];
+}
+
+function resetActiveRouteUiState() {
+  plan = [];
+  comments = [];
+  undoStack = [];
+  latestSnapshot = "";
+  selectedSectionName = "";
+  gpxTrackPoints = [];
+  trackCumulativeMiles = [];
+  trackCumulativeGainFt = [];
+  trackCumulativeLossFt = [];
+  activeRouteGpxDistanceMiles = null;
+  routeProfileInitializedView = false;
+  if (dayList) dayList.innerHTML = "";
+  if (metricList) metricList.innerHTML = "";
+  clearRenderedRouteLayers();
+}
+
+async function refreshRouteContentForCurrentLocation() {
+  if (!map) return;
+  if (isRouteBuilderActive()) {
+    clearRenderedRouteLayers();
+    setupCommentSections();
+    return;
+  }
+
+  let trackPoints = [];
+  try {
+    if (isCustomRouteActive() && customUploadedTrackPoints.length >= 2) {
+      trackPoints = customUploadedTrackPoints;
+    } else if (GPX_FILE) {
+      trackPoints = await loadGpxTrackPoints(GPX_FILE);
+    }
+    if (trackPoints.length < 2) throw new Error("Not enough track points in GPX");
+    applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
+    hardRebuildMapUi();
+    if (isCustomRouteActive()) renderCustomStopEditor();
+  } catch (error) {
+    clearRenderedRouteLayers();
+    const detail = error instanceof Error ? error.message : "Unknown GPX load error";
+    if (mapSubhead) {
+      mapSubhead.textContent = `GPX load failed: ${detail}`;
+    }
+    if (markerList) {
+      markerList.innerHTML =
+        `<li><p class="empty-note">Could not load GPX route file. ${isCustomRouteActive() ? "Upload a custom GPX in Plan tab." : `Check that ${GPX_FILE} is in the project root.`}<br/><small>${detail}</small></p></li>`;
+    }
+  }
+  setupCommentSections();
+}
+
+async function syncUiToLocation(options = {}) {
+  const nextRouteId = getRouteFromUrl();
+  const nextViewMode = viewModeFromUrl();
+  const routeChanged = Boolean(options.forceRouteRefresh || nextRouteId !== appliedRouteId);
+  const shouldLoadCloud = Boolean(options.forceCloudLoad || (routeChanged && authUser));
+
+  if (!applyRouteConfig(nextRouteId)) return false;
+
+  if (routeChanged) {
+    resetActiveRouteUiState();
+    loadComments();
+    renderComments();
+    loadSavedPlan();
+    if (!plan.length && !isRouteBuilderActive()) {
+      const config = parseForm();
+      if (config) {
+        plan = buildPlan(config);
+        renderMetrics(config, plan);
+        renderPlan(plan);
+        persistPlan();
+      }
+    } else if (plan.length) {
+      const config = parseForm();
+      if (config) renderMetrics(config, plan);
+      renderPlan(plan);
+    }
+    await refreshRouteContentForCurrentLocation();
+    resetUndoBaseline();
+  }
+
+  setViewMode(nextViewMode);
+  if (shouldLoadCloud && !cloudLoadInProgress && !isUserActivelyEditingPlanner()) {
+    await loadCloudData();
+  }
+  appliedRouteId = nextRouteId;
+  appliedViewMode = nextViewMode;
+  return true;
+}
+
+function navigateWithinApp(url, options = {}) {
+  const nextUrl = new URL(url, window.location.href);
+  const currentUrl = new URL(window.location.href);
+  if (nextUrl.origin !== currentUrl.origin || nextUrl.pathname !== currentUrl.pathname) {
+    window.location.href = nextUrl.toString();
+    return;
+  }
+  if (nextUrl.search === currentUrl.search && nextUrl.hash === currentUrl.hash) return;
+  if (options.replace) {
+    window.history.replaceState({}, "", nextUrl.toString());
+  } else {
+    window.history.pushState({}, "", nextUrl.toString());
+  }
+  void syncUiToLocation();
 }
 
 function getRouteButtons() {
@@ -1839,12 +1965,12 @@ function buildHomeRouteRow(routeId) {
   const link = row.querySelector(".home-route-link");
   if (link) {
     link.addEventListener("click", () => {
-      window.location.href = routeUrl(routeId);
+      navigateWithinApp(routeUrl(routeId));
     });
   }
   row.addEventListener("click", (event) => {
     if (event.target.closest("button, a, input, select, textarea, label")) return;
-    window.location.href = routeUrl(routeId);
+    navigateWithinApp(routeUrl(routeId));
   });
 
   const distanceEl = row.querySelector(".home-distance-value");
@@ -2426,12 +2552,12 @@ function renderPublishedRoutesCollection() {
     const openBtn = card.querySelector(`[data-route-open="${routeId}"]`);
     if (openBtn) {
       openBtn.addEventListener("click", () => {
-        window.location.href = routeUrl(routeId);
+        navigateWithinApp(routeUrl(routeId));
       });
     }
     card.addEventListener("click", (event) => {
       if (event.target.closest("button, a, input, select, textarea, label")) return;
-      window.location.href = routeUrl(routeId);
+      navigateWithinApp(routeUrl(routeId));
     });
     publishedRouteList.appendChild(card);
   });
@@ -8742,7 +8868,7 @@ if (routeSwitcherNav) {
       if (routeSwitcherNote) routeSwitcherNote.textContent = `${ROUTES[routeId].label} is coming next. Tour Divide and Colorado Trail are live now.`;
       return;
     }
-    window.location.href = routeUrl(routeId);
+    navigateWithinApp(routeUrl(routeId));
   });
 }
 
@@ -9238,37 +9364,37 @@ if (undoBtn) {
 
 if (homeViewBtn) {
   homeViewBtn.addEventListener("click", () => {
-    window.location.href = homeUrl(getRouteFromUrl());
+    navigateWithinApp(homeUrl(getRouteFromUrl()));
   });
 }
 
 if (liveTrackerViewBtn) {
   liveTrackerViewBtn.addEventListener("click", () => {
-    window.location.href = liveTrackerUrl(getRouteFromUrl());
+    navigateWithinApp(liveTrackerUrl(getRouteFromUrl()));
   });
 }
 
 if (publishedRoutesViewBtn) {
   publishedRoutesViewBtn.addEventListener("click", () => {
-    window.location.href = routeCollectionUrl(getRouteFromUrl());
+    navigateWithinApp(routeCollectionUrl(getRouteFromUrl()));
   });
 }
 
 if (customerServiceViewBtn) {
   customerServiceViewBtn.addEventListener("click", () => {
-    window.location.href = customerServiceUrl(getRouteFromUrl());
+    navigateWithinApp(customerServiceUrl(getRouteFromUrl()));
   });
 }
 
 if (donationsViewBtn) {
   donationsViewBtn.addEventListener("click", () => {
-    window.location.href = donationsUrl(getRouteFromUrl());
+    navigateWithinApp(donationsUrl(getRouteFromUrl()));
   });
 }
 
 if (homeOpenActiveBtn) {
   homeOpenActiveBtn.addEventListener("click", () => {
-    window.location.href = routeUrl(getRouteFromUrl());
+    navigateWithinApp(routeUrl(getRouteFromUrl()));
   });
 }
 
@@ -9306,6 +9432,9 @@ document.addEventListener(
   },
   true
 );
+window.addEventListener("popstate", () => {
+  void syncUiToLocation({ forceRouteRefresh: true, forceCloudLoad: Boolean(authUser) });
+});
 
 migrateLegacyMyRouteStorage();
 compactCustomRoutePayloadStore();
@@ -9335,6 +9464,8 @@ setupPlannerUnits();
 renderHomeRouteCollection();
 renderPublishedRoutesCollection();
 setViewMode(viewModeFromUrl());
+appliedRouteId = getRouteFromUrl();
+appliedViewMode = viewModeFromUrl();
 enforceSiteBranding();
 setDragButtonState();
 setupAccountMenu();
