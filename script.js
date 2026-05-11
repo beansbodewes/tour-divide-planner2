@@ -315,6 +315,7 @@ const signInBtn = document.getElementById("sign-in-btn");
 const signInGoogleBtn = document.getElementById("sign-in-google-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
 const syncNowBtn = document.getElementById("sync-now-btn");
+const manualSaveButtons = Array.from(document.querySelectorAll("[data-manual-save-btn]"));
 const undoBtn = document.getElementById("undo-btn");
 const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
@@ -454,6 +455,9 @@ let authBusy = false;
 let authStateVersion = 0;
 let signedOutUiTimer = null;
 let manualSignOutInProgress = false;
+let authPendingProvider = "";
+let authPendingEmail = "";
+let authPendingTimer = null;
 let undoStack = [];
 let latestSnapshot = "";
 let restoringUndo = false;
@@ -2001,6 +2005,24 @@ function activePublishedRouteForCurrentUser() {
   return activePublishedRouteForRouteId(routeId);
 }
 
+function upsertPublishedCommunityRouteLocal(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return null;
+  const next = publishedCommunityRoutes.filter((entry) => entry.publishId !== normalized.publishId);
+  next.unshift(normalized);
+  next.sort((a, b) => new Date(b.updatedAt || b.publishedAt || 0) - new Date(a.updatedAt || a.publishedAt || 0));
+  publishedCommunityRoutes = next;
+  savePublishedRoutesCache(publishedCommunityRoutes);
+  return normalized;
+}
+
+function removePublishedCommunityRouteLocal(publishId) {
+  const safePublishId = String(publishId || "").trim();
+  if (!safePublishId) return;
+  publishedCommunityRoutes = publishedCommunityRoutes.filter((entry) => entry.publishId !== safePublishId);
+  savePublishedRoutesCache(publishedCommunityRoutes);
+}
+
 function setPublishRouteStatus(text, isError = false) {
   if (!publishRouteStatus) return;
   publishRouteStatus.textContent = String(text || "").trim();
@@ -2031,8 +2053,9 @@ function openPublishConfirmModal(record) {
   publishConfirmModal.setAttribute("aria-hidden", "false");
 }
 
-function updatePublishRoutePanel() {
+function updatePublishRoutePanel(options = {}) {
   if (!publishRoutePanel) return;
+  const preserveStatus = Boolean(options.preserveStatus);
   const routeId = getRouteFromUrl();
   const isBuilderRoute = routeId === "custom_ride";
   const isCustomRoute = isNamedCustomRoute(routeId);
@@ -2064,7 +2087,7 @@ function updatePublishRoutePanel() {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
-    setPublishRouteStatus("Create or open a custom route to publish it from this section.", false);
+    if (!preserveStatus) setPublishRouteStatus("Create or open a custom route to publish it from this section.", false);
     return;
   }
 
@@ -2075,7 +2098,7 @@ function updatePublishRoutePanel() {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
-    setPublishRouteStatus("Upload or open a saved custom route before publishing.", true);
+    if (!preserveStatus) setPublishRouteStatus("Upload or open a saved custom route before publishing.", true);
     return;
   }
 
@@ -2086,7 +2109,7 @@ function updatePublishRoutePanel() {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
-    setPublishRouteStatus("Sign in first so you can publish this route for other riders.", true);
+    if (!preserveStatus) setPublishRouteStatus("Sign in first so you can publish this route for other riders.", true);
     return;
   }
 
@@ -2097,7 +2120,7 @@ function updatePublishRoutePanel() {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
-    setPublishRouteStatus("Public publishing is unavailable in local-account mode.", true);
+    if (!preserveStatus) setPublishRouteStatus("Public publishing is unavailable in local-account mode.", true);
     return;
   }
 
@@ -2108,11 +2131,13 @@ function updatePublishRoutePanel() {
   }
   if (unpublishRouteBtn) unpublishRouteBtn.disabled = false;
   if (currentPublish) {
-    setPublishRouteStatus(
-      `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}". Publishing again will update it.`
-    );
+    if (!preserveStatus) {
+      setPublishRouteStatus(
+        `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}". Publishing again will update it.`
+      );
+    }
   } else {
-    setPublishRouteStatus("Choose what to share, then publish your route to the collection.");
+    if (!preserveStatus) setPublishRouteStatus("Choose what to share, then publish your route to the collection.");
   }
 }
 
@@ -2210,6 +2235,8 @@ async function savePublishedRouteRecord(record) {
     return;
   }
 
+  let hadError = false;
+
   if (publishRouteBtn) {
     publishRouteBtn.disabled = true;
     publishRouteBtn.textContent = "Publishing...";
@@ -2226,14 +2253,18 @@ async function savePublishedRouteRecord(record) {
     };
     const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" });
     if (error) throw error;
+    upsertPublishedCommunityRouteLocal(record);
+    renderPublishedRoutesCollection();
+    if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
     await loadPublishedCommunityRoutes({ force: true });
     setPublishRouteStatus(`Published: ${record.routeName} (${publishedRouteModeLabel(record.publishMode)}).`);
   } catch (error) {
+    hadError = true;
     const message = String(error?.message || "unknown error");
     console.error("Publish route failed:", error);
     setPublishRouteStatus(`Could not publish route (${message}).`, true);
   } finally {
-    updatePublishRoutePanel();
+    updatePublishRoutePanel({ preserveStatus: hadError });
   }
 }
 
@@ -2274,8 +2305,7 @@ async function unpublishCurrentRoute() {
     const docKey = `${PUBLISHED_ROUTES_COLLECTION}:${currentPublish.publishId}`;
     const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).delete().eq("doc_key", docKey);
     if (error) throw error;
-    publishedCommunityRoutes = publishedCommunityRoutes.filter((entry) => entry.publishId !== currentPublish.publishId);
-    savePublishedRoutesCache(publishedCommunityRoutes);
+    removePublishedCommunityRouteLocal(currentPublish.publishId);
     renderPublishedRoutesCollection();
     if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
     setPublishRouteStatus("Route unpublished. Other riders will no longer see it in the route collection.");
@@ -2339,10 +2369,36 @@ function getPublishedRouteIds() {
   return [...BUILTIN_ROUTE_IDS];
 }
 
+function getPublishedCommunityRouteListEl() {
+  const existing = document.getElementById("published-community-route-list");
+  if (existing) return existing;
+  if (!publishedRouteList) return null;
+  const siblingSection = publishedRouteList.closest("section");
+  if (!siblingSection) return null;
+
+  const section = document.createElement("section");
+  section.className = "home-route-collection";
+  section.setAttribute("aria-label", "Community routes");
+
+  const heading = document.createElement("h3");
+  heading.className = "published-route-section-title";
+  heading.textContent = "Community Routes";
+
+  const list = document.createElement("div");
+  list.id = "published-community-route-list";
+  list.className = "published-route-list";
+
+  section.appendChild(heading);
+  section.appendChild(list);
+  siblingSection.insertAdjacentElement("afterend", section);
+  return list;
+}
+
 function renderPublishedRoutesCollection() {
-  if (!publishedRouteList || !publishedCommunityRouteList) return;
+  if (!publishedRouteList) return;
+  const communityList = getPublishedCommunityRouteListEl();
   publishedRouteList.innerHTML = "";
-  publishedCommunityRouteList.innerHTML = "";
+  if (communityList) communityList.innerHTML = "";
   getPublishedRouteIds().forEach((routeId) => {
     const route = ROUTES[routeId];
     if (!route) return;
@@ -2420,7 +2476,11 @@ function renderPublishedRoutesCollection() {
       if (event.target.closest("button, a, input, select, textarea, label")) return;
       importPublishedRoute(record);
     });
-    publishedCommunityRouteList.appendChild(card);
+    if (communityList) {
+      communityList.appendChild(card);
+    } else {
+      publishedRouteList.appendChild(card);
+    }
   });
 }
 
@@ -3335,7 +3395,12 @@ function buildFirebaseAuthAdapter() {
     async createUserWithEmailAndPassword(email, password) {
       const { data, error } = await supabaseClient.auth.signUp({ email, password });
       if (error) throw error;
-      return { user: normalizeSupabaseUser(data?.user || null) };
+      const hasSession = Boolean(data?.session?.access_token || data?.session?.user);
+      return {
+        user: normalizeSupabaseUser(data?.user || null),
+        session: data?.session || null,
+        requiresEmailConfirmation: Boolean(data?.user && !hasSession)
+      };
     },
     async signInWithEmailAndPassword(email, password) {
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -5148,6 +5213,15 @@ function scheduleCloudSync() {
   }, 900);
 }
 
+function flushPendingCloudSync() {
+  if (!cloudReady()) return;
+  if (cloudSyncTimer) {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = null;
+  }
+  void pushCloudData();
+}
+
 async function loadCloudData() {
   if (cloudLoadInProgress) return;
   if (isUserActivelyEditingPlanner()) {
@@ -5342,6 +5416,8 @@ function initCloud() {
     if (manualSignOutInProgress && user) return;
     authUser = user || null;
     if (authUser) {
+      finishPendingAuthState();
+      if (authPasswordInput) authPasswordInput.value = "";
       if (cloudLoadRetryTimer) {
         clearTimeout(cloudLoadRetryTimer);
         cloudLoadRetryTimer = null;
@@ -5378,6 +5454,11 @@ function initCloud() {
     // Debounce transient signed-out blips that happen during provider/session refresh.
     signedOutUiTimer = setTimeout(() => {
       if (version !== authStateVersion || authUser) return;
+      if (authPendingProvider && !manualSignOutInProgress) {
+        setCloudStatus(`Finishing ${authPendingProvider} sign-in...`);
+        return;
+      }
+      finishPendingAuthState();
       manualSignOutInProgress = false;
       // Keep current local planner state on transient auth blips.
       // Only explicit sign-out should clear the working session.
@@ -8877,17 +8958,97 @@ totalDaysInput.addEventListener("change", () => {
 });
 
 function authCredentials() {
+  const email = normalizeEmail(authEmailInput.value || "");
+  if (authEmailInput && authEmailInput.value !== email) authEmailInput.value = email;
   return {
-    email: (authEmailInput.value || "").trim(),
+    email,
     password: authPasswordInput.value || ""
   };
 }
 
 function setAuthBusyState(busy) {
   authBusy = Boolean(busy);
-  [signUpBtn, signInBtn, signInGoogleBtn, signOutBtn, syncNowBtn].forEach((button) => {
+  [signUpBtn, signInBtn, signInGoogleBtn, signOutBtn, syncNowBtn, ...manualSaveButtons].forEach((button) => {
     if (button) button.disabled = authBusy;
   });
+}
+
+async function handleManualPlannerSave() {
+  const config = parseForm();
+  if (!config) {
+    setCloudStatus("Complete the planner setup first, then save the plan.");
+    return;
+  }
+  if (authBusy) return;
+  setAuthBusyState(true);
+  setCloudStatus("Saving planner...");
+  try {
+    persistPlan();
+    persistComments();
+    if (!cloudReady()) {
+      setCloudStatus("Planner saved on this device. Sign in to sync it across devices.");
+      return;
+    }
+    const result = await pushCloudData();
+    if (result?.ok) {
+      setCloudStatus(result.local ? "Planner saved to your local account." : "Planner saved and synced to your account.");
+    } else if (result?.queued) {
+      setCloudStatus("Save queued. Your planner will sync as soon as the current save finishes.");
+    } else if (result?.message) {
+      setCloudStatus(result.message);
+    } else {
+      setCloudStatus("Planner save finished.");
+    }
+  } catch (error) {
+    setCloudStatus(`Planner save failed: ${String(error?.message || "unknown error")}`);
+  } finally {
+    setAuthBusyState(false);
+  }
+}
+
+function beginPendingAuthState(provider, email = "") {
+  authPendingProvider = String(provider || "").trim() || "account";
+  authPendingEmail = normalizeEmail(email);
+  if (authPendingTimer) clearTimeout(authPendingTimer);
+  authPendingTimer = setTimeout(() => {
+    authPendingTimer = null;
+    if (authPendingProvider && !authUser) {
+      setAuthBusyState(false);
+      setCloudStatus(`Still finishing ${authPendingProvider} sign-in. If this stalls, try signing in again.`);
+    }
+  }, 15000);
+}
+
+function finishPendingAuthState() {
+  authPendingProvider = "";
+  authPendingEmail = "";
+  if (authPendingTimer) {
+    clearTimeout(authPendingTimer);
+    authPendingTimer = null;
+  }
+}
+
+function describeAuthError(error, mode = "sign_in") {
+  const message = String(error?.message || "Unknown error");
+  if (/invalid login credentials/i.test(message)) {
+    return "Invalid email or password. If you just created this account, confirm the verification email first, then try again.";
+  }
+  if (/email not confirmed|email.*confirm|confirm your email/i.test(message)) {
+    return "Check your email and confirm the account first, then sign in again.";
+  }
+  if (/user already registered|already registered|already exists/i.test(message)) {
+    return "An account with that email already exists. Try signing in instead.";
+  }
+  if (/rate limit|too many requests|over request rate/i.test(message)) {
+    return "Too many sign-in attempts. Wait a minute, then try again.";
+  }
+  if (/failed to fetch|networkerror|network request failed|fetch/i.test(message)) {
+    return "Network error while contacting sign-in. Check your connection and try again.";
+  }
+  if (mode === "google" && /popup|blocked|closed/i.test(message)) {
+    return "The Google sign-in window was blocked or closed before completion. Try again.";
+  }
+  return message;
 }
 
 function purgeSignedInDataFromDevice(emailRaw = "") {
@@ -8994,13 +9155,26 @@ signUpBtn.addEventListener("click", async () => {
   }
   try {
     setAuthBusyState(true);
+    beginPendingAuthState("account", email);
     await ensureFirebaseLocalPersistence();
-    await firebaseAuth.createUserWithEmailAndPassword(email, password);
-    setCloudStatus(`Account created for ${email}. Finishing sign-in...`);
+    const result = await firebaseAuth.createUserWithEmailAndPassword(email, password);
+    if (result?.session) {
+      setCloudStatus(`Account created for ${email}. Loading your saved data...`);
+      return;
+    } else if (result?.requiresEmailConfirmation) {
+      finishPendingAuthState();
+      setAuthBusyState(false);
+      if (authPasswordInput) authPasswordInput.value = "";
+      setCloudStatus(`Account created for ${email}. Check your email to confirm the account, then sign in.`);
+    } else {
+      finishPendingAuthState();
+      setAuthBusyState(false);
+      setCloudStatus(`Account created for ${email}. Sign in to continue.`);
+    }
   } catch (error) {
-    setCloudStatus(`Sign up failed: ${error.message}`);
-  } finally {
+    finishPendingAuthState();
     setAuthBusyState(false);
+    setCloudStatus(`Sign up failed: ${describeAuthError(error, "sign_up")}`);
   }
 });
 
@@ -9017,13 +9191,14 @@ signInBtn.addEventListener("click", async () => {
   }
   try {
     setAuthBusyState(true);
+    beginPendingAuthState("account", email);
     await ensureFirebaseLocalPersistence();
     await firebaseAuth.signInWithEmailAndPassword(email, password);
     setCloudStatus(`Signed in as ${email}. Loading your saved data...`);
   } catch (error) {
-    setCloudStatus(`Sign in failed: ${error.message}`);
-  } finally {
+    finishPendingAuthState();
     setAuthBusyState(false);
+    setCloudStatus(`Sign in failed: ${describeAuthError(error, "sign_in")}`);
   }
 });
 
@@ -9040,6 +9215,7 @@ if (signInGoogleBtn) {
     }
     try {
       setAuthBusyState(true);
+      beginPendingAuthState("Google", normalizeEmail(authEmailInput?.value || ""));
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       if (isSafariBrowser()) {
@@ -9058,13 +9234,15 @@ if (signInGoogleBtn) {
           await firebaseAuth.signInWithRedirect(provider);
           return;
         } catch (redirectError) {
-          setCloudStatus(`Google sign-in failed: ${redirectError.message}`);
+          finishPendingAuthState();
+          setAuthBusyState(false);
+          setCloudStatus(`Google sign-in failed: ${describeAuthError(redirectError, "google")}`);
           return;
         }
       }
-      setCloudStatus(`Google sign-in failed: ${message || "Unknown error"}`);
-    } finally {
+      finishPendingAuthState();
       setAuthBusyState(false);
+      setCloudStatus(`Google sign-in failed: ${describeAuthError(error, "google")}`);
     }
   });
 }
@@ -9072,6 +9250,7 @@ if (signInGoogleBtn) {
 signOutBtn.addEventListener("click", async () => {
   if (authBusy) return;
   setAuthBusyState(true);
+  finishPendingAuthState();
   manualSignOutInProgress = true;
   if (localAuthMode) {
     const previousEmail = normalizeEmail(authUser?.email || "");
@@ -9109,6 +9288,20 @@ signOutBtn.addEventListener("click", async () => {
       if (!authUser) manualSignOutInProgress = false;
     }, 1000);
   }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushPendingCloudSync();
+});
+
+window.addEventListener("pagehide", () => {
+  flushPendingCloudSync();
+});
+
+manualSaveButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    handleManualPlannerSave();
+  });
 });
 
 syncNowBtn.addEventListener("click", async () => {

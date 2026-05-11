@@ -741,6 +741,38 @@ body.home-only-mode .tab-panel {
   box-shadow: var(--shadow);
 }
 
+.planner-save-bar {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid #c8d7cd;
+  border-radius: 18px;
+  padding: 0.95rem 1rem;
+  background: linear-gradient(135deg, #f7fbf7, #edf5ef);
+  box-shadow: var(--shadow);
+}
+
+.planner-save-bar h2 {
+  margin: 0;
+}
+
+.planner-save-bar p {
+  margin: 0.25rem 0 0;
+  color: var(--ink-soft);
+}
+
+.planner-save-bar-bottom {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.planner-save-actions {
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .controls {
   grid-column: span 7;
 }
@@ -1705,6 +1737,15 @@ body.custom-builder-only-mode #planner-subhead {
   .feed-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .planner-save-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .planner-save-actions {
+    width: 100%;
   }
 
   .route-map {
