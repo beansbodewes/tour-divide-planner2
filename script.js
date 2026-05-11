@@ -977,6 +977,30 @@ function removeCustomRouteRegistryEntry(routeId) {
   saveCustomRouteRegistryToCloud();
 }
 
+function removeCustomRouteById(routeId) {
+  if (!isNamedCustomRoute(routeId)) return false;
+
+  const routeDef = ROUTES[routeId];
+  if (routeDef?.storagePrefix) {
+    try {
+      localStorage.removeItem(`${routeDef.storagePrefix}-plan-v1`);
+      localStorage.removeItem(`${routeDef.storagePrefix}-comments-v1`);
+      localStorage.removeItem(`${routeDef.storagePrefix}-custom-resupply-stops-v1`);
+      if (authUser?.email) {
+        localStorage.removeItem(`${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`);
+      }
+    } catch {
+      // Keep delete best-effort so route creation can continue.
+    }
+  }
+
+  removeCustomRoutePayload(routeId);
+  removeCustomRouteRegistryEntry(routeId);
+  if (ROUTES[routeId]) delete ROUTES[routeId];
+  renderCustomRouteButtons();
+  return true;
+}
+
 function hydrateCustomRoutesFromRegistry() {
   loadCustomRouteRegistry().forEach((entry) => {
     ensureCustomRouteDefinition(entry.id, entry.name);
