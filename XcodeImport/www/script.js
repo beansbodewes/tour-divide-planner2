@@ -229,33 +229,6 @@ const RWGPS_TARGET_SAMPLE_COUNT = 60000;
 const RWGPS_MIN_SAMPLE_STEP_MI = 0.004;
 const RWGPS_MAX_SAMPLE_STEP_MI = 0.02;
 const RWGPS_PROFILE_MAX_SAMPLES = 2000;
-const AUTO_RWGPS_GAIN_FACTORS = {
-  tour_divide: 1.0,
-  great_divide_route: 1.0,
-  colorado_trail: 1.0,
-  azt_300: 1.0,
-  azt_800: 1.0,
-  peruvian_divide: 1.0,
-  custom_ride: 1.0,
-  my_route: 1.0
-};
-const RWGPS_ROUTE_GAIN_TARGETS_FT = {
-  tour_divide: 178678,
-  great_divide_route: 169020,
-  colorado_trail: 94639
-};
-const ROUTE_MILE_CALIBRATION_CURVES = {
-  // RWGPS reference for GDMBR:
-  // full route +152,243 ft (route 8853382)
-  // early segment (start to ~50 mi shown by highlight 0-266) +3,385 ft
-  // We taper smoothly so day gains don't jump at hard mile boundaries.
-  great_divide_route: [
-    { mile: 0, factor: 2.1012 },
-    { mile: 50, factor: 2.1012 },
-    { mile: 150, factor: 1.6345 },
-    { mile: 2664.6, factor: 1.6345 }
-  ]
-};
 
 let resupplyPoints = [];
 let planUnitSystem = "imperial";
@@ -3003,107 +2976,6 @@ function setMapsLink(anchor, query) {
   anchor.hidden = false;
 }
 
-function getAutoRwgpsCalibrationFactor() {
-  const routeId = getRouteFromUrl();
-  const targetGainFt = Number(RWGPS_ROUTE_GAIN_TARGETS_FT[routeId]);
-  const rawGainFt = Number(trackCumulativeGainFt?.[trackCumulativeGainFt.length - 1] || 0);
-  if (Number.isFinite(targetGainFt) && targetGainFt > 0 && Number.isFinite(rawGainFt) && rawGainFt > 1000) {
-    const dynamicFactor = targetGainFt / rawGainFt;
-    if (Number.isFinite(dynamicFactor) && dynamicFactor > 0) {
-      // Guardrails prevent extreme values on malformed tracks.
-      return Math.max(0.6, Math.min(2.2, dynamicFactor));
-    }
-  }
-  const factor = Number(AUTO_RWGPS_GAIN_FACTORS[routeId] ?? 1);
-  if (!Number.isFinite(factor) || factor <= 0) return 1;
-  return factor;
-}
-
-function applyElevationCalibrationFt(valueFt) {
-  const numeric = Number(valueFt || 0);
-  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-  const factor = getAutoRwgpsCalibrationFactor();
-  return Math.max(0, Math.round(numeric * factor));
-}
-
-function normalizeCalibrationCurve(routeDistance, curve) {
-  const maxMile = Number.isFinite(routeDistance) && routeDistance > 0 ? routeDistance : Infinity;
-  const normalized = (Array.isArray(curve) ? curve : [])
-    .map((point) => ({
-      mile: Number(point?.mile),
-      factor: Number(point?.factor)
-    }))
-    .filter((point) => Number.isFinite(point.mile) && point.mile >= 0 && Number.isFinite(point.factor) && point.factor > 0)
-    .map((point) => ({
-      mile: Math.min(point.mile, maxMile),
-      factor: point.factor
-    }))
-    .sort((a, b) => a.mile - b.mile);
-  return normalized;
-}
-
-function calibrationFactorAtMile(routeDistance, curve, mile, fallbackFactor) {
-  const points = normalizeCalibrationCurve(routeDistance, curve);
-  if (!points.length) return fallbackFactor;
-
-  const targetMile = Math.max(0, Number(mile || 0));
-  if (targetMile <= points[0].mile) return points[0].factor;
-  if (targetMile >= points[points.length - 1].mile) return points[points.length - 1].factor;
-
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const next = points[i];
-    if (targetMile > next.mile) continue;
-    const span = Math.max(1e-9, next.mile - prev.mile);
-    const ratio = Math.max(0, Math.min(1, (targetMile - prev.mile) / span));
-    return prev.factor + (next.factor - prev.factor) * ratio;
-  }
-  return points[points.length - 1].factor;
-}
-
-function applyElevationCalibrationForRangeFt(startMile, endMile, routeDistance, rawFn) {
-  const start = Number(startMile || 0);
-  const end = Number(endMile || 0);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
-
-  const routeId = getRouteFromUrl();
-  const fallbackFactor = getAutoRwgpsCalibrationFactor();
-  const curve = ROUTE_MILE_CALIBRATION_CURVES[routeId];
-  const points = normalizeCalibrationCurve(routeDistance, curve);
-  if (!points.length) {
-    return applyElevationCalibrationFt(rawFn(start, end, routeDistance));
-  }
-
-  // Integrate range in small chunks so calibration changes smoothly with miles.
-  const boundaries = [start, end];
-  points.forEach((point) => {
-    if (point.mile > start && point.mile < end) boundaries.push(point.mile);
-  });
-  boundaries.sort((a, b) => a - b);
-
-  let calibrated = 0;
-  for (let i = 1; i < boundaries.length; i++) {
-    const a = boundaries[i - 1];
-    const b = boundaries[i];
-    if (b <= a) continue;
-
-    // Subdivide long sections to keep interpolation stable on large day ranges.
-    const maxChunkMiles = 25;
-    const chunks = Math.max(1, Math.ceil((b - a) / maxChunkMiles));
-    for (let c = 0; c < chunks; c++) {
-      const chunkStart = a + ((b - a) * c) / chunks;
-      const chunkEnd = a + ((b - a) * (c + 1)) / chunks;
-      if (chunkEnd <= chunkStart) continue;
-      const mid = (chunkStart + chunkEnd) / 2;
-      const factor = calibrationFactorAtMile(routeDistance, points, mid, fallbackFactor);
-      const raw = Number(rawFn(chunkStart, chunkEnd, routeDistance) || 0);
-      calibrated += Math.max(0, raw) * factor;
-    }
-  }
-
-  return Math.max(0, Math.round(calibrated));
-}
-
 function parseForm() {
   const startDate = startDateInput.value;
   const finishDate = finishDateInput.value;
@@ -4189,7 +4061,7 @@ function gpxGainBetweenMilesRaw(startMile, endMile, routeDistance) {
 }
 
 function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
-  return applyElevationCalibrationForRangeFt(startMile, endMile, routeDistance, gpxGainBetweenMilesRaw);
+  return gpxGainBetweenMilesRaw(startMile, endMile, routeDistance);
 }
 
 function gpxLossBetweenMilesRaw(startMile, endMile, routeDistance) {
@@ -4213,7 +4085,7 @@ function gpxLossBetweenMilesRaw(startMile, endMile, routeDistance) {
 }
 
 function gpxLossBetweenMiles(startMile, endMile, routeDistance) {
-  return applyElevationCalibrationForRangeFt(startMile, endMile, routeDistance, gpxLossBetweenMilesRaw);
+  return gpxLossBetweenMilesRaw(startMile, endMile, routeDistance);
 }
 
 function elevationFactor(cumulativeMiles, routeDistance) {
