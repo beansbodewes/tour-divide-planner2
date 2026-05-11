@@ -176,6 +176,10 @@ body {
   gap: 0.65rem;
 }
 
+.published-route-section-title {
+  margin: 0;
+}
+
 .published-route-card {
   border: 1px solid #dccfb9;
   border-radius: 12px;

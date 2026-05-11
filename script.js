@@ -328,6 +328,7 @@ const homePage = document.getElementById("home-page");
 const liveTrackerPage = document.getElementById("live-tracker-page");
 const publishedRoutesPage = document.getElementById("published-routes-page");
 const publishedRouteList = document.getElementById("published-route-list");
+const publishedCommunityRouteList = document.getElementById("published-community-route-list");
 const publishedRoutesMapEl = document.getElementById("published-routes-map");
 const liveTrackerRouteSelect = document.getElementById("live-tracker-route-select");
 const liveTrackerPrivacyMode = document.getElementById("live-tracker-privacy-mode");
@@ -2120,7 +2121,7 @@ async function loadPublishedCommunityRoutes(options = {}) {
   if (!force && publishedCommunityRoutes.length) return publishedCommunityRoutes;
 
   if (!supabaseClient) {
-    publishedCommunityRoutes = loadPublishedRoutesCache();
+    publishedCommunityRoutes = [];
     renderCustomRouteButtons();
     renderPublishedRoutesCollection();
     if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
@@ -2339,8 +2340,9 @@ function getPublishedRouteIds() {
 }
 
 function renderPublishedRoutesCollection() {
-  if (!publishedRouteList) return;
+  if (!publishedRouteList || !publishedCommunityRouteList) return;
   publishedRouteList.innerHTML = "";
+  publishedCommunityRouteList.innerHTML = "";
   getPublishedRouteIds().forEach((routeId) => {
     const route = ROUTES[routeId];
     if (!route) return;
@@ -2418,7 +2420,7 @@ function renderPublishedRoutesCollection() {
       if (event.target.closest("button, a, input, select, textarea, label")) return;
       importPublishedRoute(record);
     });
-    publishedRouteList.appendChild(card);
+    publishedCommunityRouteList.appendChild(card);
   });
 }
 
@@ -5305,25 +5307,15 @@ async function loadCloudData() {
 
 function initCloud() {
   if (!firebaseConfigured()) {
-    localAuthMode = true;
-    const sessionEmail = getLocalSessionEmail();
-    if (sessionEmail) {
-      authUser = { uid: `local-${sessionEmail}`, email: sessionEmail };
-      loadCloudData();
-      refreshMyRouteShortcutVisibility();
-      updateAccountToggleLabel();
-      loadPublishedCommunityRoutes({ force: true });
-      updatePublishRoutePanel();
-      setUnsignedWarningVisible(false);
-    } else {
-      authUser = null;
-      setCloudStatus("Local account mode active. Sign up or sign in below.");
-      setMyRouteShortcutVisible(false);
-      updateAccountToggleLabel();
-      loadPublishedCommunityRoutes({ force: true });
-      updatePublishRoutePanel();
-      setUnsignedWarningVisible(false);
-    }
+    localAuthMode = false;
+    authUser = null;
+    setCloudStatus("Supabase cloud mode is required, but the cloud client is unavailable. Sign-in and published routes are disabled until it reconnects.");
+    setMyRouteShortcutVisible(false);
+    updateAccountToggleLabel();
+    loadPublishedCommunityRoutes({ force: true });
+    updatePublishRoutePanel();
+    setUnsignedWarningVisible(true);
+    updateSignedInIndicators();
     return;
   }
   localAuthMode = false;
@@ -8996,26 +8988,8 @@ signUpBtn.addEventListener("click", async () => {
     setCloudStatus("Enter email and password (6+ chars).");
     return;
   }
-  if (localAuthMode) {
-    const key = normalizeEmail(email);
-    const accounts = loadLocalAccounts();
-    if (accounts[key]) {
-      setCloudStatus("Account already exists. Sign in instead.");
-      return;
-    }
-    accounts[key] = { password };
-    saveLocalAccounts(accounts);
-    authUser = { uid: `local-${key}`, email: key };
-    setLocalSessionEmail(key);
-    setCloudStatus(`Local account created for ${key}.`);
-    updateAccountToggleLabel();
-    setUnsignedWarningVisible(false);
-    await refreshMyRouteShortcutVisibility();
-    await pushCloudData();
-    return;
-  }
   if (!firebaseAuth) {
-    setCloudStatus("Cloud auth is not configured yet.");
+    setCloudStatus("Supabase cloud auth is unavailable right now.");
     return;
   }
   try {
@@ -9037,23 +9011,8 @@ signInBtn.addEventListener("click", async () => {
     setCloudStatus("Enter email and password to sign in.");
     return;
   }
-  if (localAuthMode) {
-    const key = normalizeEmail(email);
-    const accounts = loadLocalAccounts();
-    if (!accounts[key] || accounts[key].password !== password) {
-      setCloudStatus("Invalid local account email or password.");
-      return;
-    }
-    authUser = { uid: `local-${key}`, email: key };
-    setLocalSessionEmail(key);
-    updateAccountToggleLabel();
-    await loadCloudData();
-    setUnsignedWarningVisible(false);
-    await refreshMyRouteShortcutVisibility();
-    return;
-  }
   if (!firebaseAuth) {
-    setCloudStatus("Cloud auth is not configured yet.");
+    setCloudStatus("Supabase cloud auth is unavailable right now.");
     return;
   }
   try {
