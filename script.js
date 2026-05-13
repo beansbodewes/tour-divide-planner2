@@ -6096,6 +6096,55 @@ async function loadCloudData() {
   }
 }
 
+async function bootstrapSignedInUser(user, version = authStateVersion) {
+  authUser = user || null;
+  if (!authUser) return;
+
+  const pendingReturnPath = consumeAuthReturnPath();
+  clearAuthRedirectError();
+  finishPendingAuthState();
+  if (authPasswordInput) authPasswordInput.value = "";
+  if (cloudLoadRetryTimer) {
+    clearTimeout(cloudLoadRetryTimer);
+    cloudLoadRetryTimer = null;
+  }
+  if (pendingReturnPath) {
+    const currentPath = `${window.location.pathname}${window.location.search}`;
+    if (pendingReturnPath !== currentPath) {
+      window.history.replaceState({}, "", new URL(pendingReturnPath, window.location.origin).toString());
+      await syncUiToLocation({ forceRouteRefresh: true, forceCloudLoad: false });
+    }
+  }
+  try {
+    await syncAllLocalCustomRoutesToCloud();
+  } catch {
+    // Keep going even if pre-sync fails.
+  }
+  if (version !== authStateVersion) return;
+  await loadCloudData();
+  if (version !== authStateVersion) return;
+  await loadPublishedCommunityRoutes({ force: true });
+  if (version !== authStateVersion) return;
+  await maybeHandleMarketplacePayPalReturn();
+  if (version !== authStateVersion) return;
+  await refreshMyRouteShortcutVisibility();
+  if (version !== authStateVersion) return;
+  updateAccountToggleLabel();
+  updatePublishRoutePanel();
+  if (map) {
+    setTimeout(() => {
+      try {
+        map.invalidateSize();
+        ensureMapArtifacts();
+      } catch {
+        // No-op
+      }
+    }, 120);
+  }
+  scheduleCloudSync();
+  setAuthBusyState(false);
+}
+
 async function initCloud() {
   if (!firebaseConfigured()) {
     localAuthMode = false;
@@ -6124,6 +6173,7 @@ async function initCloud() {
     const { data } = await supabaseClient.auth.getSession();
     if (data?.session?.user) {
       setCloudStatus(`Signed in with Google as ${data.session.user.email || "your account"}. Loading your saved data...`);
+      await bootstrapSignedInUser(normalizeSupabaseUser(data.session.user), authStateVersion);
     }
   }
   ensureFirebaseLocalPersistence();
@@ -6147,50 +6197,8 @@ async function initCloud() {
 
     if (manualSignOutInProgress && user) return;
     authUser = user || null;
-    if (authUser) {
-      const pendingReturnPath = consumeAuthReturnPath();
-      clearAuthRedirectError();
-      finishPendingAuthState();
-      if (authPasswordInput) authPasswordInput.value = "";
-      if (cloudLoadRetryTimer) {
-        clearTimeout(cloudLoadRetryTimer);
-        cloudLoadRetryTimer = null;
-      }
-      if (pendingReturnPath) {
-        const currentPath = `${window.location.pathname}${window.location.search}`;
-        if (pendingReturnPath !== currentPath) {
-          window.history.replaceState({}, "", new URL(pendingReturnPath, window.location.origin).toString());
-          await syncUiToLocation({ forceRouteRefresh: true, forceCloudLoad: false });
-        }
-      }
-      try {
-        await syncAllLocalCustomRoutesToCloud();
-      } catch {
-        // Keep going even if pre-sync fails.
-      }
-      if (version !== authStateVersion) return;
-      await loadCloudData();
-      if (version !== authStateVersion) return;
-      await loadPublishedCommunityRoutes({ force: true });
-      if (version !== authStateVersion) return;
-      await maybeHandleMarketplacePayPalReturn();
-      if (version !== authStateVersion) return;
-      await refreshMyRouteShortcutVisibility();
-      if (version !== authStateVersion) return;
-      updateAccountToggleLabel();
-      updatePublishRoutePanel();
-      if (map) {
-        setTimeout(() => {
-          try {
-            map.invalidateSize();
-            ensureMapArtifacts();
-          } catch {
-            // No-op
-          }
-        }, 120);
-      }
-      scheduleCloudSync();
-      setAuthBusyState(false);
+    if (user) {
+      await bootstrapSignedInUser(user, version);
       return;
     }
 
