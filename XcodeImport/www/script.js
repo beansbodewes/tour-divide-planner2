@@ -546,7 +546,12 @@ function getRouteFromUrl() {
     const latest = customRoutes[customRoutes.length - 1];
     if (latest?.id && latest.id.startsWith(CUSTOM_ROUTE_ID_PREFIX)) return latest.id;
   }
-  if (routeParam && String(routeParam).startsWith(CUSTOM_ROUTE_ID_PREFIX)) return routeParam;
+  if (routeParam && String(routeParam).startsWith(CUSTOM_ROUTE_ID_PREFIX)) {
+    const customRoutes = loadCustomRouteRegistry();
+    const hasRegistryEntry = customRoutes.some((entry) => entry?.id === routeParam);
+    const hasStoredPayload = Boolean(getCustomRoutePayload(routeParam));
+    if (hasRegistryEntry || hasStoredPayload) return routeParam;
+  }
   return DEFAULT_ROUTE_ID;
 }
 
@@ -588,6 +593,15 @@ function routeCollectionUrl(routeId) {
 function donationsUrl(routeId) {
   if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=donations`;
   return `${window.location.pathname}?route=${routeId}&view=donations`;
+}
+
+function appUrlForView(routeId, viewMode) {
+  if (viewMode === "home") return homeUrl(routeId);
+  if (viewMode === "live_tracker") return liveTrackerUrl(routeId);
+  if (viewMode === "route_collection") return routeCollectionUrl(routeId);
+  if (viewMode === "customer_service") return customerServiceUrl(routeId);
+  if (viewMode === "donations") return donationsUrl(routeId);
+  return routeUrl(routeId);
 }
 
 function clearRenderedRouteLayers() {
@@ -660,10 +674,19 @@ async function refreshRouteContentForCurrentLocation() {
 }
 
 async function syncUiToLocation(options = {}) {
+  const requestedRouteId = new URLSearchParams(window.location.search).get("route");
   const nextRouteId = getRouteFromUrl();
   const nextViewMode = viewModeFromUrl();
   const routeChanged = Boolean(options.forceRouteRefresh || nextRouteId !== appliedRouteId);
   const shouldLoadCloud = Boolean(options.forceCloudLoad || (routeChanged && authUser));
+
+  if (requestedRouteId && requestedRouteId !== nextRouteId) {
+    const canonicalUrl = new URL(appUrlForView(nextRouteId, nextViewMode), window.location.href);
+    const currentUrl = new URL(window.location.href);
+    if (canonicalUrl.search !== currentUrl.search || canonicalUrl.hash !== currentUrl.hash) {
+      window.history.replaceState({}, "", canonicalUrl.toString());
+    }
+  }
 
   if (!applyRouteConfig(nextRouteId)) return false;
 
@@ -711,7 +734,7 @@ function navigateWithinApp(url, options = {}) {
   } else {
     window.history.pushState({}, "", nextUrl.toString());
   }
-  void syncUiToLocation();
+  void syncUiToLocation(options.sync || {});
 }
 
 function getRouteButtons() {
@@ -3656,7 +3679,12 @@ function enforceSiteBranding() {
 function applyRouteConfig(routeId) {
   if (isNamedCustomRoute(routeId) && !ROUTES[routeId]) {
     const registryEntry = loadCustomRouteRegistry().find((entry) => entry.id === routeId);
-    ensureCustomRouteDefinition(routeId, registryEntry?.name || "My Route");
+    const payload = getCustomRoutePayload(routeId);
+    if (registryEntry || payload) {
+      ensureCustomRouteDefinition(routeId, registryEntry?.name || payload?.routeName || "My Route");
+    } else {
+      return false;
+    }
   }
   const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
   if (route.comingSoon) return false;
