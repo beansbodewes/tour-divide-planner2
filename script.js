@@ -4131,7 +4131,8 @@ function initSupabaseCompat() {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true
+      detectSessionInUrl: true,
+      flowType: "implicit"
     }
   });
   firebaseAuth = buildFirebaseAuthAdapter();
