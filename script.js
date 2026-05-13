@@ -444,6 +444,7 @@ let manualSignOutInProgress = false;
 let authPendingProvider = "";
 let authPendingEmail = "";
 let authPendingTimer = null;
+let authRedirectMessage = "";
 let undoStack = [];
 let latestSnapshot = "";
 let restoringUndo = false;
@@ -498,6 +499,8 @@ const MAP_HOVER_DRAW_MAX_POINTS = 12000;
 const homeRouteMetricsCache = new Map();
 const runtimeCustomRoutePayloads = new Map();
 const CUSTOM_ROUTE_HANDOFF_KEY = "bikepack-custom-route-handoff-v1";
+const AUTH_REDIRECT_RETURN_PATH_KEY = "bikepack-auth-redirect-return-path-v1";
+const AUTH_REDIRECT_ERROR_KEY = "bikepack-auth-redirect-error-v1";
 const CLOUD_DELETE_SENTINEL = Object.freeze({ __bikepackDelete: true });
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
@@ -4079,6 +4082,8 @@ function buildFirebaseAuthAdapter() {
       return { user: normalizeSupabaseUser(data?.user || null) };
     },
     async signInWithPopup(provider) {
+      storeAuthReturnPath();
+      clearAuthRedirectError();
       const redirectTo = authRedirectUrl();
       const providerName = provider?.providerId || "google";
       const { error } = await supabaseClient.auth.signInWithOAuth({
@@ -6114,11 +6119,20 @@ function initCloud() {
     if (manualSignOutInProgress && user) return;
     authUser = user || null;
     if (authUser) {
+      const pendingReturnPath = consumeAuthReturnPath();
+      clearAuthRedirectError();
       finishPendingAuthState();
       if (authPasswordInput) authPasswordInput.value = "";
       if (cloudLoadRetryTimer) {
         clearTimeout(cloudLoadRetryTimer);
         cloudLoadRetryTimer = null;
+      }
+      if (pendingReturnPath) {
+        const currentPath = `${window.location.pathname}${window.location.search}`;
+        if (pendingReturnPath !== currentPath) {
+          window.history.replaceState({}, "", new URL(pendingReturnPath, window.location.origin).toString());
+          await syncUiToLocation({ forceRouteRefresh: true, forceCloudLoad: false });
+        }
       }
       try {
         await syncAllLocalCustomRoutesToCloud();
@@ -6158,11 +6172,16 @@ function initCloud() {
         setCloudStatus(`Finishing ${authPendingProvider} sign-in...`);
         return;
       }
+      if (authRedirectMessage) {
+        setCloudStatus(`Google sign-in failed: ${authRedirectMessage}`);
+      }
       finishPendingAuthState();
       manualSignOutInProgress = false;
       // Keep current local planner state on transient auth blips.
       // Only explicit sign-out should clear the working session.
-      setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
+      if (!authRedirectMessage) {
+        setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
+      }
       updateAccountToggleLabel();
       loadPublishedCommunityRoutes({ force: true });
       updatePublishRoutePanel();
@@ -9837,11 +9856,36 @@ function isSafariBrowser() {
 
 function authRedirectUrl() {
   try {
-    const url = new URL(window.location.href);
-    url.hash = "";
-    return url.toString();
+    return `${window.location.origin}${window.location.pathname}`;
   } catch {
-    return `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    return `${window.location.origin}${window.location.pathname}`;
+  }
+}
+
+function storeAuthReturnPath() {
+  try {
+    sessionStorage.setItem(AUTH_REDIRECT_RETURN_PATH_KEY, `${window.location.pathname}${window.location.search}`);
+  } catch {
+    // Ignore session storage failures.
+  }
+}
+
+function consumeAuthReturnPath() {
+  try {
+    const raw = sessionStorage.getItem(AUTH_REDIRECT_RETURN_PATH_KEY) || "";
+    sessionStorage.removeItem(AUTH_REDIRECT_RETURN_PATH_KEY);
+    return raw;
+  } catch {
+    return "";
+  }
+}
+
+function clearAuthRedirectError() {
+  authRedirectMessage = "";
+  try {
+    sessionStorage.removeItem(AUTH_REDIRECT_ERROR_KEY);
+  } catch {
+    // Ignore session storage failures.
   }
 }
 
@@ -9852,8 +9896,21 @@ function readAuthRedirectError() {
     const errorCode = hashParams.get("error_code") || searchParams.get("error_code") || "";
     const errorDescription =
       hashParams.get("error_description") || searchParams.get("error_description") || hashParams.get("error") || searchParams.get("error") || "";
-    if (!errorCode && !errorDescription) return "";
-    return decodeURIComponent(String(errorDescription || errorCode).replace(/\+/g, " "));
+    const inlineMessage = !errorCode && !errorDescription ? "" : decodeURIComponent(String(errorDescription || errorCode).replace(/\+/g, " "));
+    if (inlineMessage) {
+      authRedirectMessage = inlineMessage;
+      try {
+        sessionStorage.setItem(AUTH_REDIRECT_ERROR_KEY, inlineMessage);
+      } catch {
+        // Ignore session storage failures.
+      }
+      return inlineMessage;
+    }
+    const storedMessage = sessionStorage.getItem(AUTH_REDIRECT_ERROR_KEY) || "";
+    if (storedMessage) {
+      authRedirectMessage = storedMessage;
+    }
+    return storedMessage;
   } catch {
     return "";
   }
