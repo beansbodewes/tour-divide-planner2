@@ -503,6 +503,7 @@ const runtimeCustomRoutePayloads = new Map();
 const CUSTOM_ROUTE_HANDOFF_KEY = "bikepack-custom-route-handoff-v1";
 const AUTH_REDIRECT_RETURN_PATH_KEY = "bikepack-auth-redirect-return-path-v1";
 const AUTH_REDIRECT_ERROR_KEY = "bikepack-auth-redirect-error-v1";
+const AUTH_DEBUG_SNAPSHOT_KEY = "bikepack-auth-debug-snapshot-v1";
 const CLOUD_DELETE_SENTINEL = Object.freeze({ __bikepackDelete: true });
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
@@ -6111,8 +6112,11 @@ function initCloud() {
   localAuthMode = false;
   initSupabaseCompat();
   const authRedirectError = readAuthRedirectError();
+  const authDebugSnapshot = storeAuthDebugSnapshot("init");
   if (authRedirectError) {
     setCloudStatus(`Google sign-in failed: ${authRedirectError}`);
+  } else if (authDebugSnapshot && /code=yes|access_token=yes|refresh_token=yes|error=yes/.test(authDebugSnapshot)) {
+    setCloudStatus(authDebugSnapshot);
   }
   void restoreSessionFromUrlHashIfNeeded();
   void exchangeSessionFromUrlCodeIfNeeded();
@@ -6193,6 +6197,11 @@ function initCloud() {
       }
       if (authRedirectMessage) {
         setCloudStatus(`Google sign-in failed: ${authRedirectMessage}`);
+      } else {
+        const storedDebugSnapshot = readStoredAuthDebugSnapshot();
+        if (storedDebugSnapshot) {
+          setCloudStatus(storedDebugSnapshot);
+        }
       }
       finishPendingAuthState();
       manualSignOutInProgress = false;
@@ -9935,6 +9944,49 @@ function readAuthRedirectError() {
   }
 }
 
+function authCallbackSnapshot() {
+  try {
+    const currentUrl = new URL(window.location.href);
+    const searchParams = currentUrl.searchParams;
+    const hashParams = new URLSearchParams(String(currentUrl.hash || "").replace(/^#/, ""));
+    const searchKeys = Array.from(searchParams.keys());
+    const hashKeys = Array.from(hashParams.keys());
+    const summary = {
+      path: `${currentUrl.pathname}${currentUrl.search}`,
+      hasCode: searchParams.has("code"),
+      hasError: searchParams.has("error") || searchParams.has("error_description") || hashParams.has("error") || hashParams.has("error_description"),
+      hasAccessToken: hashParams.has("access_token"),
+      hasRefreshToken: hashParams.has("refresh_token"),
+      searchKeys,
+      hashKeys
+    };
+    return summary;
+  } catch {
+    return null;
+  }
+}
+
+function storeAuthDebugSnapshot(reason) {
+  try {
+    const snapshot = authCallbackSnapshot();
+    if (!snapshot) return "";
+    const text =
+      `Auth debug [${reason}]: path=${snapshot.path || "/"}; code=${snapshot.hasCode ? "yes" : "no"}; access_token=${snapshot.hasAccessToken ? "yes" : "no"}; refresh_token=${snapshot.hasRefreshToken ? "yes" : "no"}; error=${snapshot.hasError ? "yes" : "no"}; search_keys=${snapshot.searchKeys.join(",") || "(none)"}; hash_keys=${snapshot.hashKeys.join(",") || "(none)"}`;
+    sessionStorage.setItem(AUTH_DEBUG_SNAPSHOT_KEY, text);
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+function readStoredAuthDebugSnapshot() {
+  try {
+    return sessionStorage.getItem(AUTH_DEBUG_SNAPSHOT_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
 async function restoreSessionFromUrlHashIfNeeded() {
   if (!supabaseClient?.auth?.setSession) return false;
   try {
@@ -9942,6 +9994,7 @@ async function restoreSessionFromUrlHashIfNeeded() {
     const accessToken = String(hashParams.get("access_token") || "").trim();
     const refreshToken = String(hashParams.get("refresh_token") || "").trim();
     if (!accessToken || !refreshToken) return false;
+    storeAuthDebugSnapshot("hash_detected");
 
     const existingSession = await supabaseClient.auth.getSession();
     if (existingSession?.data?.session?.access_token) {
@@ -9955,6 +10008,7 @@ async function restoreSessionFromUrlHashIfNeeded() {
       refresh_token: refreshToken
     });
     if (error) throw error;
+    storeAuthDebugSnapshot("hash_session_restored");
     window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
     return true;
   } catch (error) {
@@ -9969,6 +10023,7 @@ async function exchangeSessionFromUrlCodeIfNeeded() {
     const currentUrl = new URL(window.location.href);
     const authCode = String(currentUrl.searchParams.get("code") || "").trim();
     if (!authCode) return false;
+    storeAuthDebugSnapshot("code_detected");
 
     const existingSession = await supabaseClient.auth.getSession();
     if (existingSession?.data?.session?.access_token) {
@@ -9980,6 +10035,7 @@ async function exchangeSessionFromUrlCodeIfNeeded() {
     setCloudStatus("Finishing Google sign-in...");
     const { error } = await supabaseClient.auth.exchangeCodeForSession(authCode);
     if (error) throw error;
+    storeAuthDebugSnapshot("code_exchanged");
     currentUrl.searchParams.delete("code");
     window.history.replaceState({}, "", `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
     return true;
