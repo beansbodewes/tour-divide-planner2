@@ -6114,6 +6114,7 @@ function initCloud() {
   if (authRedirectError) {
     setCloudStatus(`Google sign-in failed: ${authRedirectError}`);
   }
+  void restoreSessionFromUrlHashIfNeeded();
   ensureFirebaseLocalPersistence();
   firebaseAuth
     .getRedirectResult()
@@ -9930,6 +9931,34 @@ function readAuthRedirectError() {
     return storedMessage;
   } catch {
     return "";
+  }
+}
+
+async function restoreSessionFromUrlHashIfNeeded() {
+  if (!supabaseClient?.auth?.setSession) return false;
+  try {
+    const hashParams = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+    const accessToken = String(hashParams.get("access_token") || "").trim();
+    const refreshToken = String(hashParams.get("refresh_token") || "").trim();
+    if (!accessToken || !refreshToken) return false;
+
+    const existingSession = await supabaseClient.auth.getSession();
+    if (existingSession?.data?.session?.access_token) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+      return true;
+    }
+
+    setCloudStatus("Finishing Google sign-in...");
+    const { error } = await supabaseClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+    if (error) throw error;
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    return true;
+  } catch (error) {
+    setCloudStatus(`Google sign-in failed: ${describeAuthError(error, "google")}`);
+    return false;
   }
 }
 
