@@ -260,6 +260,15 @@ body {
   text-transform: uppercase;
 }
 
+.published-route-badge-chip.is-verified {
+  background: linear-gradient(135deg, #1e5cc8, #153e85);
+}
+
+.published-route-badge-chip.is-price {
+  background: #f4ead3;
+  color: #6c4d14;
+}
+
 .published-route-badge-chip::before,
 .publish-route-badge::before {
   content: "";
@@ -287,10 +296,53 @@ body {
   align-items: center;
 }
 
+.publish-route-panel small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--ink-soft);
+}
+
 .publish-route-panel select:disabled,
+.publish-route-panel input:disabled,
 .publish-route-panel button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.published-route-votes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.published-route-vote-btn {
+  min-width: 7.2rem;
+  justify-content: center;
+}
+
+.published-route-vote-btn.is-active {
+  border-color: #1d7f5b;
+  background: #e6f5ec;
+  color: #1c6548;
+}
+
+.marketplace-admin-panel {
+  margin-top: 0.9rem;
+}
+
+.marketplace-admin-card {
+  border-color: #d7c8a6;
+  background: linear-gradient(180deg, #fffdf8, #f7f1e5);
+}
+
+.marketplace-admin-card.is-approved {
+  border-color: #b8d5bf;
+  background: linear-gradient(180deg, #f8fdf8, #eef7ef);
+}
+
+.marketplace-admin-card .button-row {
+  margin-top: 0.7rem;
 }
 
 .route-btn-user-route.is-published {
@@ -739,6 +791,38 @@ body.home-only-mode .tab-panel {
   border-radius: 18px;
   padding: 1rem;
   box-shadow: var(--shadow);
+}
+
+.planner-save-bar {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid #c8d7cd;
+  border-radius: 18px;
+  padding: 0.95rem 1rem;
+  background: linear-gradient(135deg, #f7fbf7, #edf5ef);
+  box-shadow: var(--shadow);
+}
+
+.planner-save-bar h2 {
+  margin: 0;
+}
+
+.planner-save-bar p {
+  margin: 0.25rem 0 0;
+  color: var(--ink-soft);
+}
+
+.planner-save-bar-bottom {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.planner-save-actions {
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .controls {
@@ -1705,6 +1789,15 @@ body.custom-builder-only-mode #planner-subhead {
   .feed-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .planner-save-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .planner-save-actions {
+    width: 100%;
   }
 
   .route-map {

@@ -213,9 +213,16 @@ let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
 const ACCOUNT_STATE_COLLECTION = "account_state_profiles";
 const PUBLISHED_ROUTES_COLLECTION = "published_route_profiles";
+const PUBLISHED_ROUTE_VOTES_COLLECTION = "published_route_votes";
+const MARKETPLACE_ROUTE_ENTITLEMENTS_COLLECTION = "marketplace_route_entitlements";
+const MARKETPLACE_PAYPAL_REQUESTS_COLLECTION = "marketplace_paypal_purchase_requests";
+const MARKETPLACE_PAYPAL_CREATE_ORDER_FUNCTION = "create-paypal-route-order";
+const MARKETPLACE_PAYPAL_CAPTURE_ORDER_FUNCTION = "capture-paypal-route-order";
+const MARKETPLACE_ROUTE_ACCESS_FUNCTION = "marketplace-route-access";
 const SUPABASE_URL = "https://idvfsczcktulkgeqdzww.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_-RUH7QHKMzHVgbqOt6Dy8w_mBQdkd5j";
 const SUPABASE_DOCS_TABLE = "planner_documents";
+const MARKETPLACE_ADMIN_EMAIL = "bikepackfinishers@gmail.com";
 const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
 const PLAN_UNITS_KEY = "tour-divide-plan-units-v1";
@@ -270,6 +277,7 @@ const publishRoutePanel = document.getElementById("publish-route-panel");
 const publishRouteBadge = document.getElementById("publish-route-badge");
 const publishRouteCopy = document.getElementById("publish-route-copy");
 const publishVisibilitySelect = document.getElementById("publish-visibility");
+const publishPriceInput = document.getElementById("publish-price");
 const publishRouteBtn = document.getElementById("publish-route-btn");
 const unpublishRouteBtn = document.getElementById("unpublish-route-btn");
 const publishRouteStatus = document.getElementById("publish-route-status");
@@ -277,6 +285,7 @@ const publishConfirmModal = document.getElementById("publish-confirm-modal");
 const publishConfirmSummary = document.getElementById("publish-confirm-summary");
 const publishConfirmRouteName = document.getElementById("publish-confirm-route-name");
 const publishConfirmMode = document.getElementById("publish-confirm-mode");
+const publishConfirmPrice = document.getElementById("publish-confirm-price");
 const publishConfirmCancelBtn = document.getElementById("publish-confirm-cancel-btn");
 const publishConfirmSubmitBtn = document.getElementById("publish-confirm-submit-btn");
 const cloudStatus = document.getElementById("cloud-status");
@@ -304,6 +313,9 @@ const publishedRoutesPage = document.getElementById("published-routes-page");
 const publishedRouteList = document.getElementById("published-route-list");
 const publishedCommunityRouteList = document.getElementById("published-community-route-list");
 const publishedRoutesMapEl = document.getElementById("published-routes-map");
+const marketplaceAdminPanel = document.getElementById("marketplace-admin-panel");
+const marketplaceAdminList = document.getElementById("marketplace-admin-list");
+const marketplaceAdminStatus = document.getElementById("marketplace-admin-status");
 const liveTrackerRouteSelect = document.getElementById("live-tracker-route-select");
 const liveTrackerPrivacyMode = document.getElementById("live-tracker-privacy-mode");
 const liveTrackerAccessCode = document.getElementById("live-tracker-access-code");
@@ -459,6 +471,11 @@ let liveTrackerRouteCache = new Map();
 let publishedRoutesMap = null;
 let publishedRoutesMapLayers = [];
 let publishedCommunityRoutes = [];
+let publishedRouteVoteCounts = new Map();
+let myPublishedRouteVotes = new Map();
+let marketplaceOwnedPublishIds = new Set();
+let marketplacePurchaseRequests = [];
+let paypalReturnHandledForOrderId = "";
 let pendingPublishRecord = null;
 let appliedRouteId = "";
 let appliedViewMode = "";
@@ -1430,6 +1447,7 @@ function setViewMode(mode) {
   }
   if (showRouteCollection) {
     renderPublishedRoutesCollection();
+    renderMarketplaceAdminPanel();
     loadPublishedCommunityRoutes();
     setTimeout(() => renderPublishedRoutesMap(), 30);
   }
@@ -2062,6 +2080,179 @@ function publishedRouteModeSummary(mode) {
     : "Shared route line, resupply stops, and the rider's day-by-day plan.";
 }
 
+function normalizePublishedRoutePrice(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Number(amount.toFixed(2));
+}
+
+function publishedRoutePriceLabel(record) {
+  const amount = normalizePublishedRoutePrice(record?.priceUsd);
+  return amount > 0 ? `$${amount.toFixed(2)}` : "Free";
+}
+
+function normalizeVerifiedRouteStatus(value) {
+  return String(value || "").trim().toLowerCase() === "verified" ? "verified" : "unverified";
+}
+
+function normalizePublishedRouteVote(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "like" || normalized === "dislike" ? normalized : "";
+}
+
+function publishedRouteVoteDocId(publishId, voterId) {
+  const safePublishId = String(publishId || "").trim();
+  const safeVoterId = String(voterId || "").trim();
+  if (!safePublishId || !safeVoterId) return "";
+  return `${safePublishId}:${safeVoterId}`;
+}
+
+function publishedRouteVoteSummary(publishId, fallback = {}) {
+  const safePublishId = String(publishId || "").trim();
+  const counts = safePublishId ? publishedRouteVoteCounts.get(safePublishId) : null;
+  const likes = Math.max(0, Math.round(Number(counts?.likes ?? fallback.likes ?? 0)));
+  const dislikes = Math.max(0, Math.round(Number(counts?.dislikes ?? fallback.dislikes ?? 0)));
+  const myVote = safePublishId ? normalizePublishedRouteVote(myPublishedRouteVotes.get(safePublishId)) : "";
+  return { likes, dislikes, myVote };
+}
+
+async function getSupabaseAccessToken() {
+  if (!supabaseClient?.auth?.getSession) return "";
+  try {
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error) throw error;
+    return String(data?.session?.access_token || "");
+  } catch {
+    return "";
+  }
+}
+
+function userOwnsPublishedRoute(record) {
+  return String(record?.ownerId || "") === String(authUser?.uid || "");
+}
+
+function userHasMarketplaceEntitlement(record) {
+  return marketplaceOwnedPublishIds.has(String(record?.publishId || "").trim());
+}
+
+function canImportPublishedRoute(record) {
+  const amount = normalizePublishedRoutePrice(record?.priceUsd);
+  return userOwnsPublishedRoute(record) || amount <= 0 || userHasMarketplaceEntitlement(record);
+}
+
+function publishedRoutePrimaryActionLabel(record) {
+  if (userOwnsPublishedRoute(record)) return "Open Your Route";
+  if (canImportPublishedRoute(record)) return "Import Route";
+  return `Buy with PayPal • ${publishedRoutePriceLabel(record)}`;
+}
+
+function marketplaceEntitlementDocId(buyerUserId, publishId) {
+  const safeBuyer = String(buyerUserId || "").trim();
+  const safePublishId = String(publishId || "").trim();
+  if (!safeBuyer || !safePublishId) return "";
+  return `${safeBuyer}__${safePublishId}`;
+}
+
+function marketplacePayPalRequestDocId(buyerUserId, publishId) {
+  const safeBuyer = String(buyerUserId || "").trim();
+  const safePublishId = String(publishId || "").trim();
+  if (!safeBuyer || !safePublishId) return "";
+  return `${safeBuyer}__${safePublishId}`;
+}
+
+async function invokeMarketplaceFunction(functionName, payload = {}) {
+  if (!supabaseClient) throw new Error("Marketplace service is unavailable.");
+  const {
+    data: { session }
+  } = await supabaseClient.auth.getSession();
+  const accessToken = String(session?.access_token || "").trim();
+  if (!accessToken) throw new Error("Sign in required.");
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      apikey: SUPABASE_PUBLISHABLE_KEY
+    },
+    body: JSON.stringify(payload || {})
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(String(body?.error || `Function ${functionName} failed.`));
+  }
+  return body;
+}
+
+function marketplacePayPalReturnUrl(publishId) {
+  const params = new URLSearchParams();
+  const routeId = getRouteFromUrl();
+  if (routeId !== DEFAULT_ROUTE_ID) params.set("route", routeId);
+  params.set("view", "route-collection");
+  params.set("paypal-return", "1");
+  if (publishId) params.set("publishId", String(publishId));
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function marketplacePayPalCancelUrl(publishId) {
+  const params = new URLSearchParams();
+  const routeId = getRouteFromUrl();
+  if (routeId !== DEFAULT_ROUTE_ID) params.set("route", routeId);
+  params.set("view", "route-collection");
+  params.set("paypal-cancel", "1");
+  if (publishId) params.set("publishId", String(publishId));
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function clearMarketplaceReturnParams() {
+  const url = new URL(window.location.href);
+  [
+    "paypal-return",
+    "paypal-cancel",
+    "publishId",
+    "token",
+    "PayerID",
+    "ba_token"
+  ].forEach((key) => url.searchParams.delete(key));
+  window.history.replaceState({}, "", url.toString());
+}
+
+async function maybeHandleMarketplacePayPalReturn() {
+  if (!supabaseClient || !authUser || localAuthMode) return false;
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("paypal-cancel") === "1") {
+    clearMarketplaceReturnParams();
+    window.alert("PayPal checkout was canceled, so no route access was granted.");
+    return true;
+  }
+  if (url.searchParams.get("paypal-return") !== "1") return false;
+  const orderId = String(url.searchParams.get("token") || "").trim();
+  if (!orderId) {
+    clearMarketplaceReturnParams();
+    window.alert("PayPal returned without an order id, so the purchase could not be confirmed.");
+    return true;
+  }
+  if (paypalReturnHandledForOrderId === orderId) return true;
+  paypalReturnHandledForOrderId = orderId;
+  try {
+    const result = await invokeMarketplaceFunction(MARKETPLACE_PAYPAL_CAPTURE_ORDER_FUNCTION, { orderId });
+    if (result?.purchase?.status === "paid_access_granted" && result?.purchase?.publishId) {
+      marketplaceOwnedPublishIds.add(String(result.purchase.publishId || ""));
+    }
+    await loadPublishedCommunityRoutes({ force: true });
+    clearMarketplaceReturnParams();
+    window.alert("Payment confirmed. This route is now unlocked in your account.");
+  } catch (error) {
+    console.error("PayPal return handling failed:", error);
+    clearMarketplaceReturnParams();
+    window.alert(`We couldn't confirm the PayPal payment yet (${String(error?.message || "unknown error")}). If the payment went through, refresh in a moment and the route should unlock automatically.`);
+  }
+  return true;
+}
+
+function isMarketplaceAdmin() {
+  return normalizeEmail(authUser?.email || "") === normalizeEmail(MARKETPLACE_ADMIN_EMAIL);
+}
+
 function loadPublishedRoutesCache() {
   try {
     const parsed = JSON.parse(localStorage.getItem(PUBLISHED_ROUTES_CACHE_KEY) || "[]");
@@ -2085,6 +2276,8 @@ function normalizePublishedRouteRecord(record) {
   const ownerId = String(record.ownerId || "").trim();
   const routeName = sanitizeCustomRouteName(record.routeName || "Shared Route");
   const publishMode = record.publishMode === "resupply_only" ? "resupply_only" : "full";
+  const priceUsd = normalizePublishedRoutePrice(record.priceUsd ?? record.price ?? 0);
+  const verifiedStatus = normalizeVerifiedRouteStatus(record.verifiedStatus || record.verificationStatus);
   const trackPoints = Array.isArray(record.trackPoints)
     ? record.trackPoints.map(normalizeStoredTrackPoint).filter(Boolean)
     : [];
@@ -2095,16 +2288,25 @@ function normalizePublishedRouteRecord(record) {
   const routeDistance = Number(record.routeDistance);
   const totalDays = Number(record.totalDays);
   const restDays = Number(record.restDays);
+  const voteSummary = publishedRouteVoteSummary(publishId, {
+    likes: Number(record.likeCount ?? record.likes ?? 0),
+    dislikes: Number(record.dislikeCount ?? record.dislikes ?? 0)
+  });
   return {
     publishId,
     ownerId,
     sourceRouteId: String(record.sourceRouteId || "").trim(),
     routeName,
     publishMode,
+    priceUsd,
+    verifiedStatus,
     authorLabel: sanitizeCustomRouteName(record.authorLabel || "Rider"),
     routeDistance: Number.isFinite(routeDistance) ? Number(routeDistance.toFixed(1)) : milesFromTrackPoints(trackPoints),
     totalDays: publishMode === "full" && Number.isFinite(totalDays) ? Math.max(1, Math.round(totalDays)) : null,
     restDays: publishMode === "full" && Number.isFinite(restDays) ? Math.max(0, Math.round(restDays)) : null,
+    likeCount: voteSummary.likes,
+    dislikeCount: voteSummary.dislikes,
+    myVote: voteSummary.myVote,
     trackPoints: trackPoints.map((point) => ({ ...point })),
     resupplyPoints: resupply.map((point) => ({ ...point, isCustom: true })),
     config: publishMode === "full" && record.config && typeof record.config === "object" ? { ...record.config } : null,
@@ -2186,6 +2388,7 @@ function openPublishConfirmModal(record) {
   pendingPublishRecord = record;
   if (publishConfirmRouteName) publishConfirmRouteName.textContent = record.routeName;
   if (publishConfirmMode) publishConfirmMode.textContent = publishedRouteModeLabel(record.publishMode);
+  if (publishConfirmPrice) publishConfirmPrice.textContent = publishedRoutePriceLabel(record);
   if (publishConfirmSummary) {
     publishConfirmSummary.textContent = record.publishMode === "resupply_only"
       ? "This will share the route line and all saved resupply stops, but it will keep your day-by-day plan private."
@@ -2210,12 +2413,20 @@ function updatePublishRoutePanel(options = {}) {
   const hasRoutePayload = hasValidCustomRideDataObject(buildCustomRideDataPayload() || getCustomRoutePayload(routeId)?.customRideData);
   const currentPublish = activePublishedRouteForCurrentUser();
 
+  if (publishPriceInput) {
+    if (currentPublish && document.activeElement !== publishPriceInput) {
+      publishPriceInput.value = normalizePublishedRoutePrice(currentPublish.priceUsd).toFixed(2);
+    } else if (!currentPublish && !String(publishPriceInput.value || "").trim()) {
+      publishPriceInput.value = "0";
+    }
+  }
+
   if (publishRouteCopy) {
     publishRouteCopy.textContent = !isPublishableRoute
       ? "Publishing is for custom routes. Open one of your saved custom routes here to share it with other riders."
       : currentPublish
-        ? "Your published version can be updated anytime. Other riders can import it into their own planner."
-        : "Share a custom route so other riders can import it into their own planner.";
+        ? "Your published version can be updated anytime. Price, route details, and social proof will stay attached to this listing."
+        : "Share a custom route so other riders can import it into their own planner, and set a price if you want to sell it with PayPal during this early test phase.";
   }
 
   if (publishRouteBadge) publishRouteBadge.hidden = !currentPublish;
@@ -2227,6 +2438,7 @@ function updatePublishRoutePanel(options = {}) {
 
   if (!isPublishableRoute) {
     if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishPriceInput) publishPriceInput.disabled = true;
     if (publishRouteBtn) {
       publishRouteBtn.disabled = true;
       publishRouteBtn.textContent = "Publish Route";
@@ -2238,6 +2450,7 @@ function updatePublishRoutePanel(options = {}) {
 
   if (!hasRoutePayload) {
     if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishPriceInput) publishPriceInput.disabled = true;
     if (publishRouteBtn) {
       publishRouteBtn.disabled = true;
       publishRouteBtn.textContent = "Publish Route";
@@ -2249,6 +2462,7 @@ function updatePublishRoutePanel(options = {}) {
 
   if (!authUser) {
     if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishPriceInput) publishPriceInput.disabled = true;
     if (publishRouteBtn) {
       publishRouteBtn.disabled = true;
       publishRouteBtn.textContent = "Publish Route";
@@ -2260,6 +2474,7 @@ function updatePublishRoutePanel(options = {}) {
 
   if (!supabaseClient || localAuthMode) {
     if (publishVisibilitySelect) publishVisibilitySelect.disabled = true;
+    if (publishPriceInput) publishPriceInput.disabled = true;
     if (publishRouteBtn) {
       publishRouteBtn.disabled = true;
       publishRouteBtn.textContent = "Publish Route";
@@ -2270,6 +2485,7 @@ function updatePublishRoutePanel(options = {}) {
   }
 
   if (publishVisibilitySelect) publishVisibilitySelect.disabled = false;
+  if (publishPriceInput) publishPriceInput.disabled = false;
   if (publishRouteBtn) {
     publishRouteBtn.disabled = false;
     publishRouteBtn.textContent = currentPublish ? "Update Published Route" : "Publish Route";
@@ -2278,11 +2494,207 @@ function updatePublishRoutePanel(options = {}) {
   if (currentPublish) {
     if (!preserveStatus) {
       setPublishRouteStatus(
-        `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}". Publishing again will update it.`
+        `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}" for ${publishedRoutePriceLabel(currentPublish)}. Publishing again will update it.`
       );
     }
   } else {
-    if (!preserveStatus) setPublishRouteStatus("Choose what to share, then publish your route to the collection.");
+    if (!preserveStatus) setPublishRouteStatus("Choose what to share, set your price, then publish your route to the collection.");
+  }
+}
+
+async function loadPublishedRouteVotes() {
+  publishedRouteVoteCounts = new Map();
+  myPublishedRouteVotes = new Map();
+  if (!supabaseClient) return;
+
+  try {
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_DOCS_TABLE)
+      .select("payload")
+      .eq("collection_name", PUBLISHED_ROUTE_VOTES_COLLECTION);
+    if (error) throw error;
+
+    const activeUserId = String(authUser?.uid || "").trim();
+    (Array.isArray(data) ? data : []).forEach((row) => {
+      const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+      const publishId = String(payload.publishId || "").trim();
+      const voterId = String(payload.voterId || "").trim();
+      const vote = normalizePublishedRouteVote(payload.vote);
+      if (!publishId || !vote) return;
+      const counts = publishedRouteVoteCounts.get(publishId) || { likes: 0, dislikes: 0 };
+      if (vote === "like") counts.likes += 1;
+      if (vote === "dislike") counts.dislikes += 1;
+      publishedRouteVoteCounts.set(publishId, counts);
+      if (activeUserId && voterId === activeUserId) {
+        myPublishedRouteVotes.set(publishId, vote);
+      }
+    });
+  } catch (error) {
+    console.error("Published route votes load failed:", error);
+  }
+}
+
+async function loadMarketplaceEntitlements() {
+  marketplaceOwnedPublishIds = new Set();
+  if (!supabaseClient || !authUser) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_DOCS_TABLE)
+      .select("doc_id,payload")
+      .eq("collection_name", MARKETPLACE_ROUTE_ENTITLEMENTS_COLLECTION);
+    if (error) throw error;
+    const publishIds = (Array.isArray(data) ? data : [])
+      .map((row) => (row?.payload && typeof row.payload === "object" ? row.payload : {}))
+      .filter((payload) => String(payload?.buyerUserId || "").trim() === String(authUser?.uid || "").trim())
+      .filter((payload) => String(payload?.status || "active").trim() === "active")
+      .map((payload) => String(payload?.publishId || "").trim())
+      .filter(Boolean);
+    marketplaceOwnedPublishIds = new Set(publishIds);
+  } catch (error) {
+    console.error("Marketplace entitlements load failed:", error);
+  }
+}
+
+function setMarketplaceAdminStatus(text, isError = false) {
+  if (!marketplaceAdminStatus) return;
+  marketplaceAdminStatus.textContent = String(text || "").trim();
+  marketplaceAdminStatus.classList.toggle("status-error", Boolean(isError));
+}
+
+async function loadMarketplacePurchaseRequests() {
+  marketplacePurchaseRequests = [];
+  if (!supabaseClient || !isMarketplaceAdmin()) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_DOCS_TABLE)
+      .select("doc_id,payload,updated_at")
+      .eq("collection_name", MARKETPLACE_PAYPAL_REQUESTS_COLLECTION)
+      .order("updated_at", { ascending: false });
+    if (error) throw error;
+    marketplacePurchaseRequests = (Array.isArray(data) ? data : [])
+      .map((row) => {
+        const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+        return {
+          requestId: String(row?.doc_id || ""),
+          publishId: String(payload.publishId || "").trim(),
+          routeName: String(payload.routeName || "Route Purchase").trim(),
+          buyerUserId: String(payload.buyerUserId || "").trim(),
+          buyerEmail: String(payload.buyerEmail || "").trim(),
+          sellerUserId: String(payload.sellerUserId || "").trim(),
+          priceUsd: normalizePublishedRoutePrice(payload.priceUsd || 0),
+          provider: String(payload.provider || "paypal").trim(),
+          status: String(payload.status || "order_created").trim(),
+          paypalOrderId: String(payload.paypalOrderId || "").trim(),
+          paypalCaptureId: String(payload.paypalCaptureId || "").trim(),
+          purchaseUrl: String(payload.purchaseUrl || "").trim(),
+          creatorPayoutStatus: String(payload.creatorPayoutStatus || "pending").trim(),
+          creatorPayoutMarkedAt: String(payload.creatorPayoutMarkedAt || "").trim(),
+          createdAt: String(payload.createdAt || row?.updated_at || new Date().toISOString()),
+          updatedAt: String(payload.updatedAt || row?.updated_at || new Date().toISOString())
+        };
+      })
+      .filter((entry) => entry.publishId && entry.buyerUserId);
+  } catch (error) {
+    console.error("Marketplace purchase requests load failed:", error);
+    setMarketplaceAdminStatus(`Could not load purchase requests (${String(error?.message || "unknown error")}).`, true);
+  }
+}
+
+function renderMarketplaceAdminPanel() {
+  if (!marketplaceAdminPanel || !marketplaceAdminList) return;
+  const visible = isMarketplaceAdmin() && viewModeFromUrl() === "route_collection";
+  marketplaceAdminPanel.hidden = !visible;
+  if (!visible) return;
+
+  marketplaceAdminList.innerHTML = "";
+  if (!marketplacePurchaseRequests.length) {
+    marketplaceAdminList.innerHTML = '<article class="published-route-card marketplace-admin-card"><p class="empty-note">No PayPal route sales yet.</p></article>';
+    setMarketplaceAdminStatus("No PayPal route sales are recorded yet.");
+    return;
+  }
+
+  const pendingCount = marketplacePurchaseRequests.filter(
+    (request) => request.status === "paid_access_granted" && request.creatorPayoutStatus !== "sent"
+  ).length;
+  setMarketplaceAdminStatus(
+    pendingCount
+      ? `${pendingCount} paid route sale${pendingCount === 1 ? "" : "s"} still need creator payout review.`
+      : "No creator payouts are waiting on you right now."
+  );
+
+  marketplacePurchaseRequests.forEach((request) => {
+    const card = document.createElement("article");
+    const payoutSent = request.creatorPayoutStatus === "sent";
+    const accessGranted = request.status === "paid_access_granted";
+    card.className = `published-route-card marketplace-admin-card${payoutSent ? " is-approved" : ""}`;
+    card.innerHTML = `
+      <h3>${escapeHtml(request.routeName)}</h3>
+      <div class="published-route-badges">
+        <span class="published-route-badge-chip is-price">${escapeHtml(request.priceUsd > 0 ? `$${request.priceUsd.toFixed(2)}` : "Free")}</span>
+        <span class="published-route-badge-chip">${escapeHtml(accessGranted ? "Buyer Unlocked" : request.status.replace(/_/g, " "))}</span>
+        <span class="published-route-badge-chip">${escapeHtml(payoutSent ? "Creator Paid" : "Creator Payout Pending")}</span>
+      </div>
+      <div class="published-route-meta">
+        <div><strong>Buyer:</strong><br/>${escapeHtml(request.buyerEmail || request.buyerUserId)}</div>
+        <div><strong>Publish ID:</strong><br/>${escapeHtml(request.publishId)}</div>
+        <div><strong>Requested:</strong><br/>${escapeHtml(niceDate(new Date(request.updatedAt || request.createdAt || Date.now())))}</div>
+        <div><strong>Provider:</strong><br/>${escapeHtml((request.provider || "paypal").toUpperCase())}</div>
+        <div><strong>Status:</strong><br/>${escapeHtml(request.status)}</div>
+        <div><strong>Capture ID:</strong><br/>${escapeHtml(request.paypalCaptureId || "Not captured yet")}</div>
+        <div><strong>Buyer ID:</strong><br/>${escapeHtml(request.buyerUserId)}</div>
+      </div>
+      <div class="button-row">
+        <button class="btn btn-primary" type="button" data-marketplace-payout="${escapeHtml(request.requestId)}" ${(payoutSent || !accessGranted) ? "disabled" : ""}>
+          ${payoutSent ? "Creator Paid" : accessGranted ? "Mark Creator Paid" : "Awaiting Buyer Payment"}
+        </button>
+      </div>
+    `;
+    const payoutBtn = card.querySelector("[data-marketplace-payout]");
+    if (payoutBtn) {
+      payoutBtn.addEventListener("click", () => {
+        void markMarketplaceCreatorPayoutSent(request);
+      });
+    }
+    marketplaceAdminList.appendChild(card);
+  });
+}
+
+async function markMarketplaceCreatorPayoutSent(request) {
+  if (!supabaseClient || !isMarketplaceAdmin()) return;
+  const requestId = marketplacePayPalRequestDocId(request.buyerUserId, request.publishId);
+  const nowIso = new Date().toISOString();
+  try {
+    const requestRow = {
+      doc_key: `${MARKETPLACE_PAYPAL_REQUESTS_COLLECTION}:${requestId}`,
+      collection_name: MARKETPLACE_PAYPAL_REQUESTS_COLLECTION,
+      doc_id: requestId,
+      payload: {
+        publishId: request.publishId,
+        routeName: request.routeName,
+        buyerUserId: request.buyerUserId,
+        buyerEmail: request.buyerEmail,
+        sellerUserId: request.sellerUserId,
+        priceUsd: request.priceUsd,
+        provider: request.provider || "paypal",
+        status: request.status || "paid_access_granted",
+        paypalOrderId: request.paypalOrderId || "",
+        paypalCaptureId: request.paypalCaptureId || "",
+        purchaseUrl: request.purchaseUrl || "",
+        createdAt: request.createdAt || nowIso,
+        updatedAt: nowIso,
+        creatorPayoutStatus: "sent",
+        creatorPayoutMarkedAt: nowIso
+      },
+      updated_at: nowIso
+    };
+    const { error: requestError } = await supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(requestRow, { onConflict: "doc_key" });
+    if (requestError) throw requestError;
+    await loadMarketplacePurchaseRequests();
+    renderMarketplaceAdminPanel();
+    setMarketplaceAdminStatus(`Marked creator payout as sent for ${request.routeName}.`);
+  } catch (error) {
+    console.error("Marketplace payout update failed:", error);
+    setMarketplaceAdminStatus(`Could not mark creator payout as sent (${String(error?.message || "unknown error")}).`, true);
   }
 }
 
@@ -2292,8 +2704,13 @@ async function loadPublishedCommunityRoutes(options = {}) {
 
   if (!supabaseClient) {
     publishedCommunityRoutes = [];
+    publishedRouteVoteCounts = new Map();
+    myPublishedRouteVotes = new Map();
+    marketplaceOwnedPublishIds = new Set();
+    marketplacePurchaseRequests = [];
     renderCustomRouteButtons();
     renderPublishedRoutesCollection();
+    renderMarketplaceAdminPanel();
     if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
     updatePublishRoutePanel();
     return publishedCommunityRoutes;
@@ -2317,14 +2734,23 @@ async function loadPublishedCommunityRoutes(options = {}) {
           )
           .filter(Boolean)
       : [];
+    await loadPublishedRouteVotes();
+    await loadMarketplaceEntitlements();
+    await loadMarketplacePurchaseRequests();
+    publishedCommunityRoutes = publishedCommunityRoutes.map((entry) => normalizePublishedRouteRecord(entry)).filter(Boolean);
     savePublishedRoutesCache(publishedCommunityRoutes);
   } catch (error) {
     console.error("Published routes load failed:", error);
+    publishedRouteVoteCounts = new Map();
+    myPublishedRouteVotes = new Map();
+    marketplaceOwnedPublishIds = new Set();
+    marketplacePurchaseRequests = [];
     publishedCommunityRoutes = loadPublishedRoutesCache();
   }
 
   renderCustomRouteButtons();
   renderPublishedRoutesCollection();
+  renderMarketplaceAdminPanel();
   if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
   updatePublishRoutePanel();
   return publishedCommunityRoutes;
@@ -2354,6 +2780,7 @@ function buildPublishedRouteRecord(mode = "full") {
   const trimmedPayload = withTrackPointLimit(routePayload, 1600) || routePayload;
   const currentPublish = activePublishedRouteForCurrentUser();
   const nowIso = new Date().toISOString();
+  const priceUsd = normalizePublishedRoutePrice(publishPriceInput?.value || currentPublish?.priceUsd || 0);
 
   return {
     publishId: publishedRouteDocId(routeId, authUser?.uid || ""),
@@ -2361,10 +2788,14 @@ function buildPublishedRouteRecord(mode = "full") {
     sourceRouteId: routeId,
     routeName,
     publishMode: mode === "resupply_only" ? "resupply_only" : "full",
+    priceUsd,
+    verifiedStatus: normalizeVerifiedRouteStatus(currentPublish?.verifiedStatus || "unverified"),
     authorLabel: sanitizeCustomRouteName(authorBase),
     routeDistance: Number(Number(config.routeDistance || milesFromTrackPoints(trimmedPayload.trackPoints)).toFixed(1)),
     totalDays: mode === "resupply_only" ? null : Math.max(1, Math.round(Number(config.totalDays || planToPublish.length || 1))),
     restDays: mode === "resupply_only" ? null : Math.max(0, Math.round(Number(config.restDays || 0))),
+    likeCount: Math.max(0, Math.round(Number(currentPublish?.likeCount || 0))),
+    dislikeCount: Math.max(0, Math.round(Number(currentPublish?.dislikeCount || 0))),
     trackPoints: trimmedPayload.trackPoints.map((point) => ({ ...point })),
     resupplyPoints: (trimmedPayload.resupplyPoints || []).map((point) => ({ ...point, isCustom: true })),
     config: mode === "resupply_only" ? null : { ...config },
@@ -2402,7 +2833,9 @@ async function savePublishedRouteRecord(record) {
     renderPublishedRoutesCollection();
     if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
     await loadPublishedCommunityRoutes({ force: true });
-    setPublishRouteStatus(`Published: ${record.routeName} (${publishedRouteModeLabel(record.publishMode)}).`);
+    setPublishRouteStatus(
+      `Published: ${record.routeName} (${publishedRouteModeLabel(record.publishMode)}, ${publishedRoutePriceLabel(record)}).`
+    );
   } catch (error) {
     hadError = true;
     const message = String(error?.message || "unknown error");
@@ -2464,8 +2897,62 @@ async function unpublishCurrentRoute() {
   }
 }
 
-async function importPublishedRoute(record) {
+async function setPublishedRouteVote(record, nextVote) {
   const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return;
+  if (!authUser) {
+    window.alert("Sign in to like or dislike community routes.");
+    return;
+  }
+  if (!supabaseClient || localAuthMode) {
+    window.alert("Community voting is unavailable in local-account mode.");
+    return;
+  }
+  if (String(normalized.ownerId || "") === String(authUser?.uid || "")) {
+    window.alert("You cannot rate your own published route.");
+    return;
+  }
+
+  const desiredVote = normalizePublishedRouteVote(nextVote);
+  const currentVote = normalizePublishedRouteVote(normalized.myVote);
+  const voteToSave = desiredVote && desiredVote !== currentVote ? desiredVote : "";
+  const docId = publishedRouteVoteDocId(normalized.publishId, authUser.uid);
+  if (!docId) return;
+
+  try {
+    if (!voteToSave) {
+      const docKey = `${PUBLISHED_ROUTE_VOTES_COLLECTION}:${docId}`;
+      const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).delete().eq("doc_key", docKey);
+      if (error) throw error;
+    } else {
+      const nowIso = new Date().toISOString();
+      const row = {
+        doc_key: `${PUBLISHED_ROUTE_VOTES_COLLECTION}:${docId}`,
+        collection_name: PUBLISHED_ROUTE_VOTES_COLLECTION,
+        doc_id: docId,
+        payload: {
+          publishId: normalized.publishId,
+          routeName: normalized.routeName,
+          ownerId: normalized.ownerId,
+          voterId: String(authUser.uid || ""),
+          vote: voteToSave,
+          updatedAt: nowIso
+        },
+        updated_at: nowIso
+      };
+      const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" });
+      if (error) throw error;
+    }
+    await loadPublishedRouteVotes();
+    publishedCommunityRoutes = publishedCommunityRoutes.map((entry) => normalizePublishedRouteRecord(entry)).filter(Boolean);
+    renderPublishedRoutesCollection();
+  } catch (error) {
+    console.error("Published route vote failed:", error);
+    window.alert(`Could not save your vote (${String(error?.message || "unknown error")}).`);
+  }
+}
+
+async function finishPublishedRouteImport(normalized) {
   if (!normalized) return;
   const routeName = sanitizeCustomRouteName(normalized.routeName || "Shared Route");
   const newRouteId = generateCustomRouteId(routeName);
@@ -2508,6 +2995,78 @@ async function importPublishedRoute(record) {
     resupplyPointsOverride: customRideData.resupplyPoints
   });
   window.location.assign(routeUrl(newRouteId));
+}
+
+async function importPublishedRoute(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return;
+  if (!canImportPublishedRoute(normalized)) {
+    window.alert("Buy this route first, then import it into your planner.");
+    return;
+  }
+  await finishPublishedRouteImport(normalized);
+}
+
+async function importEntitledPublishedRoute(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return;
+  if (userOwnsPublishedRoute(normalized) || normalizePublishedRoutePrice(normalized.priceUsd) <= 0) {
+    await finishPublishedRouteImport(normalized);
+    return;
+  }
+  if (!authUser) {
+    window.alert("Sign in to access purchased routes.");
+    return;
+  }
+  try {
+    const result = await invokeMarketplaceFunction(MARKETPLACE_ROUTE_ACCESS_FUNCTION, {
+      action: "import_route",
+      publishId: normalized.publishId
+    });
+    const importedRecord = normalizePublishedRouteRecord(result?.route || {});
+    if (!importedRecord) throw new Error("Route payload was missing.");
+    marketplaceOwnedPublishIds.add(normalized.publishId);
+    await finishPublishedRouteImport(importedRecord);
+  } catch (error) {
+    console.error("Entitled route import failed:", error);
+    window.alert(`Could not import this purchased route (${String(error?.message || "unknown error")}).`);
+  }
+}
+
+async function startPublishedRoutePayPalPurchase(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return;
+  if (!authUser) {
+    window.alert("Sign in first so the purchase can be attached to your account.");
+    return;
+  }
+  try {
+    const result = await invokeMarketplaceFunction(MARKETPLACE_PAYPAL_CREATE_ORDER_FUNCTION, {
+      publishId: normalized.publishId,
+      returnUrl: marketplacePayPalReturnUrl(normalized.publishId),
+      cancelUrl: marketplacePayPalCancelUrl(normalized.publishId)
+    });
+    const approvalUrl = String(result?.approvalUrl || "").trim();
+    if (!approvalUrl) throw new Error("PayPal approval URL was missing.");
+    window.location.assign(approvalUrl);
+  } catch (error) {
+    console.error("PayPal route purchase start failed:", error);
+    window.alert(`Could not start PayPal purchase (${String(error?.message || "unknown error")}).`);
+  }
+}
+
+async function handlePublishedRoutePrimaryAction(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized) return;
+  if (userOwnsPublishedRoute(normalized) && normalized.sourceRouteId) {
+    navigateWithinApp(routeUrl(normalized.sourceRouteId));
+    return;
+  }
+  if (canImportPublishedRoute(normalized)) {
+    await importEntitledPublishedRoute(normalized);
+    return;
+  }
+  await startPublishedRoutePayPalPurchase(normalized);
 }
 
 function getPublishedRouteIds() {
@@ -2590,13 +3149,25 @@ function renderPublishedRoutesCollection() {
     const safeName = escapeHtml(record.routeName);
     const safeAuthor = escapeHtml(record.authorLabel || "Rider");
     const isOwnedByCurrentUser = String(record.ownerId || "") === String(authUser?.uid || "");
+    const priceLabel = publishedRoutePriceLabel(record);
+    const verifiedBadge =
+      record.verifiedStatus === "verified"
+        ? '<span class="published-route-badge-chip is-verified">Verified Route</span>'
+        : "";
     const metaDays = record.publishMode === "full" && record.totalDays ? record.totalDays : "Not shared";
     const updatedText = niceDate(new Date(record.updatedAt || record.publishedAt || Date.now()));
+    const ratingTotal = Number(record.likeCount || 0) + Number(record.dislikeCount || 0);
+    const ratingText = ratingTotal
+      ? `${Math.round((Number(record.likeCount || 0) / ratingTotal) * 100)}% liked`
+      : "No ratings yet";
+    const primaryActionLabel = publishedRoutePrimaryActionLabel(record);
     card.innerHTML = `
       <h3>${safeName}</h3>
       <div class="published-route-badges">
         <span class="published-route-mode">${escapeHtml(publishedRouteModeLabel(record.publishMode))}</span>
         ${isOwnedByCurrentUser ? '<span class="published-route-badge-chip">Your Published Route</span>' : ""}
+        <span class="published-route-badge-chip is-price">${escapeHtml(priceLabel)}</span>
+        ${verifiedBadge}
       </div>
       <p>${escapeHtml(publishedRouteModeSummary(record.publishMode))}</p>
       <div class="published-route-meta">
@@ -2604,22 +3175,46 @@ function renderPublishedRoutesCollection() {
         <div><strong>Resupply stops:</strong><br/>${record.resupplyPoints.length}</div>
         <div><strong>Days shared:</strong><br/>${metaDays}</div>
         <div><strong>Published by:</strong><br/>${safeAuthor}</div>
+        <div><strong>Price:</strong><br/>${escapeHtml(priceLabel)}</div>
+        <div><strong>Rating:</strong><br/>${escapeHtml(ratingText)}</div>
         <div><strong>Updated:</strong><br/>${escapeHtml(updatedText)}</div>
-        <div><strong>Type:</strong><br/>Custom rider route</div>
+        <div><strong>Access:</strong><br/>${record.priceUsd > 0 ? "Unlocks after PayPal payment" : "Instant import"}</div>
       </div>
       <div class="button-row">
-        <button class="btn" type="button" data-published-import="${escapeHtml(record.publishId)}">Import Route</button>
+        <button class="btn" type="button" data-published-primary="${escapeHtml(record.publishId)}">${escapeHtml(primaryActionLabel)}</button>
+      </div>
+      <div class="published-route-votes">
+        <button class="btn published-route-vote-btn ${record.myVote === "like" ? "is-active" : ""}" type="button" data-published-vote-like="${escapeHtml(record.publishId)}">
+          Like ${Math.max(0, Math.round(Number(record.likeCount || 0)))}
+        </button>
+        <button class="btn published-route-vote-btn ${record.myVote === "dislike" ? "is-active" : ""}" type="button" data-published-vote-dislike="${escapeHtml(record.publishId)}">
+          Dislike ${Math.max(0, Math.round(Number(record.dislikeCount || 0)))}
+        </button>
       </div>
     `;
-    const importBtn = card.querySelector("[data-published-import]");
-    if (importBtn) {
-      importBtn.addEventListener("click", () => {
-        importPublishedRoute(record);
+    const primaryBtn = card.querySelector("[data-published-primary]");
+    if (primaryBtn) {
+      primaryBtn.addEventListener("click", () => {
+        void handlePublishedRoutePrimaryAction(record);
+      });
+    }
+    const likeBtn = card.querySelector("[data-published-vote-like]");
+    if (likeBtn) {
+      likeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode;
+      likeBtn.addEventListener("click", () => {
+        setPublishedRouteVote(record, "like");
+      });
+    }
+    const dislikeBtn = card.querySelector("[data-published-vote-dislike]");
+    if (dislikeBtn) {
+      dislikeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode;
+      dislikeBtn.addEventListener("click", () => {
+        setPublishedRouteVote(record, "dislike");
       });
     }
     card.addEventListener("click", (event) => {
       if (event.target.closest("button, a, input, select, textarea, label")) return;
-      importPublishedRoute(record);
+      void handlePublishedRoutePrimaryAction(record);
     });
     if (communityList) {
       communityList.appendChild(card);
@@ -5476,6 +6071,8 @@ function initCloud() {
       await loadCloudData();
       if (version !== authStateVersion) return;
       await loadPublishedCommunityRoutes({ force: true });
+      if (version !== authStateVersion) return;
+      await maybeHandleMarketplacePayPalReturn();
       if (version !== authStateVersion) return;
       await refreshMyRouteShortcutVisibility();
       if (version !== authStateVersion) return;

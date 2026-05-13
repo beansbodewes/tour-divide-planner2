@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=33" />
+    <link rel="stylesheet" href="styles.css?v=34" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -337,6 +337,16 @@
             <h3 style="margin-top:0;">Published Route Map</h3>
             <div id="published-routes-map" class="community-map"></div>
           </section>
+          <section id="marketplace-admin-panel" class="home-block marketplace-admin-panel" aria-label="Marketplace Admin" hidden>
+            <div class="feed-header">
+              <h3>Marketplace Admin</h3>
+              <p>Track paid route sales and mark creator payouts after buyer access is already unlocked.</p>
+            </div>
+            <div id="marketplace-admin-list" class="published-route-list"></div>
+            <p id="marketplace-admin-status" class="route-switcher-note" aria-live="polite">
+              Sign in with the marketplace account to review paid route sales.
+            </p>
+          </section>
         </div>
       </section>
       <section id="custom-upload-panel" class="home-page custom-builder-page" aria-label="Create Your Own Ride" hidden>
@@ -458,6 +468,11 @@
                   <option value="full">Full route + day-by-day details</option>
                   <option value="resupply_only">Route + resupply stops only</option>
                 </select>
+              </label>
+              <label>
+                Route price (USD)
+                <input id="publish-price" type="number" min="0" step="0.01" value="0" />
+                <small>Set this to `0` if you want your route to stay free.</small>
               </label>
             </div>
             <div class="button-row">
@@ -771,6 +786,10 @@
             <strong>Publish mode</strong>
             <p id="publish-confirm-mode">Full route + day-by-day details</p>
           </div>
+          <div>
+            <strong>Price</strong>
+            <p id="publish-confirm-price">Free</p>
+          </div>
         </div>
         <div class="button-row">
           <button id="publish-confirm-cancel-btn" class="btn" type="button">Cancel</button>
@@ -786,11 +805,11 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=33"></script>
+    <script src="script.js?v=38"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "126";
+        const BUILD_VERSION = "131";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);
