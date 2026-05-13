@@ -364,6 +364,7 @@ const dragModeBtn = document.getElementById("drag-mode-btn");
 const fitRouteBtn = document.getElementById("fit-route-btn");
 const mapStyleSelect = document.getElementById("map-style-select");
 const mapboxTokenBtn = document.getElementById("mapbox-token-btn");
+const CUSTOM_DELETE_ROUTE_DEFAULT_LABEL = "Delete Route";
 
 const commentForm = document.getElementById("comment-form");
 const commentSectionSelect = document.getElementById("comment-section");
@@ -3849,13 +3850,16 @@ function updateSignedInIndicators() {
     }
   }
 
-  if (!unsignedWarningBanner) return;
-  unsignedWarningBanner.hidden = false;
   if (isSignedIn) {
-    unsignedWarningBanner.classList.remove("is-signed-out");
-    unsignedWarningBanner.classList.add("is-signed-in");
-    unsignedWarningBanner.textContent = `Signed in: ${email}.`;
+    setUnsignedWarningVisible(false);
+    if (unsignedWarningBanner) {
+      unsignedWarningBanner.classList.remove("is-signed-out");
+      unsignedWarningBanner.classList.add("is-signed-in");
+      unsignedWarningBanner.textContent = `Signed in: ${email}.`;
+    }
   } else {
+    if (!unsignedWarningBanner) return;
+    unsignedWarningBanner.hidden = false;
     unsignedWarningBanner.classList.remove("is-signed-in");
     unsignedWarningBanner.classList.add("is-signed-out");
     unsignedWarningBanner.textContent = "Signed out. Sign in to save and sync your route data.";
@@ -4075,11 +4079,14 @@ function buildFirebaseAuthAdapter() {
       return { user: normalizeSupabaseUser(data?.user || null) };
     },
     async signInWithPopup(provider) {
-      const redirectTo = `${window.location.origin}`;
+      const redirectTo = authRedirectUrl();
       const providerName = provider?.providerId || "google";
       const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: providerName,
-        options: { redirectTo }
+        options: {
+          redirectTo,
+          queryParams: provider?.customParameters && typeof provider.customParameters === "object" ? provider.customParameters : undefined
+        }
       });
       if (error) throw error;
     },
@@ -4114,8 +4121,11 @@ function initSupabaseCompat() {
   window.firebase.auth.GoogleAuthProvider = class {
     constructor() {
       this.providerId = "google";
+      this.customParameters = {};
     }
-    setCustomParameters() {}
+    setCustomParameters(params) {
+      this.customParameters = params && typeof params === "object" ? { ...params } : {};
+    }
   };
   window.firebase.firestore = window.firebase.firestore || {};
   window.firebase.firestore.FieldValue = {
@@ -4693,6 +4703,7 @@ async function deleteCustomRouteData() {
   if (!isCustomRouteActive()) return;
   const routeId = activeRouteId();
   const routeDef = ROUTES[routeId] || ROUTES.my_route;
+  const redirectUrl = routeUrl("custom_ride");
   const routeStorageKey = `${routeDef.storagePrefix}-plan-v1`;
   const routeCommentsKey = `${routeDef.storagePrefix}-comments-v1`;
   const routeStopsKey = `${routeDef.storagePrefix}-custom-resupply-stops-v1`;
@@ -4701,109 +4712,124 @@ async function deleteCustomRouteData() {
   );
   if (!confirmed) return;
 
-  customUploadedTrackPoints = [];
-  customUploadedFile = null;
-  customRouteDisplayName = "My Route";
-  setMyRouteShortcutLabel(customRouteDisplayName);
-  setMyRouteShortcutFlag(false);
-  setMyRouteShortcutVisible(false);
-  clearMyRouteMeta();
-  if (customRouteNameInput) customRouteNameInput.value = "";
-  if (customGpxFileInput) customGpxFileInput.value = "";
-  if (customGpxStatus) customGpxStatus.textContent = "No GPX uploaded yet.";
-  localStorage.removeItem(routeStopsKey);
-  localStorage.removeItem(routeStorageKey);
-  localStorage.removeItem(routeCommentsKey);
-  removeCustomRoutePayload(routeId);
-  removeCustomRouteRegistryEntry(routeId);
-  renderCustomRouteButtons();
-  if (ROUTES[routeId] && routeId !== "my_route") {
-    delete ROUTES[routeId];
-  }
-
-  const customRoute = ROUTES.my_route;
-  setRouteDistanceInputMiles(Number(customRoute.defaultDistance || 0));
-  if (totalDaysInput) totalDaysInput.value = String(Number(customRoute.defaultDays || 20));
-  if (startDateInput?.value && finishDateInput) {
-    finishDateInput.value = addDays(startDateInput.value, Math.max(1, Number(totalDaysInput.value || 20)) - 1);
-  }
-
-  resupplyPoints = [];
-  selectedSectionName = "";
-  comments = [];
-  plan = [];
-  dayList.innerHTML = "";
-  metricList.innerHTML = "";
-  if (markerList) {
-    markerList.innerHTML =
-      '<li><p class="empty-note">Could not load GPX route file. Upload a custom GPX in Plan tab.</p></li>';
-  }
-  if (mapSubhead) {
-    mapSubhead.textContent = "Upload a custom GPX and create a new route to render the map.";
-  }
-  if (stageLayer) stageLayer.clearLayers();
-  if (resupplyLayer) resupplyLayer.clearLayers();
-  if (sectionLayer) sectionLayer.clearLayers();
-  if (dragGuideLayer) dragGuideLayer.clearLayers();
-  if (routeLine && map) map.removeLayer(routeLine);
-  if (routeLineHalo && map) map.removeLayer(routeLineHalo);
-  if (routeHoverLine && map) map.removeLayer(routeHoverLine);
-  routeLine = null;
-  routeLineHalo = null;
-  routeHoverLine = null;
-  gpxTrackPoints = [];
-  trackCumulativeMiles = [];
-  trackCumulativeGainFt = [];
-  trackCumulativeLossFt = [];
-  activeRouteGpxDistanceMiles = null;
-  routeSections = [];
-  routeProfileInitializedView = false;
-  setupRouteProfileScroll();
-  renderRouteProfile();
-  renderCustomStopEditor();
-  renderComments();
-  persistComments();
-  persistPlan();
-
-  if (cloudReady()) {
-    try {
-      if (localAuthMode) {
-        const routeLocalKey = `${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`;
-        localStorage.removeItem(routeLocalKey);
-      } else if (firestoreDb && window.firebase?.firestore?.FieldValue && authUser?.uid) {
-        const cloudDocId = cloudProfileDocIdForRoute(routeId, authUser.uid);
-        if (isNamedCustomRoute(routeId)) {
-          await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(cloudDocId).set(
-            {
-              customRouteRegistry: loadCustomRouteRegistry(),
-              customRoutes: {
-                [routeId]: window.firebase.firestore.FieldValue.delete()
-              },
-              updatedAt: new Date().toISOString()
-            },
-            { merge: true }
-          );
-        } else {
-          await firestoreDb.collection(routeDef.profileCollection).doc(cloudDocId).set(
-            {
-              config: window.firebase.firestore.FieldValue.delete(),
-              plan: window.firebase.firestore.FieldValue.delete(),
-              comments: window.firebase.firestore.FieldValue.delete(),
-              customRideData: window.firebase.firestore.FieldValue.delete(),
-              updatedAt: new Date().toISOString()
-            },
-            { merge: true }
-          );
-        }
-      }
-    } catch {
-      // Keep local delete state even if cloud cleanup fails.
+  setDeleteRouteButtonBusy(true);
+  try {
+    customUploadedTrackPoints = [];
+    customUploadedFile = null;
+    customRouteDisplayName = "My Route";
+    setMyRouteShortcutLabel(customRouteDisplayName);
+    setMyRouteShortcutFlag(false);
+    setMyRouteShortcutVisible(false);
+    clearMyRouteMeta();
+    if (customRouteNameInput) customRouteNameInput.value = "";
+    if (customGpxFileInput) customGpxFileInput.value = "";
+    if (customGpxStatus) customGpxStatus.textContent = "No GPX uploaded yet.";
+    localStorage.removeItem(routeStopsKey);
+    localStorage.removeItem(routeStorageKey);
+    localStorage.removeItem(routeCommentsKey);
+    removeCustomRoutePayload(routeId);
+    removeCustomRouteRegistryEntry(routeId);
+    renderCustomRouteButtons();
+    if (publishRouteBadge) publishRouteBadge.hidden = true;
+    if (unpublishRouteBtn) unpublishRouteBtn.hidden = true;
+    updatePublishRoutePanel();
+    if (ROUTES[routeId] && routeId !== "my_route") {
+      delete ROUTES[routeId];
     }
-    await saveAccountStateToCloud();
-  }
 
-  setCloudStatus("Custom route deleted.");
-  window.location.href = routeUrl("custom_ride");
+    const customRoute = ROUTES.my_route;
+    setRouteDistanceInputMiles(Number(customRoute.defaultDistance || 0));
+    if (totalDaysInput) totalDaysInput.value = String(Number(customRoute.defaultDays || 20));
+    if (startDateInput?.value && finishDateInput) {
+      finishDateInput.value = addDays(startDateInput.value, Math.max(1, Number(totalDaysInput.value || 20)) - 1);
+    }
+
+    resupplyPoints = [];
+    selectedSectionName = "";
+    comments = [];
+    plan = [];
+    dayList.innerHTML = "";
+    metricList.innerHTML = "";
+    if (markerList) {
+      markerList.innerHTML =
+        '<li><p class="empty-note">Could not load GPX route file. Upload a custom GPX in Plan tab.</p></li>';
+    }
+    if (mapSubhead) {
+      mapSubhead.textContent = "Upload a custom GPX and create a new route to render the map.";
+    }
+    if (stageLayer) stageLayer.clearLayers();
+    if (resupplyLayer) resupplyLayer.clearLayers();
+    if (sectionLayer) sectionLayer.clearLayers();
+    if (dragGuideLayer) dragGuideLayer.clearLayers();
+    if (routeLine && map) map.removeLayer(routeLine);
+    if (routeLineHalo && map) map.removeLayer(routeLineHalo);
+    if (routeHoverLine && map) map.removeLayer(routeHoverLine);
+    routeLine = null;
+    routeLineHalo = null;
+    routeHoverLine = null;
+    gpxTrackPoints = [];
+    trackCumulativeMiles = [];
+    trackCumulativeGainFt = [];
+    trackCumulativeLossFt = [];
+    activeRouteGpxDistanceMiles = null;
+    routeSections = [];
+    routeProfileInitializedView = false;
+    setupRouteProfileScroll();
+    renderRouteProfile();
+    renderCustomStopEditor();
+    renderComments();
+
+    if (cloudReady()) {
+      try {
+        if (localAuthMode) {
+          const routeLocalKey = `${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`;
+          localStorage.removeItem(routeLocalKey);
+        } else if (firestoreDb && window.firebase?.firestore?.FieldValue && authUser?.uid) {
+          const cloudDocId = cloudProfileDocIdForRoute(routeId, authUser.uid);
+          if (isNamedCustomRoute(routeId)) {
+            await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(cloudDocId).set(
+              {
+                customRouteRegistry: loadCustomRouteRegistry(),
+                customRoutes: {
+                  [routeId]: window.firebase.firestore.FieldValue.delete()
+                },
+                updatedAt: new Date().toISOString()
+              },
+              { merge: true }
+            );
+          } else {
+            await firestoreDb.collection(routeDef.profileCollection).doc(cloudDocId).set(
+              {
+                config: window.firebase.firestore.FieldValue.delete(),
+                plan: window.firebase.firestore.FieldValue.delete(),
+                comments: window.firebase.firestore.FieldValue.delete(),
+                customRideData: window.firebase.firestore.FieldValue.delete(),
+                updatedAt: new Date().toISOString()
+              },
+              { merge: true }
+            );
+          }
+        }
+      } catch {
+        // Keep local delete state even if cloud cleanup fails.
+      }
+      await saveAccountStateToCloud();
+    }
+
+    setCloudStatus("Custom route deleted.");
+    navigateWithinApp(redirectUrl, { replace: true });
+  } finally {
+    setDeleteRouteButtonBusy(false);
+  }
+}
+
+function setDeleteRouteButtonBusy(busy) {
+  if (!customDeleteRouteBtn) return;
+  const isBusy = Boolean(busy);
+  customDeleteRouteBtn.disabled = isBusy;
+  customDeleteRouteBtn.classList.toggle("is-loading", isBusy);
+  customDeleteRouteBtn.setAttribute("aria-busy", isBusy ? "true" : "false");
+  customDeleteRouteBtn.textContent = isBusy ? "Deleting..." : CUSTOM_DELETE_ROUTE_DEFAULT_LABEL;
 }
 
 function nearestWaypoint(mile) {
@@ -6062,6 +6088,10 @@ function initCloud() {
   }
   localAuthMode = false;
   initSupabaseCompat();
+  const authRedirectError = readAuthRedirectError();
+  if (authRedirectError) {
+    setCloudStatus(`Google sign-in failed: ${authRedirectError}`);
+  }
   ensureFirebaseLocalPersistence();
   firebaseAuth
     .getRedirectResult()
@@ -9802,6 +9832,30 @@ function isSafariBrowser() {
     return /Safari/i.test(ua) && !/Chrome|Chromium|Edg|CriOS|FxiOS|OPR/i.test(ua);
   } catch {
     return false;
+  }
+}
+
+function authRedirectUrl() {
+  try {
+    const url = new URL(window.location.href);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return `${window.location.origin}${window.location.pathname}${window.location.search}`;
+  }
+}
+
+function readAuthRedirectError() {
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+    const errorCode = hashParams.get("error_code") || searchParams.get("error_code") || "";
+    const errorDescription =
+      hashParams.get("error_description") || searchParams.get("error_description") || hashParams.get("error") || searchParams.get("error") || "";
+    if (!errorCode && !errorDescription) return "";
+    return decodeURIComponent(String(errorDescription || errorCode).replace(/\+/g, " "));
+  } catch {
+    return "";
   }
 }
 
