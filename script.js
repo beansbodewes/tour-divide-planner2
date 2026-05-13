@@ -445,6 +445,8 @@ let authPendingProvider = "";
 let authPendingEmail = "";
 let authPendingTimer = null;
 let authRedirectMessage = "";
+let unsignedStatusOverride = "";
+let unsignedStatusTone = "signed-out";
 let undoStack = [];
 let latestSnapshot = "";
 let restoringUndo = false;
@@ -3813,6 +3815,11 @@ function addDays(dateString, days) {
 
 function setCloudStatus(text) {
   if (cloudStatus) cloudStatus.textContent = text;
+  if (!authUser) {
+    unsignedStatusOverride = String(text || "").trim();
+    unsignedStatusTone = /failed|error|invalid|unavailable|stalled|blocked|closed/i.test(unsignedStatusOverride) ? "error" : "signed-out";
+    updateSignedInIndicators();
+  }
 }
 
 function markUserEditingNow() {
@@ -3854,8 +3861,11 @@ function updateSignedInIndicators() {
   }
 
   if (isSignedIn) {
+    unsignedStatusOverride = "";
+    unsignedStatusTone = "signed-in";
     setUnsignedWarningVisible(false);
     if (unsignedWarningBanner) {
+      unsignedWarningBanner.classList.remove("is-error");
       unsignedWarningBanner.classList.remove("is-signed-out");
       unsignedWarningBanner.classList.add("is-signed-in");
       unsignedWarningBanner.textContent = `Signed in: ${email}.`;
@@ -3864,8 +3874,14 @@ function updateSignedInIndicators() {
     if (!unsignedWarningBanner) return;
     unsignedWarningBanner.hidden = false;
     unsignedWarningBanner.classList.remove("is-signed-in");
-    unsignedWarningBanner.classList.add("is-signed-out");
-    unsignedWarningBanner.textContent = "Signed out. Sign in to save and sync your route data.";
+    unsignedWarningBanner.classList.remove("is-error");
+    if (unsignedStatusTone === "error") {
+      unsignedWarningBanner.classList.add("is-error");
+      unsignedWarningBanner.classList.remove("is-signed-out");
+    } else {
+      unsignedWarningBanner.classList.add("is-signed-out");
+    }
+    unsignedWarningBanner.textContent = unsignedStatusOverride || "Signed out. Sign in to save and sync your route data.";
   }
 }
 

@@ -1838,3 +1838,9 @@ body.custom-builder-only-mode #planner-subhead {
     grid-template-columns: 1fr;
   }
 }
+.unsigned-warning-banner.is-error {
+  background: #fff1f0;
+  border-color: #cf5a4a;
+  color: #8a2518;
+}
+
