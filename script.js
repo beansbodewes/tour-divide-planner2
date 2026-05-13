@@ -6096,7 +6096,7 @@ async function loadCloudData() {
   }
 }
 
-function initCloud() {
+async function initCloud() {
   if (!firebaseConfigured()) {
     localAuthMode = false;
     authUser = null;
@@ -6118,8 +6118,14 @@ function initCloud() {
   } else if (authDebugSnapshot && /code=yes|access_token=yes|refresh_token=yes|error=yes/.test(authDebugSnapshot)) {
     setCloudStatus(authDebugSnapshot);
   }
-  void restoreSessionFromUrlHashIfNeeded();
-  void exchangeSessionFromUrlCodeIfNeeded();
+  const restoredFromHash = await restoreSessionFromUrlHashIfNeeded();
+  const exchangedFromCode = restoredFromHash ? false : await exchangeSessionFromUrlCodeIfNeeded();
+  if (restoredFromHash || exchangedFromCode) {
+    const { data } = await supabaseClient.auth.getSession();
+    if (data?.session?.user) {
+      setCloudStatus(`Signed in with Google as ${data.session.user.email || "your account"}. Loading your saved data...`);
+    }
+  }
   ensureFirebaseLocalPersistence();
   firebaseAuth
     .getRedirectResult()
@@ -10357,7 +10363,7 @@ appliedViewMode = viewModeFromUrl();
 enforceSiteBranding();
 setDragButtonState();
 setupAccountMenu();
-initCloud();
+void initCloud();
 refreshMyRouteShortcutVisibility();
 setupTabs();
 setupPublishRoutePanel();
