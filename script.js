@@ -256,9 +256,10 @@ const ROUTE_PROFILE_BASE_WIDTH = 2400;
 const RWGPS_ELEV_OUTLIER_FT = 180;
 const RWGPS_ELEV_MEDIAN_WINDOW_POINTS = 5;
 const RWGPS_MIN_ASCENT_STEP_M = 0.35;
-const RWGPS_TARGET_SAMPLE_COUNT = 60000;
-const RWGPS_MIN_SAMPLE_STEP_MI = 0.004;
-const RWGPS_MAX_SAMPLE_STEP_MI = 0.02;
+const RWGPS_TARGET_SAMPLE_COUNT = 6000;
+const RWGPS_MIN_SAMPLE_STEP_MI = 0.02;
+const RWGPS_MAX_SAMPLE_STEP_MI = 0.5;
+const RWGPS_MAX_ELEVATION_SAMPLE_COUNT = 6000;
 const RWGPS_PROFILE_MAX_SAMPLES = 2000;
 
 let resupplyPoints = [];
@@ -442,6 +443,10 @@ let trackCumulativeMiles = [];
 let trackCumulativeGainFt = [];
 let trackCumulativeLossFt = [];
 const rwgpsElevationEngineCache = new WeakMap();
+const builtInGpxTrackCache = new Map();
+const builtInProcessedRouteCache = new Map();
+let routeEnhancementTimer = null;
+let routeEnhancementVersion = 0;
 let applyMapStyleImmediately = null;
 let dayMarkers = [];
 let communityMap = null;
@@ -1819,6 +1824,30 @@ function gpxCandidates(fileName) {
   );
 }
 
+function isBuiltinGpxFile(fileName) {
+  const target = String(fileName || "").trim();
+  if (!target) return false;
+  return BUILTIN_ROUTE_IDS.some((routeId) => String(ROUTES[routeId]?.gpxFile || "").trim() === target);
+}
+
+function currentBuiltInGpxFile() {
+  return isCustomRouteActive() ? "" : String(GPX_FILE || "").trim();
+}
+
+function applyProcessedRouteData(processed) {
+  if (!processed || !Array.isArray(processed.trackPoints)) return false;
+  gpxTrackPoints = processed.trackPoints;
+  trackCumulativeMiles = Array.isArray(processed.cumulativeMiles) ? processed.cumulativeMiles : [];
+  trackCumulativeGainFt = Array.isArray(processed.cumulativeGainFt) ? processed.cumulativeGainFt : [];
+  trackCumulativeLossFt = Array.isArray(processed.cumulativeLossFt) ? processed.cumulativeLossFt : [];
+  if (Number.isFinite(processed.totalMiles) && processed.totalMiles > 0) {
+    activeRouteGpxDistanceMiles = Number(processed.totalMiles.toFixed(1));
+  } else if (trackCumulativeMiles.length) {
+    activeRouteGpxDistanceMiles = Number((trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0).toFixed(1));
+  }
+  return true;
+}
+
 function getRequestedStageCount() {
   const raw = Number(totalDaysInput?.value);
   if (Number.isFinite(raw) && raw >= 1) {
@@ -1844,11 +1873,8 @@ function hardRebuildMapUi() {
   if (!trackCumulativeMiles.length) {
     trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
   }
-  if (!trackCumulativeGainFt.length) {
-    trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
-  }
-  if (!trackCumulativeLossFt.length) {
-    trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
+  if (!trackCumulativeGainFt.length || !trackCumulativeLossFt.length) {
+    scheduleRouteDataEnhancement(gpxTrackPoints, currentBuiltInGpxFile());
   }
 
   const stageCount = getRequestedStageCount();
@@ -1946,24 +1972,92 @@ function hardRebuildMapUi() {
 }
 
 async function loadGpxTrackPoints(fileName) {
-  const candidates = gpxCandidates(fileName);
-  let lastError = "Unknown GPX load failure";
-  for (const path of candidates) {
-    try {
-      const response = await fetch(path, { cache: "no-store" });
-      if (!response.ok) {
-        lastError = `${path} -> HTTP ${response.status}`;
-        continue;
+  const cacheKey = String(fileName || "").trim();
+  if (isBuiltinGpxFile(cacheKey) && builtInGpxTrackCache.has(cacheKey)) {
+    return builtInGpxTrackCache.get(cacheKey);
+  }
+
+  const loader = (async () => {
+    const candidates = gpxCandidates(fileName);
+    let lastError = "Unknown GPX load failure";
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-store" });
+        if (!response.ok) {
+          lastError = `${path} -> HTTP ${response.status}`;
+          continue;
+        }
+        const xmlText = await response.text();
+        const parsed = parseGpxTrack(xmlText);
+        if (parsed.length >= 2) return parsed;
+        lastError = `${path} -> parsed ${parsed.length} route points (need at least 2)`;
+      } catch (error) {
+        lastError = `${path} -> ${error instanceof Error ? error.message : "fetch error"}`;
       }
-      const xmlText = await response.text();
-      const parsed = parseGpxTrack(xmlText);
-      if (parsed.length >= 2) return parsed;
-      lastError = `${path} -> parsed ${parsed.length} route points (need at least 2)`;
+    }
+    throw new Error(lastError);
+  })();
+
+  if (isBuiltinGpxFile(cacheKey)) {
+    builtInGpxTrackCache.set(cacheKey, loader);
+    try {
+      const resolved = await loader;
+      builtInGpxTrackCache.set(cacheKey, resolved);
+      return resolved;
     } catch (error) {
-      lastError = `${path} -> ${error instanceof Error ? error.message : "fetch error"}`;
+      builtInGpxTrackCache.delete(cacheKey);
+      throw error;
     }
   }
-  throw new Error(lastError);
+
+  return loader;
+}
+
+function scheduleRouteDataEnhancement(trackPoints = gpxTrackPoints, fileName = currentBuiltInGpxFile()) {
+  const activeTrack = Array.isArray(trackPoints) ? trackPoints : [];
+  if (routeEnhancementTimer) clearTimeout(routeEnhancementTimer);
+  const version = ++routeEnhancementVersion;
+  routeEnhancementTimer = setTimeout(() => {
+    routeEnhancementTimer = null;
+    void enhanceRouteDataInBackground(version, activeTrack, fileName);
+  }, 24);
+}
+
+async function enhanceRouteDataInBackground(version, trackPoints, fileName = "") {
+  if (!Array.isArray(trackPoints) || trackPoints.length < 2) return;
+  const cacheKey = String(fileName || "").trim();
+  const isBuiltIn = isBuiltinGpxFile(cacheKey);
+  if (isBuiltIn && builtInProcessedRouteCache.has(cacheKey)) {
+    const cached = builtInProcessedRouteCache.get(cacheKey);
+    if (version !== routeEnhancementVersion || trackPoints !== gpxTrackPoints) return;
+    applyProcessedRouteData(cached);
+  } else {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (version !== routeEnhancementVersion || trackPoints !== gpxTrackPoints) return;
+    const cumulativeMiles = buildTrackCumulativeMiles(trackPoints);
+    const cumulativeGainFt = buildTrackCumulativeGainFt(trackPoints);
+    const cumulativeLossFt = buildTrackCumulativeLossFt(trackPoints);
+    const processed = {
+      trackPoints,
+      cumulativeMiles,
+      cumulativeGainFt,
+      cumulativeLossFt,
+      totalMiles: cumulativeMiles[cumulativeMiles.length - 1] || 0
+    };
+    if (isBuiltIn) builtInProcessedRouteCache.set(cacheKey, processed);
+    if (version !== routeEnhancementVersion || trackPoints !== gpxTrackPoints) return;
+    applyProcessedRouteData(processed);
+  }
+
+  try {
+    recomputeDerivedFields();
+    const config = parseForm();
+    if (config && plan.length) renderMetrics(config, plan);
+    if (routeProfileMeta) routeProfileMeta.textContent = "Rendering elevation profile...";
+    renderRouteProfile();
+  } catch (error) {
+    console.error("Background route enhancement failed:", error);
+  }
 }
 
 function formatHomeMiles(miles) {
@@ -5049,7 +5143,7 @@ function getEffectiveRouteDistanceMiles(routeDistance) {
 function gpxGainBetweenMilesRaw(startMile, endMile, routeDistance) {
   if ((!trackCumulativeMiles.length || !trackCumulativeGainFt.length) && gpxTrackPoints.length) {
     trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
-    trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
+    scheduleRouteDataEnhancement(gpxTrackPoints, currentBuiltInGpxFile());
   }
   if (!trackCumulativeMiles.length || !trackCumulativeGainFt.length) {
     const span = Math.max(0, endMile - startMile);
@@ -5073,7 +5167,7 @@ function gpxGainBetweenMiles(startMile, endMile, routeDistance) {
 function gpxLossBetweenMilesRaw(startMile, endMile, routeDistance) {
   if ((!trackCumulativeMiles.length || !trackCumulativeLossFt.length) && gpxTrackPoints.length) {
     trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
-    trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
+    scheduleRouteDataEnhancement(gpxTrackPoints, currentBuiltInGpxFile());
   }
   if (!trackCumulativeMiles.length || !trackCumulativeLossFt.length) {
     const span = Math.max(0, endMile - startMile);
@@ -5207,13 +5301,7 @@ function renderMetrics(config, days) {
     (!Array.isArray(trackCumulativeLossFt) || trackCumulativeLossFt.length < 2);
 
   if (waitingForGpxElevation && Array.isArray(gpxTrackPoints) && gpxTrackPoints.length >= 2) {
-    try {
-      trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
-      trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
-      recomputeDerivedFields();
-    } catch {
-      // Keep UI responsive and show existing totals until map/track catches up.
-    }
+    scheduleRouteDataEnhancement(gpxTrackPoints, currentBuiltInGpxFile());
   }
 
   if (plannerTotalRouteDistance) {
@@ -7385,117 +7473,137 @@ function sampleNumericSeries(values, maxPoints = RWGPS_PROFILE_MAX_SAMPLES) {
   return result;
 }
 
+function numericSeriesBounds(values) {
+  if (!Array.isArray(values) || !values.length) return { min: 0, max: 0 };
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < values.length; i++) {
+    const value = Number(values[i]);
+    if (!Number.isFinite(value)) continue;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 0 };
+  return { min, max };
+}
+
+function emptyElevationEngine(trackPoints, totalMiles = 0) {
+  const pointCount = Array.isArray(trackPoints) ? trackPoints.length : 0;
+  return {
+    totalMiles,
+    hasElevation: false,
+    cumulativeMilesByPoint: Array.isArray(trackPoints) ? buildTrackCumulativeMiles(trackPoints) : [],
+    cumulativeGainFtByPoint: new Array(pointCount).fill(0),
+    cumulativeLossFtByPoint: new Array(pointCount).fill(0),
+    profileSamplesMeters: [],
+    minEleMeters: 0,
+    maxEleMeters: 0
+  };
+}
+
 function buildRwgpsElevationEngine(trackPoints) {
   if (!Array.isArray(trackPoints) || trackPoints.length < 2) {
-    return {
-      totalMiles: 0,
-      hasElevation: false,
-      cumulativeMilesByPoint: [],
-      cumulativeGainFtByPoint: [],
-      cumulativeLossFtByPoint: [],
-      profileSamplesMeters: [],
-      minEleMeters: 0,
-      maxEleMeters: 0
-    };
+    return emptyElevationEngine(trackPoints, 0);
   }
 
   const cached = rwgpsElevationEngineCache.get(trackPoints);
   if (cached) return cached;
 
-  const cumulativeMilesByPoint = buildTrackCumulativeMiles(trackPoints);
-  const totalMiles = cumulativeMilesByPoint[cumulativeMilesByPoint.length - 1] || 0;
-  const elevationMetersByPoint = fillAndSmoothElevationSeriesMeters(trackPoints);
-  const hasElevation = elevationMetersByPoint.some((v) => Number.isFinite(v));
+  try {
+    const cumulativeMilesByPoint = buildTrackCumulativeMiles(trackPoints);
+    const totalMiles = cumulativeMilesByPoint[cumulativeMilesByPoint.length - 1] || 0;
+    const elevationMetersByPoint = fillAndSmoothElevationSeriesMeters(trackPoints);
+    const hasElevation = elevationMetersByPoint.some((v) => Number.isFinite(v));
 
-  if (!hasElevation || totalMiles <= 0) {
-    const empty = {
-      totalMiles,
-      hasElevation: false,
-      cumulativeMilesByPoint,
-      cumulativeGainFtByPoint: new Array(trackPoints.length).fill(0),
-      cumulativeLossFtByPoint: new Array(trackPoints.length).fill(0),
-      profileSamplesMeters: [],
-      minEleMeters: 0,
-      maxEleMeters: 0
-    };
-    rwgpsElevationEngineCache.set(trackPoints, empty);
-    return empty;
-  }
-
-  const sampleStep = Math.max(
-    RWGPS_MIN_SAMPLE_STEP_MI,
-    Math.min(RWGPS_MAX_SAMPLE_STEP_MI, totalMiles / RWGPS_TARGET_SAMPLE_COUNT)
-  );
-  const sampleCount = Math.max(2, Math.ceil(totalMiles / sampleStep) + 1);
-
-  const sampleMiles = new Array(sampleCount);
-  const sampleElevationMeters = new Array(sampleCount);
-  const elevationCursor = { idx: 1 };
-  for (let i = 0; i < sampleCount; i++) {
-    const mile = Math.min(totalMiles, i * sampleStep);
-    sampleMiles[i] = mile;
-    sampleElevationMeters[i] = interpolateSeriesAtMileUnsafeSorted(
-      mile,
-      cumulativeMilesByPoint,
-      elevationMetersByPoint,
-      elevationCursor
-    );
-  }
-
-  // Distance-based smoothing gives route-agnostic behavior closer to RWGPS.
-  const smoothedSampleElevationMeters = smoothSeries(sampleElevationMeters, 3);
-
-  const sampleCumulativeGainFt = new Array(sampleCount).fill(0);
-  const sampleCumulativeLossFt = new Array(sampleCount).fill(0);
-  for (let i = 1; i < sampleCount; i++) {
-    const deltaMeters = smoothedSampleElevationMeters[i] - smoothedSampleElevationMeters[i - 1];
-    if (deltaMeters > RWGPS_MIN_ASCENT_STEP_M) {
-      sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1] + deltaMeters * 3.28084;
-      sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1];
-    } else if (deltaMeters < -RWGPS_MIN_ASCENT_STEP_M) {
-      sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1];
-      sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1] + Math.abs(deltaMeters) * 3.28084;
-    } else {
-      sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1];
-      sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1];
+    if (!hasElevation || totalMiles <= 0) {
+      const empty = emptyElevationEngine(trackPoints, totalMiles);
+      empty.cumulativeMilesByPoint = cumulativeMilesByPoint;
+      rwgpsElevationEngineCache.set(trackPoints, empty);
+      return empty;
     }
-  }
 
-  const cumulativeGainFtByPoint = new Array(trackPoints.length).fill(0);
-  const cumulativeLossFtByPoint = new Array(trackPoints.length).fill(0);
-  const sampleCursor = { idx: 1 };
-  for (let i = 0; i < cumulativeMilesByPoint.length; i++) {
-    const mile = cumulativeMilesByPoint[i];
-    cumulativeGainFtByPoint[i] = interpolateSeriesAtMileUnsafeSorted(
-      mile,
-      sampleMiles,
-      sampleCumulativeGainFt,
-      sampleCursor
+    const preferredSampleStep = Math.max(
+      RWGPS_MIN_SAMPLE_STEP_MI,
+      Math.min(RWGPS_MAX_SAMPLE_STEP_MI, totalMiles / RWGPS_TARGET_SAMPLE_COUNT)
     );
-    cumulativeLossFtByPoint[i] = interpolateSeriesAtMileUnsafeSorted(
-      mile,
-      sampleMiles,
-      sampleCumulativeLossFt,
-      sampleCursor
-    );
+    const preferredSampleCount = Math.max(2, Math.ceil(totalMiles / preferredSampleStep) + 1);
+    const sampleCount = Math.min(RWGPS_MAX_ELEVATION_SAMPLE_COUNT, preferredSampleCount);
+    const sampleStep = sampleCount > 1 ? totalMiles / (sampleCount - 1) : totalMiles;
+
+    const sampleMiles = new Array(sampleCount);
+    const sampleElevationMeters = new Array(sampleCount);
+    const elevationCursor = { idx: 1 };
+    for (let i = 0; i < sampleCount; i++) {
+      const mile = Math.min(totalMiles, i * sampleStep);
+      sampleMiles[i] = mile;
+      sampleElevationMeters[i] = interpolateSeriesAtMileUnsafeSorted(
+        mile,
+        cumulativeMilesByPoint,
+        elevationMetersByPoint,
+        elevationCursor
+      );
+    }
+
+    // Distance-based smoothing gives route-agnostic behavior closer to RWGPS.
+    const smoothedSampleElevationMeters = smoothSeries(sampleElevationMeters, 3);
+
+    const sampleCumulativeGainFt = new Array(sampleCount).fill(0);
+    const sampleCumulativeLossFt = new Array(sampleCount).fill(0);
+    for (let i = 1; i < sampleCount; i++) {
+      const deltaMeters = smoothedSampleElevationMeters[i] - smoothedSampleElevationMeters[i - 1];
+      if (deltaMeters > RWGPS_MIN_ASCENT_STEP_M) {
+        sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1] + deltaMeters * 3.28084;
+        sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1];
+      } else if (deltaMeters < -RWGPS_MIN_ASCENT_STEP_M) {
+        sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1];
+        sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1] + Math.abs(deltaMeters) * 3.28084;
+      } else {
+        sampleCumulativeGainFt[i] = sampleCumulativeGainFt[i - 1];
+        sampleCumulativeLossFt[i] = sampleCumulativeLossFt[i - 1];
+      }
+    }
+
+    const cumulativeGainFtByPoint = new Array(trackPoints.length).fill(0);
+    const cumulativeLossFtByPoint = new Array(trackPoints.length).fill(0);
+    const sampleCursor = { idx: 1 };
+    for (let i = 0; i < cumulativeMilesByPoint.length; i++) {
+      const mile = cumulativeMilesByPoint[i];
+      cumulativeGainFtByPoint[i] = interpolateSeriesAtMileUnsafeSorted(
+        mile,
+        sampleMiles,
+        sampleCumulativeGainFt,
+        sampleCursor
+      );
+      cumulativeLossFtByPoint[i] = interpolateSeriesAtMileUnsafeSorted(
+        mile,
+        sampleMiles,
+        sampleCumulativeLossFt,
+        sampleCursor
+      );
+    }
+
+    const { min: minEleMeters, max: maxEleMeters } = numericSeriesBounds(smoothedSampleElevationMeters);
+    const profileSamplesMeters = sampleNumericSeries(smoothedSampleElevationMeters, RWGPS_PROFILE_MAX_SAMPLES);
+
+    const engine = {
+      totalMiles,
+      hasElevation: true,
+      cumulativeMilesByPoint,
+      cumulativeGainFtByPoint,
+      cumulativeLossFtByPoint,
+      profileSamplesMeters,
+      minEleMeters,
+      maxEleMeters
+    };
+    rwgpsElevationEngineCache.set(trackPoints, engine);
+    return engine;
+  } catch (error) {
+    const totalMiles = Array.isArray(trackPoints) && trackPoints.length > 1 ? buildTrackCumulativeMiles(trackPoints).slice(-1)[0] || 0 : 0;
+    console.error("Elevation engine fallback:", error);
+    const fallback = emptyElevationEngine(trackPoints, totalMiles);
+    rwgpsElevationEngineCache.set(trackPoints, fallback);
+    return fallback;
   }
-
-  const minEleMeters = Math.min(...smoothedSampleElevationMeters);
-  const maxEleMeters = Math.max(...smoothedSampleElevationMeters);
-  const profileSamplesMeters = sampleNumericSeries(smoothedSampleElevationMeters, RWGPS_PROFILE_MAX_SAMPLES);
-
-  const engine = {
-    totalMiles,
-    hasElevation: true,
-    cumulativeMilesByPoint,
-    cumulativeGainFtByPoint,
-    cumulativeLossFtByPoint,
-    profileSamplesMeters,
-    minEleMeters,
-    maxEleMeters
-  };
-  rwgpsElevationEngineCache.set(trackPoints, engine);
-  return engine;
 }
 
 function buildTrackCumulativeGainFt(trackPoints) {
@@ -7689,14 +7797,19 @@ function renderRouteProfile() {
     stageOptions = buildEvenStages(gpxTrackPoints, stageCount).stages;
   }
 
-  const profile = computeSectionElevation(gpxTrackPoints);
-  if (!profile.profileSamples.length) {
-    profileMetaEl.textContent = "Elevation profile unavailable.";
+  if (!trackCumulativeGainFt.length || !trackCumulativeLossFt.length) {
+    renderRouteProfileFallbackSimple();
+    scheduleRouteDataEnhancement(gpxTrackPoints, currentBuiltInGpxFile());
     return;
   }
 
-  const minEle = Math.min(...profile.profileSamples);
-  const maxEle = Math.max(...profile.profileSamples);
+  const profile = computeSectionElevation(gpxTrackPoints);
+  if (!profile.profileSamples.length) {
+    renderRouteProfileFallbackSimple();
+    return;
+  }
+
+  const { min: minEle, max: maxEle } = numericSeriesBounds(profile.profileSamples);
   const range = Math.max(maxEle - minEle, 1);
   const left = 60;
   const right = 2340;
@@ -7887,8 +8000,7 @@ function renderRouteProfileFallbackSimple() {
     }
 
     const eleValues = withEle.map((p) => Number(p.ele));
-    const minEle = Math.min(...eleValues);
-    const maxEle = Math.max(...eleValues);
+    const { min: minEle, max: maxEle } = numericSeriesBounds(eleValues);
     const range = Math.max(1, maxEle - minEle);
 
     const points = withEle
@@ -7956,11 +8068,8 @@ function ensureMapArtifacts() {
     if (!trackCumulativeMiles.length) {
       trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
     }
-    if (!trackCumulativeGainFt.length) {
-      trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
-    }
-    if (!trackCumulativeLossFt.length) {
-      trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
+    if (!trackCumulativeGainFt.length || !trackCumulativeLossFt.length) {
+      scheduleRouteDataEnhancement(gpxTrackPoints, currentBuiltInGpxFile());
     }
   } catch (error) {
     console.error("ensureMapArtifacts cumulative build failed:", error);
@@ -8934,10 +9043,17 @@ function applyTrackToMap(trackPoints, options = {}) {
   setMapPlanSelection(null);
 
   gpxTrackPoints = trackPoints;
-  trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
-  trackCumulativeGainFt = buildTrackCumulativeGainFt(gpxTrackPoints);
-  trackCumulativeLossFt = buildTrackCumulativeLossFt(gpxTrackPoints);
-  activeRouteGpxDistanceMiles = Number((trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0).toFixed(1));
+  const builtInFile = currentBuiltInGpxFile();
+  const cachedProcessed = builtInFile && builtInProcessedRouteCache.has(builtInFile) ? builtInProcessedRouteCache.get(builtInFile) : null;
+  if (cachedProcessed && cachedProcessed.trackPoints === trackPoints) {
+    applyProcessedRouteData(cachedProcessed);
+  } else {
+    trackCumulativeMiles = buildTrackCumulativeMiles(gpxTrackPoints);
+    trackCumulativeGainFt = [];
+    trackCumulativeLossFt = [];
+    activeRouteGpxDistanceMiles = Number((trackCumulativeMiles[trackCumulativeMiles.length - 1] || 0).toFixed(1));
+    scheduleRouteDataEnhancement(gpxTrackPoints, builtInFile);
+  }
 
   // Keep profile source stable: render once from GPX pipeline and only fallback on failure.
 
