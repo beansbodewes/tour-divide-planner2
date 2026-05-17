@@ -784,7 +784,7 @@ function getRouteButtons() {
 
 function isNamedCustomRoute(routeId) {
   const id = String(routeId || "");
-  return id === "my_route" || id.startsWith(CUSTOM_ROUTE_ID_PREFIX);
+  return id.startsWith(CUSTOM_ROUTE_ID_PREFIX);
 }
 
 function sanitizeRouteIdSegment(raw) {
@@ -801,15 +801,19 @@ function generateCustomRouteId(name) {
 
 function buildNamedCustomRouteDefinition(routeId, name = "My Route") {
   const label = sanitizeCustomRouteName(name);
+  const baseRoute = ROUTES.my_route;
+  if (!baseRoute || !Array.isArray(baseRoute.resupplyPoints)) {
+    throw new Error("Custom route template is unavailable");
+  }
   return {
-    ...ROUTES.my_route,
+    ...baseRoute,
     id: routeId,
     label,
     plannerTitle: `${label} Planner`,
     storagePrefix: `my-route-${routeId}`,
     profileCollection: "custom_ride_profiles",
     csvName: `${sanitizeRouteIdSegment(label)}-day-by-day-plan.csv`,
-    resupplyPoints: ROUTES.my_route.resupplyPoints.map((point) => ({ ...point }))
+    resupplyPoints: baseRoute.resupplyPoints.map((point) => ({ ...point }))
   };
 }
 
