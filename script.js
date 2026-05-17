@@ -322,6 +322,8 @@ const signUpBtn = document.getElementById("sign-up-btn");
 const signInBtn = document.getElementById("sign-in-btn");
 const signInGoogleBtn = document.getElementById("sign-in-google-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
+const heroSignInBtn = document.getElementById("hero-sign-in-btn");
+const heroSignOutBtn = document.getElementById("hero-sign-out-btn");
 const syncNowBtn = document.getElementById("sync-now-btn");
 const manualSaveButtons = Array.from(document.querySelectorAll("[data-manual-save-btn]"));
 const undoBtn = document.getElementById("undo-btn");
@@ -3304,17 +3306,19 @@ function renderPublishedRoutesCollection() {
       </div>
       <p>${escapeHtml(publishedRouteModeSummary(record.publishMode))}</p>
       <div class="published-route-meta">
-        <div><strong>Distance:</strong><br/>${formatHomeMiles(record.routeDistance)}</div>
-        <div><strong>Resupply stops:</strong><br/>${record.resupplyPoints.length}</div>
-        <div><strong>Days shared:</strong><br/>${metaDays}</div>
-        <div><strong>Published by:</strong><br/>${safeAuthor}</div>
-        <div><strong>Price:</strong><br/>${escapeHtml(priceLabel)}</div>
-        <div><strong>Rating:</strong><br/>${escapeHtml(ratingText)}</div>
-        <div><strong>Updated:</strong><br/>${escapeHtml(updatedText)}</div>
-        <div><strong>Access:</strong><br/>${record.priceUsd > 0 ? "Unlocks after PayPal payment" : "Instant import"}</div>
+        <div><strong>Distance</strong><span>${formatHomeMiles(record.routeDistance)}</span></div>
+        <div><strong>Stops</strong><span>${record.resupplyPoints.length}</span></div>
+        <div><strong>Days</strong><span>${metaDays}</span></div>
+        <div><strong>Rating</strong><span>${escapeHtml(ratingText)}</span></div>
       </div>
-      <div class="button-row">
-        <button class="btn" type="button" data-published-primary="${escapeHtml(record.publishId)}">${escapeHtml(primaryActionLabel)}</button>
+      <div class="published-route-footer">
+        <div class="published-route-byline">
+          <span>By ${safeAuthor}</span>
+          <span>${escapeHtml(updatedText)}</span>
+        </div>
+        <div class="button-row published-route-actions">
+          <button class="btn" type="button" data-published-primary="${escapeHtml(record.publishId)}">${escapeHtml(primaryActionLabel)}</button>
+        </div>
       </div>
       <div class="published-route-votes">
         <button class="btn published-route-vote-btn ${record.myVote === "like" ? "is-active" : ""}" type="button" data-published-vote-like="${escapeHtml(record.publishId)}">
@@ -3982,6 +3986,8 @@ function syncAuthActionVisibility() {
   if (signInBtn) signInBtn.hidden = isSignedIn;
   if (signUpBtn) signUpBtn.hidden = isSignedIn;
   if (signInGoogleBtn) signInGoogleBtn.hidden = isSignedIn;
+  if (heroSignInBtn) heroSignInBtn.hidden = isSignedIn;
+  if (heroSignOutBtn) heroSignOutBtn.hidden = !isSignedIn;
   if (syncNowBtn) syncNowBtn.hidden = !isSignedIn;
   if (signOutBtn) signOutBtn.hidden = !isSignedIn;
 }
@@ -6247,9 +6253,17 @@ async function loadCloudData() {
   }
 }
 
-async function bootstrapSignedInUser(user, version = authStateVersion) {
+async function bootstrapSignedInUser(user, version = authStateVersion, previousUser = null) {
   authUser = user || null;
   if (!authUser) return;
+  const previousEmail = normalizeEmail(previousUser?.email || "");
+  const nextEmail = normalizeEmail(authUser?.email || "");
+  const previousUid = String(previousUser?.uid || "").trim();
+  const nextUid = String(authUser?.uid || "").trim();
+  const switchedAccounts = Boolean(
+    previousUser &&
+      ((previousUid && nextUid && previousUid !== nextUid) || (previousEmail && nextEmail && previousEmail !== nextEmail))
+  );
 
   const pendingReturnPath = consumeAuthReturnPath();
   clearAuthRedirectError();
@@ -6258,6 +6272,11 @@ async function bootstrapSignedInUser(user, version = authStateVersion) {
   if (cloudLoadRetryTimer) {
     clearTimeout(cloudLoadRetryTimer);
     cloudLoadRetryTimer = null;
+  }
+  if (switchedAccounts) {
+    purgeSignedInDataFromDevice(previousEmail);
+    clearAccountScopedClientState();
+    await syncUiToLocation({ forceRouteRefresh: true, forceCloudLoad: false });
   }
   if (pendingReturnPath) {
     const currentPath = `${window.location.pathname}${window.location.search}`;
@@ -6342,6 +6361,7 @@ async function initCloud() {
     });
   firebaseAuth.onAuthStateChanged(async (user) => {
     const version = ++authStateVersion;
+    const previousUser = authUser ? { ...authUser } : null;
     if (signedOutUiTimer) {
       clearTimeout(signedOutUiTimer);
       signedOutUiTimer = null;
@@ -6350,7 +6370,7 @@ async function initCloud() {
     if (manualSignOutInProgress && user) return;
     authUser = user || null;
     if (user) {
-      await bootstrapSignedInUser(user, version);
+      await bootstrapSignedInUser(user, version, previousUser);
       return;
     }
 
@@ -10017,6 +10037,32 @@ function purgeSignedInDataFromDevice(emailRaw = "") {
   }
 }
 
+function clearAccountScopedClientState() {
+  runtimeCustomRoutePayloads.clear();
+  customUploadedTrackPoints = [];
+  customUploadedFile = null;
+  customRouteDisplayName = "My Route";
+  clearMyRouteMeta();
+  pruneNamedCustomRouteDefinitions([]);
+  saveCustomRouteRegistry([]);
+  saveCustomRoutePayloadStore({});
+  savePinnedBuiltinRouteIds([]);
+  renderPinnedBuiltinRouteButtons();
+  renderCustomRouteButtons();
+  setMyRouteShortcutVisible(false);
+  try {
+    localStorage.removeItem(CUSTOM_ROUTE_REGISTRY_KEY);
+    sessionStorage.removeItem(CUSTOM_ROUTE_REGISTRY_SESSION_KEY);
+    localStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_KEY);
+    sessionStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY);
+    localStorage.removeItem(MY_ROUTE_META_KEY);
+    sessionStorage.removeItem(CUSTOM_ROUTE_HANDOFF_KEY);
+    localStorage.removeItem(PINNED_BUILTIN_ROUTES_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
 function resetUiAfterSignOut() {
   runtimeCustomRoutePayloads.clear();
   customUploadedTrackPoints = [];
@@ -10229,6 +10275,19 @@ if (authForm) {
   authForm.addEventListener("submit", (event) => {
     event.preventDefault();
     if (!authBusy && signInBtn) signInBtn.click();
+  });
+}
+
+if (heroSignInBtn) {
+  heroSignInBtn.addEventListener("click", () => {
+    setAccountDropdownOpen(true);
+    if (authEmailInput) authEmailInput.focus();
+  });
+}
+
+if (heroSignOutBtn) {
+  heroSignOutBtn.addEventListener("click", () => {
+    if (signOutBtn && !signOutBtn.hidden) signOutBtn.click();
   });
 }
 
