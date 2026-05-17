@@ -166,6 +166,30 @@ const ROUTES = {
       { mile: 998, name: "Abancay", lat: -13.638317, lon: -72.888067, resupply: "Finish-town resupply and lodging." }
     ]
   },
+  silk_road_mountain_race: {
+    id: "silk_road_mountain_race",
+    label: "Silk Road Mountain Race",
+    plannerTitle: "Silk Road Mountain Race Planner",
+    gpxFile: "Silk_Road_Mountain_Race_2026.gpx",
+    defaultDistance: 1273.7,
+    defaultDays: 20,
+    minDistance: 900,
+    maxDistance: 1500,
+    storagePrefix: "silk-road-mountain-race",
+    profileCollection: "silk_road_mountain_race_profiles",
+    csvName: "silk-road-mountain-race-day-by-day-plan.csv",
+    resupplyPoints: [
+      { mile: 0, name: "Start", lat: 42.52111, lon: 72.25016, resupply: "Approximate route start from the 2026 GPX." },
+      { mile: 88.1, name: "Toktogul", lat: 41.88482, lon: 72.92872, resupply: "Major resupply with shops, restaurants, and hotels." },
+      { mile: 203.9, name: "Kyzl-Oi", lat: 41.9499735, lon: 74.1623679, resupply: "Guesthouses and a village shop." },
+      { mile: 406, name: "Baetov", lat: 41.2677378, lon: 74.9485189, resupply: "Proper resupply with multiple shops plus lodging options." },
+      { mile: 456.4, name: "Kosh-Dobo", lat: 41.0903792, lon: 74.2728309, resupply: "Village shop for a smaller restock." },
+      { mile: 890.4, name: "Tosor", lat: 42.1646582, lon: 77.4391877, resupply: "Small-town shops for a focused resupply." },
+      { mile: 1173.7, name: "The Secret Oasis", lat: 42.7104089, lon: 75.8444405, resupply: "Shops and restaurants late in the route." },
+      { mile: 1263.8, name: "Chong Sary-Oy", lat: 42.6064047, lon: 76.9144938, resupply: "Village shop close to the finish." },
+      { mile: 1273.7, name: "Finish", lat: 42.637898, lon: 77.091342, resupply: "Approximate route finish from the 2026 GPX." }
+    ]
+  },
   custom_ride: {
     id: "custom_ride",
     label: "Create Your Own Ride",
@@ -227,7 +251,7 @@ const MAPBOX_STYLE_ID = "mapbox/outdoors-v12";
 const MAPBOX_ACCESS_TOKEN = "";
 const PLAN_UNITS_KEY = "tour-divide-plan-units-v1";
 const PINNED_BUILTIN_ROUTES_KEY = "bikepack-finishers-pinned-builtin-routes-v1";
-const BUILTIN_ROUTE_IDS = ["tour_divide", "great_divide_route", "colorado_trail", "azt_300", "azt_800", "peruvian_divide"];
+const BUILTIN_ROUTE_IDS = ["tour_divide", "great_divide_route", "colorado_trail", "azt_300", "azt_800", "peruvian_divide", "silk_road_mountain_race"];
 const ROUTE_PROFILE_BASE_WIDTH = 2400;
 const RWGPS_ELEV_OUTLIER_FT = 180;
 const RWGPS_ELEV_MEDIAN_WINDOW_POINTS = 5;
@@ -269,6 +293,8 @@ const customApplyUploadBtn = document.getElementById("custom-apply-upload-btn");
 const customStopEditor = document.getElementById("custom-stop-editor");
 const customStopEditorNote = document.getElementById("custom-stop-editor-note");
 const customStopList = document.getElementById("custom-stop-list");
+const customStopCountInput = document.getElementById("custom-stop-count");
+const customRegenerateStopsBtn = document.getElementById("custom-regenerate-stops-btn");
 const customDeleteRouteBtn = document.getElementById("custom-delete-route-btn");
 const exportBtn = document.getElementById("export-btn");
 const exportExcelBtn = document.getElementById("export-excel-btn");
@@ -302,6 +328,7 @@ const undoBtn = document.getElementById("undo-btn");
 const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
 const signedInUserLabel = document.getElementById("signed-in-user-label");
+const accountHelperCopy = document.getElementById("account-helper-copy");
 const homeViewBtn = document.getElementById("home-view-btn");
 const liveTrackerViewBtn = document.getElementById("live-tracker-view-btn");
 const publishedRoutesViewBtn = document.getElementById("published-routes-view-btn");
@@ -530,6 +557,10 @@ const HOME_ROUTE_DETAILS = {
     location: "Andes, Peru",
     ridingType: "High-altitude mixed terrain expedition route"
   },
+  silk_road_mountain_race: {
+    location: "Kyrgyzstan, Tian Shan mountains",
+    ridingType: "High-altitude ultra-endurance mountain bike race"
+  },
   custom_ride: {
     location: "Your uploaded route",
     ridingType: "Custom"
@@ -542,7 +573,8 @@ const LEGACY_ROUTE_DISTANCES = {
   colorado_trail: 527,
   azt_300: 300,
   azt_800: 800,
-  peruvian_divide: 998
+  peruvian_divide: 998,
+  silk_road_mountain_race: 1274
 };
 
 function getRouteFromUrl() {
@@ -914,6 +946,40 @@ function compactCustomRoutePayloadStore() {
   if (changed) saveCustomRoutePayloadStore(compacted);
 }
 
+function customRoutePlanStoragePrefix(routeId) {
+  return `my-route-${routeId}`;
+}
+
+function hasStoredCustomRouteSnapshot(routeId) {
+  if (!isNamedCustomRoute(routeId)) return false;
+  const payload = getCustomRoutePayload(routeId);
+  if (payload && hasValidCustomRideDataPayload(payload)) return true;
+  const storagePrefix = ROUTES[routeId]?.storagePrefix || customRoutePlanStoragePrefix(routeId);
+  const planKeys = [
+    `${storagePrefix}-plan-v1`,
+    `${storagePrefix}-local-profile-v1:${normalizeEmail(authUser?.email || "")}`
+  ].filter(Boolean);
+  return planKeys.some((key) => {
+    const rawValues = [localStorage.getItem(key), sessionStorage.getItem(key)];
+    return rawValues.some((raw) => {
+      if (!raw) return false;
+      try {
+        return hasValidCustomRideDataPayload(JSON.parse(raw));
+      } catch {
+        return false;
+      }
+    });
+  });
+}
+
+function compactCustomRouteRegistry() {
+  const registry = loadCustomRouteRegistry();
+  const compacted = registry.filter((entry) => hasStoredCustomRouteSnapshot(entry.id));
+  if (compacted.length === registry.length) return;
+  saveCustomRouteRegistry(compacted);
+  pruneNamedCustomRouteDefinitions(compacted.map((entry) => entry.id));
+}
+
 function getCustomRoutePayload(routeId) {
   if (!isNamedCustomRoute(routeId)) return null;
   const runtimePayload = runtimeCustomRoutePayloads.get(routeId);
@@ -947,6 +1013,37 @@ function removeCustomRoutePayload(routeId) {
   if (!store[routeId]) return;
   delete store[routeId];
   saveCustomRoutePayloadStore(store);
+}
+
+function removeCustomRouteLocalArtifacts(routeId) {
+  if (!isNamedCustomRoute(routeId)) return;
+  const routeDef = ROUTES[routeId];
+  if (!routeDef?.storagePrefix) return;
+  const email = normalizeEmail(authUser?.email || "");
+  const routeLocalKey = email ? `${routeDef.storagePrefix}-local-profile-v1:${email}` : "";
+  try {
+    localStorage.removeItem(`${routeDef.storagePrefix}-plan-v1`);
+    localStorage.removeItem(`${routeDef.storagePrefix}-comments-v1`);
+    localStorage.removeItem(`${routeDef.storagePrefix}-custom-resupply-stops-v1`);
+    sessionStorage.removeItem(`${routeDef.storagePrefix}-plan-v1`);
+    sessionStorage.removeItem(`${routeDef.storagePrefix}-comments-v1`);
+    sessionStorage.removeItem(`${routeDef.storagePrefix}-custom-resupply-stops-v1`);
+    if (routeLocalKey) {
+      localStorage.removeItem(routeLocalKey);
+      sessionStorage.removeItem(routeLocalKey);
+    }
+  } catch {
+    // Keep delete best-effort so stale route state does not block the UI.
+  }
+}
+
+function pruneNamedCustomRouteDefinitions(keepRouteIds = []) {
+  const keep = new Set(Array.isArray(keepRouteIds) ? keepRouteIds.map((routeId) => String(routeId || "")) : []);
+  Object.keys(ROUTES).forEach((routeId) => {
+    if (!isNamedCustomRoute(routeId)) return;
+    if (keep.has(routeId)) return;
+    delete ROUTES[routeId];
+  });
 }
 
 function saveCustomRouteHandoff(routeId, payload) {
@@ -1014,7 +1111,8 @@ async function loadCustomRouteRegistryFromCloud() {
     const data = snapshot.data() || {};
     const customRoutesMap = data?.customRoutes && typeof data.customRoutes === "object" ? data.customRoutes : {};
     const hasPersistedPayload = (routeId) => hasValidCustomRideDataPayload(customRoutesMap?.[routeId]);
-    const cloudRoutes = Array.isArray(data.customRouteRegistry)
+    const hasRegistryField = Array.isArray(data.customRouteRegistry);
+    const cloudRoutes = hasRegistryField
       ? data.customRouteRegistry
           .map((entry) => ({
             id: String(entry?.id || ""),
@@ -1022,8 +1120,20 @@ async function loadCustomRouteRegistryFromCloud() {
           }))
           .filter((entry) => isNamedCustomRoute(entry.id) && hasPersistedPayload(entry.id))
       : [];
-    Object.keys(customRoutesMap).forEach((routeId) => {
-      if (!isNamedCustomRoute(routeId)) return;
+    const routeIdsToRestore = new Set(cloudRoutes.map((entry) => entry.id));
+    if (!hasRegistryField) {
+      Object.keys(customRoutesMap).forEach((routeId) => {
+        if (!isNamedCustomRoute(routeId)) return;
+        const routeData = customRoutesMap[routeId] || {};
+        if (!hasValidCustomRideDataPayload(routeData)) return;
+        routeIdsToRestore.add(routeId);
+        cloudRoutes.push({
+          id: routeId,
+          name: sanitizeCustomRouteName(routeData?.routeName || "My Route")
+        });
+      });
+    }
+    routeIdsToRestore.forEach((routeId) => {
       const routeData = customRoutesMap[routeId] || {};
       if (!hasValidCustomRideDataPayload(routeData)) return;
       upsertCustomRoutePayload(routeId, {
@@ -1031,17 +1141,19 @@ async function loadCustomRouteRegistryFromCloud() {
         customRideData: routeData.customRideData,
         updatedAt: routeData.updatedAt || new Date().toISOString()
       });
-      cloudRoutes.push({
-        id: routeId,
-        name: sanitizeCustomRouteName(routeData?.routeName || "My Route")
-      });
     });
-    if (!cloudRoutes.length) return;
+    saveCustomRouteRegistry(cloudRoutes);
+    pruneNamedCustomRouteDefinitions(cloudRoutes.map((entry) => entry.id));
+    if (!cloudRoutes.length) {
+      renderCustomRouteButtons();
+      return;
+    }
     const mergedById = new Map();
     loadCustomRouteRegistry().forEach((entry) => mergedById.set(entry.id, entry));
     cloudRoutes.forEach((entry) => mergedById.set(entry.id, entry));
     const merged = Array.from(mergedById.values());
     saveCustomRouteRegistry(merged);
+    pruneNamedCustomRouteDefinitions(merged.map((entry) => entry.id));
     hydrateCustomRoutesFromRegistry();
     renderCustomRouteButtons();
   } catch {
@@ -1165,21 +1277,7 @@ function removeCustomRouteRegistryEntry(routeId) {
 
 function removeCustomRouteById(routeId) {
   if (!isNamedCustomRoute(routeId)) return false;
-
-  const routeDef = ROUTES[routeId];
-  if (routeDef?.storagePrefix) {
-    try {
-      localStorage.removeItem(`${routeDef.storagePrefix}-plan-v1`);
-      localStorage.removeItem(`${routeDef.storagePrefix}-comments-v1`);
-      localStorage.removeItem(`${routeDef.storagePrefix}-custom-resupply-stops-v1`);
-      if (authUser?.email) {
-        localStorage.removeItem(`${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`);
-      }
-    } catch {
-      // Keep delete best-effort so route creation can continue.
-    }
-  }
-
+  removeCustomRouteLocalArtifacts(routeId);
   removeCustomRoutePayload(routeId);
   removeCustomRouteRegistryEntry(routeId);
   if (ROUTES[routeId]) delete ROUTES[routeId];
@@ -1348,12 +1446,14 @@ function applyAccountStatePayload(payload) {
     savePinnedBuiltinRouteIds(payload.pinnedBuiltinRouteIds);
     renderPinnedBuiltinRouteButtons();
   }
-  const payloadStore = payload.customRoutePayloads && typeof payload.customRoutePayloads === "object"
-    ? payload.customRoutePayloads
-    : {};
+  const hasPayloadStore = Boolean(payload.customRoutePayloads && typeof payload.customRoutePayloads === "object");
+  const payloadStore = hasPayloadStore ? payload.customRoutePayloads : {};
   const validPayloadRouteIds = new Set();
-  if (Object.keys(payloadStore).length) {
+  if (hasPayloadStore) {
     saveCustomRoutePayloadStore(payloadStore);
+    Array.from(runtimeCustomRoutePayloads.keys()).forEach((routeId) => {
+      if (isNamedCustomRoute(routeId)) runtimeCustomRoutePayloads.delete(routeId);
+    });
     Object.entries(payloadStore).forEach(([routeId, routePayload]) => {
       if (!isNamedCustomRoute(routeId)) return;
       if (!hasValidCustomRideDataPayload(routePayload)) return;
@@ -1361,12 +1461,14 @@ function applyAccountStatePayload(payload) {
       upsertCustomRoutePayload(routeId, routePayload);
     });
   }
-  const registry = Array.isArray(payload.customRouteRegistry) ? payload.customRouteRegistry : [];
-  if (registry.length) {
+  const hasRegistry = Array.isArray(payload.customRouteRegistry);
+  const registry = hasRegistry ? payload.customRouteRegistry : [];
+  if (hasRegistry) {
     const filteredRegistry = validPayloadRouteIds.size
       ? registry.filter((entry) => validPayloadRouteIds.has(String(entry?.id || "")))
       : registry;
     saveCustomRouteRegistry(filteredRegistry);
+    pruneNamedCustomRouteDefinitions(filteredRegistry.map((entry) => String(entry?.id || "")));
     hydrateCustomRoutesFromRegistry();
   }
   renderCustomRouteButtons();
@@ -2075,6 +2177,7 @@ function renderHomeRouteCollection() {
     "azt_300",
     "azt_800",
     "peruvian_divide",
+    "silk_road_mountain_race",
     "custom_ride"
   ];
   order.forEach((routeId) => {
@@ -3535,11 +3638,16 @@ function refreshCustomRouteVisibility(routeId) {
   if ((isBuilder || isMyRoute) && customRouteNameInput) {
     customRouteNameInput.value = customRouteDisplayName;
   }
+  if (customStopCountInput) customStopCountInput.disabled = !isMyRoute;
+  if (customRegenerateStopsBtn) customRegenerateStopsBtn.disabled = !isMyRoute;
 }
 
 function renderCustomStopEditor() {
   if (!customStopList || !customStopEditorNote || !isCustomRouteActive()) return;
   customStopList.innerHTML = "";
+  if (customStopCountInput) {
+    customStopCountInput.value = String(Math.max(2, Math.min(60, Number(resupplyPoints.length || 2))));
+  }
   if (!resupplyPoints.length) {
     customStopEditorNote.textContent = "Upload a custom GPX route to edit stops.";
     return;
@@ -3677,6 +3785,22 @@ function refreshResupplyUIAfterChange() {
   }
   if (isCustomRouteActive()) renderCustomStopEditor();
   applyDragModeToMarkers();
+}
+
+function regenerateCustomResupplyPoints(targetCount) {
+  if (!isCustomRouteActive()) return false;
+  if (customUploadedTrackPoints.length < 2 || trackCumulativeMiles.length < 2) {
+    setCloudStatus("Upload or load a custom GPX route before regenerating stops.");
+    return false;
+  }
+  const safeCount = Math.max(2, Math.min(60, Number(targetCount || resupplyPoints.length || 2)));
+  resupplyPoints = buildEvenResupplyPointsFromTrack(customUploadedTrackPoints, safeCount, trackCumulativeMiles).map((point) => ({
+    ...point,
+    isCustom: true
+  }));
+  refreshResupplyUIAfterChange();
+  setCloudStatus(`Generated ${safeCount} resupply points for this route.`);
+  return true;
 }
 
 function enforceSiteBranding() {
@@ -3847,9 +3971,26 @@ function setUnsignedWarningVisible(visible) {
   unsignedWarningBanner.hidden = !visible;
 }
 
+function setAccountDropdownOpen(open) {
+  if (!accountDropdown || !accountToggleBtn) return;
+  accountDropdown.hidden = !open;
+  accountToggleBtn.setAttribute("aria-expanded", String(Boolean(open)));
+}
+
+function syncAuthActionVisibility() {
+  const isSignedIn = Boolean(normalizeEmail(authUser?.email || ""));
+  if (signInBtn) signInBtn.hidden = isSignedIn;
+  if (signUpBtn) signUpBtn.hidden = isSignedIn;
+  if (signInGoogleBtn) signInGoogleBtn.hidden = isSignedIn;
+  if (syncNowBtn) syncNowBtn.hidden = !isSignedIn;
+  if (signOutBtn) signOutBtn.hidden = !isSignedIn;
+}
+
 function updateSignedInIndicators() {
   const email = normalizeEmail(authUser?.email || "");
   const isSignedIn = Boolean(email);
+  syncAuthActionVisibility();
+  document.body.classList.toggle("signed-in-mode", isSignedIn);
 
   if (signedInUserLabel) {
     if (isSignedIn) {
@@ -3859,6 +4000,12 @@ function updateSignedInIndicators() {
       signedInUserLabel.hidden = true;
       signedInUserLabel.textContent = "Not signed in";
     }
+  }
+
+  if (accountHelperCopy) {
+    accountHelperCopy.textContent = isSignedIn
+      ? "Your planner is connected. Use your account panel to sync changes, manage custom routes, or sign out when you're done."
+      : "Create an account or sign in to sync your routes, planner edits, and custom GPX uploads.";
   }
 
   if (isSignedIn) {
@@ -4354,7 +4501,7 @@ function setMyRouteShortcutVisible(visible) {
 
 function updateAccountToggleLabel() {
   if (!accountToggleBtn) return;
-  accountToggleBtn.textContent = authUser ? "Account" : "Sign In";
+  accountToggleBtn.textContent = authUser ? "Manage Account" : "Sign In / Sync";
   updateSignedInIndicators();
 }
 
@@ -4750,6 +4897,9 @@ async function deleteCustomRouteData() {
     localStorage.removeItem(routeStopsKey);
     localStorage.removeItem(routeStorageKey);
     localStorage.removeItem(routeCommentsKey);
+    sessionStorage.removeItem(routeStopsKey);
+    sessionStorage.removeItem(routeStorageKey);
+    sessionStorage.removeItem(routeCommentsKey);
     removeCustomRoutePayload(routeId);
     removeCustomRouteRegistryEntry(routeId);
     renderCustomRouteButtons();
@@ -4807,6 +4957,7 @@ async function deleteCustomRouteData() {
         if (localAuthMode) {
           const routeLocalKey = `${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`;
           localStorage.removeItem(routeLocalKey);
+          sessionStorage.removeItem(routeLocalKey);
         } else if (firestoreDb && window.firebase?.firestore?.FieldValue && authUser?.uid) {
           const cloudDocId = cloudProfileDocIdForRoute(routeId, authUser.uid);
           if (isNamedCustomRoute(routeId)) {
@@ -6130,6 +6281,7 @@ async function bootstrapSignedInUser(user, version = authStateVersion) {
   await refreshMyRouteShortcutVisibility();
   if (version !== authStateVersion) return;
   updateAccountToggleLabel();
+  setAccountDropdownOpen(false);
   updatePublishRoutePanel();
   if (map) {
     setTimeout(() => {
@@ -6974,9 +7126,7 @@ function setupAccountMenu() {
   if (!accountToggleBtn || !accountDropdown) return;
 
   accountToggleBtn.addEventListener("click", () => {
-    const open = !accountDropdown.hidden;
-    accountDropdown.hidden = open;
-    accountToggleBtn.setAttribute("aria-expanded", String(!open));
+    setAccountDropdownOpen(accountDropdown.hidden);
   });
 
   document.addEventListener("click", (event) => {
@@ -6984,8 +7134,13 @@ function setupAccountMenu() {
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (accountDropdown.contains(target) || accountToggleBtn.contains(target)) return;
-    accountDropdown.hidden = true;
-    accountToggleBtn.setAttribute("aria-expanded", "false");
+    setAccountDropdownOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !accountDropdown.hidden) {
+      setAccountDropdownOpen(false);
+    }
   });
 }
 
@@ -9529,6 +9684,17 @@ if (customApplyUploadBtn) {
   });
 }
 
+if (customRegenerateStopsBtn) {
+  customRegenerateStopsBtn.addEventListener("click", async () => {
+    const safeCount = Math.max(2, Math.min(60, Number(customStopCountInput?.value || resupplyPoints.length || 2)));
+    if (!regenerateCustomResupplyPoints(safeCount)) return;
+    if (customStopCountInput) customStopCountInput.value = String(safeCount);
+    await persistMyRouteSnapshot({
+      syncCloud: Boolean(cloudReady() && !localAuthMode)
+    });
+  });
+}
+
 if (customUploadPanel) {
   const dropzone = customUploadPanel.querySelector(".upload-dropzone");
   if (dropzone && customGpxFileInput && customGpxStatus) {
@@ -10068,9 +10234,12 @@ if (authForm) {
 
 signUpBtn.addEventListener("click", async () => {
   if (authBusy) return;
+  setAccountDropdownOpen(true);
   const { email, password } = authCredentials();
   if (!email || password.length < 6) {
     setCloudStatus("Enter email and password (6+ chars).");
+    if (!email && authEmailInput) authEmailInput.focus();
+    if (email && authPasswordInput) authPasswordInput.focus();
     return;
   }
   if (!firebaseAuth) {
@@ -10090,23 +10259,29 @@ signUpBtn.addEventListener("click", async () => {
       setAuthBusyState(false);
       if (authPasswordInput) authPasswordInput.value = "";
       setCloudStatus(`Account created for ${email}. Check your email to confirm the account, then sign in.`);
+      if (authPasswordInput) authPasswordInput.focus();
     } else {
       finishPendingAuthState();
       setAuthBusyState(false);
       setCloudStatus(`Account created for ${email}. Sign in to continue.`);
+      if (authPasswordInput) authPasswordInput.focus();
     }
   } catch (error) {
     finishPendingAuthState();
     setAuthBusyState(false);
     setCloudStatus(`Sign up failed: ${describeAuthError(error, "sign_up")}`);
+    if (authPasswordInput) authPasswordInput.focus();
   }
 });
 
 signInBtn.addEventListener("click", async () => {
   if (authBusy) return;
+  setAccountDropdownOpen(true);
   const { email, password } = authCredentials();
   if (!email || !password) {
     setCloudStatus("Enter email and password to sign in.");
+    if (!email && authEmailInput) authEmailInput.focus();
+    if (email && authPasswordInput) authPasswordInput.focus();
     return;
   }
   if (!firebaseAuth) {
@@ -10123,12 +10298,14 @@ signInBtn.addEventListener("click", async () => {
     finishPendingAuthState();
     setAuthBusyState(false);
     setCloudStatus(`Sign in failed: ${describeAuthError(error, "sign_in")}`);
+    if (authPasswordInput) authPasswordInput.focus();
   }
 });
 
 if (signInGoogleBtn) {
   signInGoogleBtn.addEventListener("click", async () => {
     if (authBusy) return;
+    setAccountDropdownOpen(true);
     if (localAuthMode) {
       setCloudStatus("Google sign-in requires cloud auth mode.");
       return;
@@ -10173,6 +10350,7 @@ if (signInGoogleBtn) {
 
 signOutBtn.addEventListener("click", async () => {
   if (authBusy) return;
+  setAccountDropdownOpen(true);
   setAuthBusyState(true);
   finishPendingAuthState();
   manualSignOutInProgress = true;
@@ -10234,6 +10412,7 @@ syncNowBtn.addEventListener("click", async () => {
     return;
   }
   if (authBusy) return;
+  setAccountDropdownOpen(true);
   setAuthBusyState(true);
   setCloudStatus("Manual sync requested...");
   try {
@@ -10340,6 +10519,7 @@ window.addEventListener("popstate", () => {
 
 migrateLegacyMyRouteStorage();
 compactCustomRoutePayloadStore();
+compactCustomRouteRegistry();
 hydrateCustomRoutesFromRegistry();
 renderPinnedBuiltinRouteButtons();
 renderCustomRouteButtons();

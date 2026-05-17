@@ -116,6 +116,15 @@ body {
 }
 
 @media (max-width: 540px) {
+  .hero-copy,
+  .hero-auth-card {
+    border-radius: 20px;
+  }
+
+  .hero-copy {
+    padding: 1rem;
+  }
+
   .home-photo-strip {
     grid-template-columns: 1fr;
   }
@@ -527,29 +536,102 @@ body {
 .hero {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 2.5rem 1rem 1rem;
+  padding: 2rem 1rem 1rem;
 }
 
 .hero-top {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
   gap: 1rem;
-  align-items: flex-start;
+  align-items: stretch;
+}
+
+body.signed-in-mode .hero-top {
+  display: none;
+}
+
+body.signed-in-mode .hero {
+  padding-top: 1rem;
 }
 
 .account-menu {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 0.3rem;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.hero-copy,
+.hero-auth-card {
+  border: 1px solid rgba(89, 104, 95, 0.18);
+  border-radius: 24px;
+  box-shadow: 0 24px 56px rgba(24, 34, 28, 0.14);
+}
+
+.hero-copy {
+  padding: 1.35rem 1.4rem 1.45rem;
+  background:
+    radial-gradient(circle at top left, rgba(29, 127, 91, 0.12), transparent 42%),
+    linear-gradient(145deg, rgba(255, 252, 245, 0.98), rgba(244, 237, 225, 0.96));
+}
+
+.hero-auth-card {
+  padding: 1.15rem;
+  background:
+    linear-gradient(180deg, rgba(19, 47, 39, 0.96), rgba(31, 71, 57, 0.96)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 58%);
+  color: #f3efe5;
+}
+
+.account-card-kicker {
+  margin: 0;
+  color: #b8d9c8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-card-title {
+  margin: 0;
+  font-size: clamp(1.45rem, 3.2vw, 2rem);
+  line-height: 1.05;
+}
+
+.account-helper-copy {
+  margin: 0;
+  color: rgba(243, 239, 229, 0.82);
+  line-height: 1.55;
+}
+
+.account-summary {
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(208, 225, 216, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .signed-in-user-label {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  color: var(--ink-soft);
+  color: #f4efe5;
+}
+
+.cloud-status {
+  margin: 0;
+  color: rgba(243, 239, 229, 0.82);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.account-toggle-btn {
+  display: inline-flex;
+  width: 100%;
+  justify-content: center;
 }
 
 .site-title {
@@ -559,20 +641,29 @@ body {
 .account-dropdown {
   position: absolute;
   right: 0;
-  top: calc(100% + 0.4rem);
-  width: min(460px, 92vw);
+  top: calc(100% + 0.3rem);
+  width: min(460px, 94vw);
   z-index: 20;
-  border: 1px solid #c9bea9;
-  border-radius: 12px;
-  background: #fffdf8;
-  padding: 0.7rem;
-  box-shadow: 0 18px 34px rgba(17, 21, 19, 0.2);
+  border: 1px solid rgba(31, 55, 45, 0.2);
+  border-radius: 18px;
+  background: #fffdf9;
+  padding: 0.95rem;
+  box-shadow: 0 22px 46px rgba(17, 21, 19, 0.24);
 }
 
-.account-dropdown > p {
-  margin: 0 0 0.55rem;
+.account-dropdown-head {
+  margin-bottom: 0.9rem;
+}
+
+.account-dropdown-head h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.account-dropdown-head p {
+  margin: 0.35rem 0 0;
   color: var(--ink-soft);
-  font-size: 0.84rem;
+  font-size: 0.92rem;
 }
 
 .eyebrow {
@@ -595,6 +686,40 @@ h1 {
   font-family: "Bebas Neue", sans-serif;
   font-size: clamp(2.8rem, 8vw, 5.4rem);
   letter-spacing: 0.03em;
+}
+
+.hero-lead {
+  margin: 0.7rem 0 0;
+  max-width: 740px;
+  color: #39453f;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.hero-proof {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.hero-proof-item {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.9rem 0.95rem;
+  border: 1px solid rgba(136, 124, 102, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.hero-proof-item strong {
+  font-size: 0.92rem;
+}
+
+.hero-proof-item span {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .planner-route-title {
@@ -739,6 +864,12 @@ h1 {
   background: #ecf7ef;
   border-color: #469966;
   color: #1f6f45;
+}
+
+.unsigned-warning-banner.is-error {
+  background: #fff1f0;
+  border-color: #cf5a4a;
+  color: #8a2518;
 }
 
 .tabs {
@@ -913,6 +1044,32 @@ body.home-only-mode .tab-panel {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.auth-primary-actions,
+.auth-secondary-actions {
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+
+.auth-benefit-list {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.45rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid #e2d8c5;
+}
+
+.auth-benefit-list p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.auth-benefit-list p::before {
+  content: "•";
+  margin-right: 0.45rem;
+  color: var(--accent);
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -959,10 +1116,36 @@ select:focus {
   font-family: inherit;
   font-weight: 700;
   cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
 .btn:hover {
   transform: translateY(-1px);
+}
+
+.btn.is-loading {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: progress;
+}
+
+.btn.is-loading::before {
+  content: "";
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: button-spin 0.75s linear infinite;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .btn-primary {
@@ -1751,7 +1934,11 @@ body.custom-builder-only-mode #planner-subhead {
   }
 
   .hero-top {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+
+  .hero-proof {
+    grid-template-columns: 1fr;
   }
 
   .account-dropdown {
@@ -1838,9 +2025,3 @@ body.custom-builder-only-mode #planner-subhead {
     grid-template-columns: 1fr;
   }
 }
-.unsigned-warning-banner.is-error {
-  background: #fff1f0;
-  border-color: #cf5a4a;
-  color: #8a2518;
-}
-

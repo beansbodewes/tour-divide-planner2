@@ -27,31 +27,70 @@
     <div class="bg-grid" aria-hidden="true"></div>
     <header class="hero">
       <div class="hero-top">
-        <h1 class="site-title">Bikepack Finishers</h1>
-        <div class="account-menu">
-          <button id="account-toggle-btn" class="btn" type="button" aria-expanded="false" aria-controls="account-dropdown">Sign In</button>
-          <p id="signed-in-user-label" class="signed-in-user-label" hidden>Not signed in</p>
+        <section class="hero-copy" aria-label="Bikepack Finishers introduction">
+          <p class="eyebrow">Bikepacking route planner</p>
+          <h1 class="site-title">Bikepack Finishers</h1>
+          <p class="hero-lead">
+            A cleaner planning workspace for long routes: build daily targets, compare route options, and keep your ride notes,
+            resupply ideas, and map context in one place.
+          </p>
+          <div class="hero-proof">
+            <div class="hero-proof-item">
+              <strong>Route-first planning</strong>
+              <span>Open a route, review terrain, and build a day-by-day plan without bouncing between tools.</span>
+            </div>
+            <div class="hero-proof-item">
+              <strong>Account-backed progress</strong>
+              <span>Sign in once to keep your planner, custom GPX routes, and notes available across devices.</span>
+            </div>
+            <div class="hero-proof-item">
+              <strong>Built for race prep</strong>
+              <span>Use route profiles, resupply stops, comments, and exports to prepare faster and stay organized.</span>
+            </div>
+          </div>
+        </section>
+        <aside class="account-menu hero-auth-card" aria-label="Account access">
+          <p class="account-card-kicker">Account</p>
+          <h2 class="account-card-title">Save your planner and pick up where you left off</h2>
+          <p id="account-helper-copy" class="account-helper-copy">
+            Create an account or sign in to sync your routes, planner edits, and custom GPX uploads.
+          </p>
+          <div class="account-summary">
+            <p id="signed-in-user-label" class="signed-in-user-label" hidden>Not signed in</p>
+            <p id="cloud-status" class="cloud-status">Cloud sync off (local-only mode).</p>
+          </div>
+          <button id="account-toggle-btn" class="btn btn-primary account-toggle-btn" type="button" aria-expanded="false" aria-controls="account-dropdown">Sign In / Sync</button>
           <section id="account-dropdown" class="account-dropdown" hidden>
-            <p id="cloud-status">Cloud sync off (local-only mode).</p>
+            <div class="account-dropdown-head">
+              <h3>Sign in to your planner</h3>
+              <p>Use email and password or continue with Google.</p>
+            </div>
             <form id="auth-form" class="cloud-auth-form">
               <label>
                 Email
-                <input id="auth-email" type="email" placeholder="you@example.com" />
+                <input id="auth-email" type="email" placeholder="you@example.com" autocomplete="email" />
               </label>
               <label>
                 Password
-                <input id="auth-password" type="password" placeholder="At least 6 characters" />
+                <input id="auth-password" type="password" placeholder="At least 6 characters" autocomplete="current-password" />
               </label>
-              <div class="button-row">
-                <button id="sign-up-btn" class="btn" type="button">Sign Up</button>
+              <div class="button-row auth-primary-actions">
                 <button id="sign-in-btn" class="btn btn-primary" type="button">Sign In</button>
-                <button id="sign-in-google-btn" class="btn" type="button">Sign In with Google</button>
-                <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
+                <button id="sign-up-btn" class="btn" type="button">Create Account</button>
+                <button id="sign-in-google-btn" class="btn" type="button">Continue with Google</button>
+              </div>
+              <div class="button-row auth-secondary-actions">
                 <button id="sync-now-btn" class="btn" type="button">Sync Now</button>
+                <button id="sign-out-btn" class="btn" type="button">Sign Out</button>
               </div>
             </form>
+            <div class="auth-benefit-list" aria-label="Account benefits">
+              <p>Keep planner progress across devices</p>
+              <p>Reload your custom routes after a refresh</p>
+              <p>Access paid or published routes with the same account</p>
+            </div>
           </section>
-        </div>
+        </aside>
       </div>
       <section class="route-switcher-wrap">
         <p class="route-switcher-label">Route Collection</p>
@@ -178,6 +217,7 @@
                   <option value="azt_300">AZT 300</option>
                   <option value="azt_800">AZT 800</option>
                   <option value="peruvian_divide">Peruvian Divide Trail</option>
+                  <option value="silk_road_mountain_race">Silk Road Mountain Race</option>
                   <option value="custom_ride">Create Your Own Ride</option>
                 </select>
               </label>
@@ -516,6 +556,15 @@
             <div id="custom-stop-editor" class="add-stop-panel" hidden>
               <h3>Custom Resupply Points</h3>
               <p id="custom-stop-editor-note" class="empty-note">Upload a custom GPX route to edit stops.</p>
+              <div class="control-grid">
+                <label>
+                  Resupply point count
+                  <input id="custom-stop-count" type="number" min="2" max="60" value="12" />
+                </label>
+                <div class="button-row" style="align-items: end;">
+                  <button id="custom-regenerate-stops-btn" class="btn" type="button">Regenerate Stops</button>
+                </div>
+              </div>
               <div id="custom-stop-list" class="custom-stop-list"></div>
               <div class="button-row">
                 <button id="custom-delete-route-btn" class="btn" type="button">Delete Route</button>
@@ -809,7 +858,7 @@
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "140";
+        const BUILD_VERSION = "141";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);
