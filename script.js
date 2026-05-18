@@ -291,12 +291,6 @@ const customGpxStatus = document.getElementById("custom-gpx-status");
 const customRouteNameInput = document.getElementById("custom-route-name");
 const customProjectedResuppliesInput = document.getElementById("custom-projected-resupplies");
 const customApplyUploadBtn = document.getElementById("custom-apply-upload-btn");
-const customStopEditor = document.getElementById("custom-stop-editor");
-const customStopEditorNote = document.getElementById("custom-stop-editor-note");
-const customStopList = document.getElementById("custom-stop-list");
-const customStopCountInput = document.getElementById("custom-stop-count");
-const customRegenerateStopsBtn = document.getElementById("custom-regenerate-stops-btn");
-const customDeleteRouteBtn = document.getElementById("custom-delete-route-btn");
 const exportBtn = document.getElementById("export-btn");
 const exportExcelBtn = document.getElementById("export-excel-btn");
 const exportFormatSelect = document.getElementById("export-format");
@@ -307,6 +301,7 @@ const publishVisibilitySelect = document.getElementById("publish-visibility");
 const publishPriceInput = document.getElementById("publish-price");
 const publishRouteBtn = document.getElementById("publish-route-btn");
 const unpublishRouteBtn = document.getElementById("unpublish-route-btn");
+const customDeleteRouteBtn = document.getElementById("custom-delete-route-btn");
 const publishRouteStatus = document.getElementById("publish-route-status");
 const publishConfirmModal = document.getElementById("publish-confirm-modal");
 const publishConfirmSummary = document.getElementById("publish-confirm-summary");
@@ -395,7 +390,6 @@ const fitRouteBtn = document.getElementById("fit-route-btn");
 const mapStyleSelect = document.getElementById("map-style-select");
 const mapboxTokenBtn = document.getElementById("mapbox-token-btn");
 const CUSTOM_DELETE_ROUTE_DEFAULT_LABEL = "Delete Route";
-
 const commentForm = document.getElementById("comment-form");
 const commentSectionSelect = document.getElementById("comment-section");
 const commentMileInput = document.getElementById("comment-mile");
@@ -704,7 +698,6 @@ async function refreshRouteContentForCurrentLocation() {
     if (trackPoints.length < 2) throw new Error("Not enough track points in GPX");
     applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
     hardRebuildMapUi();
-    if (isCustomRouteActive()) renderCustomStopEditor();
   } catch (error) {
     clearRenderedRouteLayers();
     const detail = error instanceof Error ? error.message : "Unknown GPX load error";
@@ -2664,6 +2657,7 @@ function updatePublishRoutePanel(options = {}) {
 
   if (publishRouteBadge) publishRouteBadge.hidden = !currentPublish;
   if (unpublishRouteBtn) unpublishRouteBtn.hidden = !currentPublish;
+  if (customDeleteRouteBtn) customDeleteRouteBtn.hidden = !isCustomRoute;
 
   if (currentPublish && publishVisibilitySelect) {
     publishVisibilitySelect.value = currentPublish.publishMode;
@@ -2677,6 +2671,7 @@ function updatePublishRoutePanel(options = {}) {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    if (customDeleteRouteBtn) customDeleteRouteBtn.disabled = true;
     if (!preserveStatus) setPublishRouteStatus("Create or open a custom route to publish it from this section.", false);
     return;
   }
@@ -2689,6 +2684,7 @@ function updatePublishRoutePanel(options = {}) {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    if (customDeleteRouteBtn) customDeleteRouteBtn.disabled = !isCustomRoute;
     if (!preserveStatus) setPublishRouteStatus("Upload or open a saved custom route before publishing.", true);
     return;
   }
@@ -2701,6 +2697,7 @@ function updatePublishRoutePanel(options = {}) {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    if (customDeleteRouteBtn) customDeleteRouteBtn.disabled = !isCustomRoute;
     if (!preserveStatus) setPublishRouteStatus("Sign in first so you can publish this route for other riders.", true);
     return;
   }
@@ -2713,6 +2710,7 @@ function updatePublishRoutePanel(options = {}) {
       publishRouteBtn.textContent = "Publish Route";
     }
     if (unpublishRouteBtn) unpublishRouteBtn.disabled = true;
+    if (customDeleteRouteBtn) customDeleteRouteBtn.disabled = !isCustomRoute;
     if (!preserveStatus) setPublishRouteStatus("Public publishing is unavailable in local-account mode.", true);
     return;
   }
@@ -2724,6 +2722,7 @@ function updatePublishRoutePanel(options = {}) {
     publishRouteBtn.textContent = currentPublish ? "Update Published Route" : "Publish Route";
   }
   if (unpublishRouteBtn) unpublishRouteBtn.disabled = false;
+  if (customDeleteRouteBtn) customDeleteRouteBtn.disabled = !isCustomRoute;
   if (currentPublish) {
     if (!preserveStatus) {
       setPublishRouteStatus(
@@ -3736,70 +3735,9 @@ function refreshCustomRouteVisibility(routeId) {
   if (exportPanel) exportPanel.hidden = isBuilder;
   if (daysPanel) daysPanel.hidden = isBuilder;
   if (planControlsPanel) planControlsPanel.classList.remove("plan-controls--builder-only");
-  if (customStopEditor) customStopEditor.hidden = !isMyRoute;
   if ((isBuilder || isMyRoute) && customRouteNameInput) {
     customRouteNameInput.value = customRouteDisplayName;
   }
-  if (customStopCountInput) customStopCountInput.disabled = !isMyRoute;
-  if (customRegenerateStopsBtn) customRegenerateStopsBtn.disabled = !isMyRoute;
-}
-
-function renderCustomStopEditor() {
-  if (!customStopList || !customStopEditorNote || !isCustomRouteActive()) return;
-  customStopList.innerHTML = "";
-  if (customStopCountInput) {
-    customStopCountInput.value = String(Math.max(2, Math.min(60, Number(resupplyPoints.length || 2))));
-  }
-  if (!resupplyPoints.length) {
-    customStopEditorNote.textContent = "Upload a custom GPX route to edit stops.";
-    return;
-  }
-  customStopEditorNote.textContent = "Edit stop names and mile markers. Map + comments update automatically.";
-  resupplyPoints.forEach((point, index) => {
-    const row = document.createElement("article");
-    row.className = "custom-stop-row";
-    row.innerHTML = `
-      <label>
-        Stop name
-        <input type="text" class="custom-stop-name-input" />
-      </label>
-      <label>
-        Mile
-        <input type="number" class="custom-stop-mile-input" min="0" step="0.1" />
-      </label>
-      <label>
-        Notes
-        <input type="text" class="custom-stop-note-input" />
-      </label>
-    `;
-    const nameInput = row.querySelector(".custom-stop-name-input");
-    const mileInput = row.querySelector(".custom-stop-mile-input");
-    const noteInput = row.querySelector(".custom-stop-note-input");
-    nameInput.value = point.name;
-    mileInput.value = String(Number(point.mile || 0));
-    noteInput.value = point.resupply || "";
-
-    const sync = () => {
-      const routeMax = trackCumulativeMiles[trackCumulativeMiles.length - 1] || getRouteDistanceInputMiles();
-      const mile = Math.max(0, Math.min(routeMax, Number(mileInput.value || 0)));
-      const snapped = pointAtMile(gpxTrackPoints, trackCumulativeMiles, mile);
-      resupplyPoints[index] = {
-        ...resupplyPoints[index],
-        name: nameInput.value.trim() || `Stop ${index + 1}`,
-        mile: Number(mile.toFixed(1)),
-        lat: snapped.lat,
-        lon: snapped.lon,
-        resupply: noteInput.value.trim()
-      };
-      refreshResupplyUIAfterChange();
-      renderCustomStopEditor();
-    };
-
-    [nameInput, mileInput, noteInput].forEach((input) => {
-      input.addEventListener("input", sync);
-    });
-    customStopList.appendChild(row);
-  });
 }
 
 function loadCustomResupplyStops() {
@@ -3885,24 +3823,7 @@ function refreshResupplyUIAfterChange() {
     const config = parseForm();
     if (config) renderMetrics(config, plan);
   }
-  if (isCustomRouteActive()) renderCustomStopEditor();
   applyDragModeToMarkers();
-}
-
-function regenerateCustomResupplyPoints(targetCount) {
-  if (!isCustomRouteActive()) return false;
-  if (customUploadedTrackPoints.length < 2 || trackCumulativeMiles.length < 2) {
-    setCloudStatus("Upload or load a custom GPX route before regenerating stops.");
-    return false;
-  }
-  const safeCount = Math.max(2, Math.min(60, Number(targetCount || resupplyPoints.length || 2)));
-  resupplyPoints = buildEvenResupplyPointsFromTrack(customUploadedTrackPoints, safeCount, trackCumulativeMiles).map((point) => ({
-    ...point,
-    isCustom: true
-  }));
-  refreshResupplyUIAfterChange();
-  setCloudStatus(`Generated ${safeCount} resupply points for this route.`);
-  return true;
 }
 
 function enforceSiteBranding() {
@@ -5053,7 +4974,6 @@ async function deleteCustomRouteData() {
     routeProfileInitializedView = false;
     setupRouteProfileScroll();
     renderRouteProfile();
-    renderCustomStopEditor();
     renderComments();
 
     if (cloudReady()) {
@@ -9443,7 +9363,6 @@ async function initMap() {
   try {
     applyTrackToMap(trackPoints, { fitBounds: true, rebuildPlan: !plan.length });
     hardRebuildMapUi();
-    if (isCustomRouteActive()) renderCustomStopEditor();
     setTimeout(() => ensureMapArtifacts(), 200);
     setTimeout(() => ensureMapArtifacts(), 900);
     setTimeout(() => ensureMapArtifacts(), 1800);
@@ -9839,17 +9758,6 @@ if (customApplyUploadBtn) {
       customApplyUploadBtn.disabled = false;
       customApplyUploadBtn.textContent = originalCreateRouteLabel || "Create Route";
     }
-  });
-}
-
-if (customRegenerateStopsBtn) {
-  customRegenerateStopsBtn.addEventListener("click", async () => {
-    const safeCount = Math.max(2, Math.min(60, Number(customStopCountInput?.value || resupplyPoints.length || 2)));
-    if (!regenerateCustomResupplyPoints(safeCount)) return;
-    if (customStopCountInput) customStopCountInput.value = String(safeCount);
-    await persistMyRouteSnapshot({
-      syncCloud: Boolean(cloudReady() && !localAuthMode)
-    });
   });
 }
 

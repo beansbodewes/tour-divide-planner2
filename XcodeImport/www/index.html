@@ -528,23 +528,6 @@
                 <button id="add-extra-stop-btn" class="btn btn-primary" type="button">Add Extra Stop</button>
               </div>
             </div>
-            <div id="custom-stop-editor" class="add-stop-panel" hidden>
-              <h3>Custom Resupply Points</h3>
-              <p id="custom-stop-editor-note" class="empty-note">Upload a custom GPX route to edit stops.</p>
-              <div class="control-grid">
-                <label>
-                  Resupply point count
-                  <input id="custom-stop-count" type="number" min="2" max="60" value="12" />
-                </label>
-                <div class="button-row" style="align-items: end;">
-                  <button id="custom-regenerate-stops-btn" class="btn" type="button">Regenerate Stops</button>
-                </div>
-              </div>
-              <div id="custom-stop-list" class="custom-stop-list"></div>
-              <div class="button-row">
-                <button id="custom-delete-route-btn" class="btn" type="button">Delete Route</button>
-              </div>
-            </div>
           </section>
         </div>
         <div class="planner-save-bar planner-save-bar-bottom">
@@ -579,6 +562,7 @@
           <div class="button-row">
             <button id="publish-route-btn" class="btn btn-primary" type="button">Publish Route</button>
             <button id="unpublish-route-btn" class="btn" type="button" hidden>Unpublish Route</button>
+            <button id="custom-delete-route-btn" class="btn" type="button" hidden>Delete Route</button>
           </div>
           <p id="publish-route-status" class="route-switcher-note" aria-live="polite">
             Publishing is available for custom routes you create.
