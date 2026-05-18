@@ -499,35 +499,6 @@
             </div>
           </section>
 
-          <section id="publish-route-panel" class="panel publish-route-panel">
-            <h2>Publish Route</h2>
-            <div id="publish-route-badge" class="publish-route-badge" hidden>Published</div>
-            <p id="publish-route-copy">
-              Share a custom route so other riders can import it into their own planner.
-            </p>
-            <div class="control-grid">
-              <label>
-                Publish option
-                <select id="publish-visibility">
-                  <option value="full">Full route + day-by-day details</option>
-                  <option value="resupply_only">Route + resupply stops only</option>
-                </select>
-              </label>
-              <label>
-                Route price (USD)
-                <input id="publish-price" type="number" min="0" step="0.01" value="0" />
-                <small>Set this to `0` if you want your route to stay free.</small>
-              </label>
-            </div>
-            <div class="button-row">
-              <button id="publish-route-btn" class="btn btn-primary" type="button">Publish Route</button>
-              <button id="unpublish-route-btn" class="btn" type="button" hidden>Unpublish Route</button>
-            </div>
-            <p id="publish-route-status" class="route-switcher-note" aria-live="polite">
-              Publishing is available for custom routes you create.
-            </p>
-          </section>
-
           <section class="panel days">
             <div class="days-header">
               <h2>Daily Roadbook</h2>
@@ -585,6 +556,34 @@
             <button class="btn btn-primary" type="button" data-manual-save-btn>Save Plan</button>
           </div>
         </div>
+        <section id="publish-route-panel" class="panel publish-route-panel">
+          <h2>Publish Route</h2>
+          <div id="publish-route-badge" class="publish-route-badge" hidden>Published</div>
+          <p id="publish-route-copy">
+            Share a custom route so other riders can import it into their own planner.
+          </p>
+          <div class="control-grid">
+            <label>
+              Publish option
+              <select id="publish-visibility">
+                <option value="full">Full route + day-by-day details</option>
+                <option value="resupply_only">Route + resupply stops only</option>
+              </select>
+            </label>
+            <label>
+              Route price (USD)
+              <input id="publish-price" type="number" min="0" step="0.01" value="0" />
+              <small>Set this to `0` if you want your route to stay free.</small>
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="publish-route-btn" class="btn btn-primary" type="button">Publish Route</button>
+            <button id="unpublish-route-btn" class="btn" type="button" hidden>Unpublish Route</button>
+          </div>
+          <p id="publish-route-status" class="route-switcher-note" aria-live="polite">
+            Publishing is available for custom routes you create.
+          </p>
+        </section>
       </section>
 
       <section class="tab-panel" id="tab-map" data-tab-panel="map">
