@@ -1712,6 +1712,26 @@ body.custom-builder-only-mode #planner-subhead {
   dominant-baseline: middle;
 }
 
+.route-profile-scale-label,
+.route-profile-end-label {
+  fill: #6c655c;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.route-profile-scale-label-mid {
+  fill: #9b9387;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.route-profile-end-label {
+  fill: #7c5148;
+  font-size: 24px;
+}
+
 .profile-scroll {
   overflow-x: hidden;
   overflow-y: hidden;

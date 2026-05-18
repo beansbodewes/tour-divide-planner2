@@ -260,7 +260,7 @@ const RWGPS_TARGET_SAMPLE_COUNT = 6000;
 const RWGPS_MIN_SAMPLE_STEP_MI = 0.02;
 const RWGPS_MAX_SAMPLE_STEP_MI = 0.5;
 const RWGPS_MAX_ELEVATION_SAMPLE_COUNT = 6000;
-const RWGPS_PROFILE_MAX_SAMPLES = 2000;
+const RWGPS_PROFILE_MAX_SAMPLES = 3200;
 
 let resupplyPoints = [];
 let planUnitSystem = "imperial";
@@ -7773,7 +7773,7 @@ function computeSectionElevation(points) {
     elevationGainFt: Math.round(gainFt),
     minEleFt: Math.round(minEle * 3.28084),
     maxEleFt: Math.round(maxEle * 3.28084),
-    totalDistanceMi: Number(totalDistance.toFixed(1)),
+    totalDistanceMi: totalDistance,
     profileSamples: engine.profileSamplesMeters
   };
 }
@@ -7815,6 +7815,7 @@ function renderRouteProfile() {
   const right = 2340;
   const top = 12;
   const bottom = 120;
+  const midY = top + (bottom - top) / 2;
   routeProfileBounds = { left, right, top, bottom };
   const sampleMaxIndex = Math.max(profile.profileSamples.length - 1, 1);
 
@@ -7841,6 +7842,8 @@ function renderRouteProfile() {
     })
     .join(" ");
   const areaPoints = `${left.toFixed(2)},${bottom.toFixed(2)} ${points} ${right.toFixed(2)},${bottom.toFixed(2)}`;
+  const startEleFt = Math.round((profile.profileSamples[0] || 0) * 3.28084);
+  const endEleFt = Math.round((profile.profileSamples[profile.profileSamples.length - 1] || 0) * 3.28084);
 
   const resupplyIcons = resupplyPoints
     .map((point) => {
@@ -7878,11 +7881,22 @@ function renderRouteProfile() {
     .join("");
 
   profileSvgEl.innerHTML = [
-    '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
-    '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
-    '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
-    `<polygon points="${areaPoints}" fill="#d14a4a" opacity="0.22"></polygon>`,
-    `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
+    '<defs><linearGradient id="route-profile-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d95a4e" stop-opacity="0.34"></stop><stop offset="100%" stop-color="#d95a4e" stop-opacity="0.08"></stop></linearGradient></defs>',
+    '<rect x="0" y="0" width="2400" height="160" fill="#f7f3ea"></rect>',
+    `<line x1="${left}" y1="${top}" x2="${right}" y2="${top}" stroke="#ddd2bf" stroke-width="1"></line>`,
+    `<line x1="${left}" y1="${midY}" x2="${right}" y2="${midY}" stroke="#e7ddcd" stroke-width="1" stroke-dasharray="6 8"></line>`,
+    `<line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="#a79883" stroke-width="1.3"></line>`,
+    `<line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="#c8baa4" stroke-width="1"></line>`,
+    `<text x="${left - 12}" y="${top + 4}" text-anchor="end" class="route-profile-scale-label">${formatElevationWithUnitFromFeet(profile.maxEleFt)}</text>`,
+    `<text x="${left - 12}" y="${midY + 4}" text-anchor="end" class="route-profile-scale-label route-profile-scale-label-mid">${formatElevationWithUnitFromFeet(Math.round((profile.minEleFt + profile.maxEleFt) / 2))}</text>`,
+    `<text x="${left - 12}" y="${bottom + 4}" text-anchor="end" class="route-profile-scale-label">${formatElevationWithUnitFromFeet(profile.minEleFt)}</text>`,
+    `<polygon points="${areaPoints}" fill="url(#route-profile-fill)"></polygon>`,
+    `<polyline points="${points}" fill="none" stroke="#fff7ef" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>`,
+    `<polyline points="${points}" fill="none" stroke="#c94b40" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
+    `<circle cx="${left}" cy="${pointOnProfileForMile(0).y.toFixed(2)}" r="3.2" fill="#c94b40" stroke="#fff7ef" stroke-width="1.2"></circle>`,
+    `<circle cx="${right}" cy="${pointOnProfileForMile(profile.totalDistanceMi).y.toFixed(2)}" r="3.2" fill="#c94b40" stroke="#fff7ef" stroke-width="1.2"></circle>`,
+    `<text x="${left + 8}" y="${top + 12}" class="route-profile-end-label">${formatElevationWithUnitFromFeet(startEleFt)}</text>`,
+    `<text x="${right - 8}" y="${top + 12}" text-anchor="end" class="route-profile-end-label">${formatElevationWithUnitFromFeet(endEleFt)}</text>`,
     resupplyIcons,
     campIcons
   ].join("");
@@ -8013,11 +8027,15 @@ function renderRouteProfileFallbackSimple() {
     const areaPoints = `${left.toFixed(2)},${bottom.toFixed(2)} ${points} ${right.toFixed(2)},${bottom.toFixed(2)}`;
 
     profileSvgEl.innerHTML = [
-      '<rect x="0" y="0" width="2400" height="160" fill="#f6f2e8"></rect>',
-      '<line x1="60" y1="12" x2="60" y2="120" stroke="#9f9687" stroke-width="1"></line>',
-      '<line x1="60" y1="120" x2="2340" y2="120" stroke="#9f9687" stroke-width="1"></line>',
-      `<polygon points="${areaPoints}" fill="#d14a4a" opacity="0.22"></polygon>`,
-      `<polyline points="${points}" fill="none" stroke="#c62828" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>`
+      '<defs><linearGradient id="route-profile-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d95a4e" stop-opacity="0.34"></stop><stop offset="100%" stop-color="#d95a4e" stop-opacity="0.08"></stop></linearGradient></defs>',
+      '<rect x="0" y="0" width="2400" height="160" fill="#f7f3ea"></rect>',
+      '<line x1="60" y1="12" x2="2340" y2="12" stroke="#ddd2bf" stroke-width="1"></line>',
+      '<line x1="60" y1="66" x2="2340" y2="66" stroke="#e7ddcd" stroke-width="1" stroke-dasharray="6 8"></line>',
+      '<line x1="60" y1="120" x2="2340" y2="120" stroke="#a79883" stroke-width="1.3"></line>',
+      '<line x1="60" y1="12" x2="60" y2="120" stroke="#c8baa4" stroke-width="1"></line>',
+      `<polygon points="${areaPoints}" fill="url(#route-profile-fill)"></polygon>`,
+      `<polyline points="${points}" fill="none" stroke="#fff7ef" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>`,
+      `<polyline points="${points}" fill="none" stroke="#c94b40" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>`
     ].join("");
 
     profileMetaEl.textContent =
