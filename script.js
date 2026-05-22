@@ -320,6 +320,7 @@ const signInGoogleBtn = document.getElementById("sign-in-google-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
 const heroSignInBtn = document.getElementById("hero-sign-in-btn");
 const heroSignOutBtn = document.getElementById("hero-sign-out-btn");
+const headerSignOutBtn = document.getElementById("header-sign-out-btn");
 const syncNowBtn = document.getElementById("sync-now-btn");
 const manualSaveButtons = Array.from(document.querySelectorAll("[data-manual-save-btn]"));
 const undoBtn = document.getElementById("undo-btn");
@@ -328,11 +329,15 @@ const accountDropdown = document.getElementById("account-dropdown");
 const signedInUserLabel = document.getElementById("signed-in-user-label");
 const accountHelperCopy = document.getElementById("account-helper-copy");
 const homeViewBtn = document.getElementById("home-view-btn");
+const howToViewBtn = document.getElementById("how-to-view-btn");
 const liveTrackerViewBtn = document.getElementById("live-tracker-view-btn");
 const publishedRoutesViewBtn = document.getElementById("published-routes-view-btn");
 const customerServiceViewBtn = document.getElementById("customer-service-view-btn");
 const donationsViewBtn = document.getElementById("donations-view-btn");
+const adminViewBtn = document.getElementById("admin-view-btn");
 const homePage = document.getElementById("home-page");
+const howToPage = document.getElementById("how-to-page");
+const adminPage = document.getElementById("admin-page");
 const liveTrackerPage = document.getElementById("live-tracker-page");
 const publishedRoutesPage = document.getElementById("published-routes-page");
 const publishedRouteList = document.getElementById("published-route-list");
@@ -354,7 +359,14 @@ const liveTrackerConnectBtn = document.getElementById("live-tracker-connect-btn"
 const liveTrackerGarminStatus = document.getElementById("live-tracker-garmin-status");
 const customerServicePage = document.getElementById("customer-service-page");
 const donationsPage = document.getElementById("donations-page");
+const homeOpenHowToBtn = document.getElementById("home-open-how-to-btn");
 const homeOpenActiveBtn = document.getElementById("home-open-active-btn");
+const adminDashboardStatus = document.getElementById("admin-dashboard-status");
+const adminSummaryGrid = document.getElementById("admin-summary-grid");
+const adminSystemGrid = document.getElementById("admin-system-grid");
+const adminCreatorList = document.getElementById("admin-creator-list");
+const adminSalesList = document.getElementById("admin-sales-list");
+const adminRoutesList = document.getElementById("admin-routes-list");
 const homeRouteList = document.getElementById("home-route-list");
 const myRouteShortcutBtn = document.getElementById("my-route-shortcut-btn");
 const plannerTitle = document.getElementById("planner-title");
@@ -598,6 +610,8 @@ function getRouteFromUrl() {
 function viewModeFromUrl() {
   const view = new URLSearchParams(window.location.search).get("view");
   if (view === "home") return "home";
+  if (view === "how-to") return "how_to";
+  if (view === "admin") return "admin";
   if (view === "live-tracker") return "live_tracker";
   if (view === "route-collection") return "route_collection";
   if (view === "customer-service") return "customer_service";
@@ -620,6 +634,16 @@ function customerServiceUrl(routeId) {
   return `${window.location.pathname}?route=${routeId}&view=customer-service`;
 }
 
+function howToUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=how-to`;
+  return `${window.location.pathname}?route=${routeId}&view=how-to`;
+}
+
+function adminUrl(routeId) {
+  if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=admin`;
+  return `${window.location.pathname}?route=${routeId}&view=admin`;
+}
+
 function liveTrackerUrl(routeId) {
   if (routeId === DEFAULT_ROUTE_ID) return `${window.location.pathname}?view=live-tracker`;
   return `${window.location.pathname}?route=${routeId}&view=live-tracker`;
@@ -637,6 +661,8 @@ function donationsUrl(routeId) {
 
 function appUrlForView(routeId, viewMode) {
   if (viewMode === "home") return homeUrl(routeId);
+  if (viewMode === "how_to") return howToUrl(routeId);
+  if (viewMode === "admin") return adminUrl(routeId);
   if (viewMode === "live_tracker") return liveTrackerUrl(routeId);
   if (viewMode === "route_collection") return routeCollectionUrl(routeId);
   if (viewMode === "customer_service") return customerServiceUrl(routeId);
@@ -1522,16 +1548,20 @@ function updateMapboxTokenButtonLabel() {
 
 function setViewMode(mode) {
   const showHome = mode === "home";
+  const showHowTo = mode === "how_to";
+  const showAdmin = mode === "admin";
   const showLiveTracker = mode === "live_tracker";
   const showRouteCollection = mode === "route_collection";
   const showCustomerService = mode === "customer_service";
   const showDonations = mode === "donations";
   const standaloneMode =
-    showHome || showLiveTracker || showRouteCollection || showCustomerService || showDonations;
+    showHome || showHowTo || showAdmin || showLiveTracker || showRouteCollection || showCustomerService || showDonations;
   const isCreateRouteView = !standaloneMode && getRouteFromUrl() === "custom_ride";
   document.body.classList.toggle("home-only-mode", standaloneMode);
   document.body.classList.toggle("custom-builder-only-mode", isCreateRouteView);
   if (homePage) homePage.hidden = !showHome;
+  if (howToPage) howToPage.hidden = !showHowTo;
+  if (adminPage) adminPage.hidden = !showAdmin;
   if (liveTrackerPage) liveTrackerPage.hidden = !showLiveTracker;
   if (publishedRoutesPage) publishedRoutesPage.hidden = !showRouteCollection;
   if (customerServicePage) customerServicePage.hidden = !showCustomerService;
@@ -1553,6 +1583,10 @@ function setViewMode(mode) {
   if (routeSwitcherNote) {
     if (showHome) {
       routeSwitcherNote.textContent = "Home is active. Choose any route to open that planner.";
+    } else if (showHowTo) {
+      routeSwitcherNote.textContent = "How To is active. Learn the basics first, then move into route uploads and publishing.";
+    } else if (showAdmin) {
+      routeSwitcherNote.textContent = "Admin is active. Review route inventory, sales, and platform status behind the scenes.";
     } else if (showLiveTracker) {
       routeSwitcherNote.textContent = "Live Tracker is active. Follow route position updates in one place.";
     } else if (showRouteCollection) {
@@ -1574,6 +1608,8 @@ function setViewMode(mode) {
     panel.hidden = standaloneMode || (isCreateRouteView && panel.dataset.tabPanel !== "planner");
   });
   if (homeViewBtn) homeViewBtn.classList.toggle("active", showHome);
+  if (howToViewBtn) howToViewBtn.classList.toggle("active", showHowTo);
+  if (adminViewBtn) adminViewBtn.classList.toggle("active", showAdmin);
   if (liveTrackerViewBtn) liveTrackerViewBtn.classList.toggle("active", showLiveTracker);
   if (publishedRoutesViewBtn) publishedRoutesViewBtn.classList.toggle("active", showRouteCollection);
   if (customerServiceViewBtn) customerServiceViewBtn.classList.toggle("active", showCustomerService);
@@ -1586,6 +1622,10 @@ function setViewMode(mode) {
     renderMarketplaceAdminPanel();
     loadPublishedCommunityRoutes();
     setTimeout(() => renderPublishedRoutesMap(), 30);
+  }
+  if (showAdmin) {
+    renderAdminDashboard();
+    void loadPublishedCommunityRoutes({ force: true });
   }
   updatePublishRoutePanel();
   if (!standaloneMode && map) {
@@ -2793,6 +2833,241 @@ function setMarketplaceAdminStatus(text, isError = false) {
   marketplaceAdminStatus.classList.toggle("status-error", Boolean(isError));
 }
 
+function setAdminDashboardStatus(text, isError = false) {
+  if (!adminDashboardStatus) return;
+  adminDashboardStatus.textContent = String(text || "").trim();
+  adminDashboardStatus.classList.toggle("status-error", Boolean(isError));
+}
+
+function formatAdminUsd(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return "$0.00";
+  return `$${amount.toFixed(2)}`;
+}
+
+function updateAdminNavigationVisibility() {
+  if (!adminViewBtn) return;
+  adminViewBtn.hidden = !isMarketplaceAdmin();
+}
+
+function renderAdminDashboard() {
+  updateAdminNavigationVisibility();
+  if (!adminSummaryGrid || !adminSystemGrid || !adminCreatorList || !adminSalesList || !adminRoutesList) return;
+
+  if (!authUser) {
+    adminSummaryGrid.innerHTML = "";
+    adminSystemGrid.innerHTML = "";
+    adminCreatorList.innerHTML = "";
+    adminSalesList.innerHTML = "";
+    adminRoutesList.innerHTML = "";
+    setAdminDashboardStatus("Sign in with the Bikepack Finishers admin account to unlock this dashboard.");
+    return;
+  }
+
+  if (!isMarketplaceAdmin()) {
+    adminSummaryGrid.innerHTML = "";
+    adminSystemGrid.innerHTML = "";
+    adminCreatorList.innerHTML = "";
+    adminSalesList.innerHTML = "";
+    adminRoutesList.innerHTML = "";
+    setAdminDashboardStatus("This account is signed in, but it does not have Bikepack Finishers admin access.", true);
+    return;
+  }
+
+  const routes = [...publishedCommunityRoutes].sort(
+    (a, b) => new Date(b.updatedAt || b.publishedAt || 0) - new Date(a.updatedAt || a.publishedAt || 0)
+  );
+  const sales = [...marketplacePurchaseRequests].sort(
+    (a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)
+  );
+  const paidRoutes = routes.filter((record) => Number(record.priceUsd || 0) > 0);
+  const freeRoutes = routes.filter((record) => Number(record.priceUsd || 0) <= 0);
+  const fullSharedRoutes = routes.filter((record) => record.publishMode === "full");
+  const resupplyOnlyRoutes = routes.filter((record) => record.publishMode === "resupply_only");
+  const verifiedRoutes = routes.filter((record) => record.verifiedStatus === "verified");
+  const unlockedSales = sales.filter((request) => request.status === "paid_access_granted");
+  const pendingPayouts = sales.filter(
+    (request) => request.status === "paid_access_granted" && request.creatorPayoutStatus !== "sent"
+  );
+  const grossSalesUsd = unlockedSales.reduce((sum, request) => sum + Number(request.priceUsd || 0), 0);
+
+  const creatorMap = new Map();
+  routes.forEach((record) => {
+    const key = String(record.ownerId || "unknown").trim() || "unknown";
+    const current = creatorMap.get(key) || {
+      ownerId: key,
+      authorLabel: String(record.authorLabel || "Rider").trim() || "Rider",
+      routeCount: 0,
+      paidRouteCount: 0,
+      totalLikes: 0,
+      totalDislikes: 0
+    };
+    current.routeCount += 1;
+    if (Number(record.priceUsd || 0) > 0) current.paidRouteCount += 1;
+    current.totalLikes += Number(record.likeCount || 0);
+    current.totalDislikes += Number(record.dislikeCount || 0);
+    creatorMap.set(key, current);
+  });
+  const creators = [...creatorMap.values()].sort((a, b) => b.routeCount - a.routeCount || b.totalLikes - a.totalLikes);
+
+  adminSummaryGrid.innerHTML = [
+    {
+      label: "Published Routes",
+      value: String(routes.length),
+      note: `${paidRoutes.length} paid, ${freeRoutes.length} free`
+    },
+    {
+      label: "Paid Unlocks",
+      value: String(unlockedSales.length),
+      note: `${pendingPayouts.length} creator payout${pendingPayouts.length === 1 ? "" : "s"} pending`
+    },
+    {
+      label: "Gross Sales",
+      value: formatAdminUsd(grossSalesUsd),
+      note: "Based on paid route purchases with access granted"
+    },
+    {
+      label: "Creators",
+      value: String(creators.length),
+      note: "Unique route owners currently listed"
+    },
+    {
+      label: "Share Modes",
+      value: `${fullSharedRoutes.length} / ${resupplyOnlyRoutes.length}`,
+      note: "Full routes vs resupply-only routes"
+    },
+    {
+      label: "Verified Routes",
+      value: String(verifiedRoutes.length),
+      note: "Routes marked as verified"
+    }
+  ]
+    .map(
+      (item) => `
+        <article class="admin-stat-card">
+          <strong>${escapeHtml(item.label)}</strong>
+          <span>${escapeHtml(item.value)}</span>
+          <small>${escapeHtml(item.note)}</small>
+        </article>
+      `
+    )
+    .join("");
+
+  adminSystemGrid.innerHTML = [
+    { label: "Signed In Email", value: normalizeEmail(authUser?.email || "Not signed in") || "Not signed in" },
+    { label: "User ID", value: String(authUser?.uid || "Unavailable") || "Unavailable" },
+    { label: "Cloud Mode", value: localAuthMode ? "Local account mode" : "Supabase cloud mode" },
+    { label: "Admin Gate", value: MARKETPLACE_ADMIN_EMAIL },
+    { label: "Published Route Collection", value: PUBLISHED_ROUTES_COLLECTION },
+    { label: "Purchase Request Collection", value: MARKETPLACE_PAYPAL_REQUESTS_COLLECTION },
+    { label: "Entitlements Collection", value: MARKETPLACE_ROUTE_ENTITLEMENTS_COLLECTION },
+    { label: "Docs Table", value: SUPABASE_DOCS_TABLE }
+  ]
+    .map(
+      (item) => `
+        <div class="admin-system-item">
+          <strong>${escapeHtml(item.label)}</strong>
+          <span>${escapeHtml(item.value)}</span>
+        </div>
+      `
+    )
+    .join("");
+
+  if (!creators.length) {
+    adminCreatorList.innerHTML = '<article class="published-route-card"><p class="empty-note">No route creators are listed yet.</p></article>';
+  } else {
+    adminCreatorList.innerHTML = "";
+    creators.forEach((creator) => {
+      const card = document.createElement("article");
+      card.className = "published-route-card";
+      card.innerHTML = `
+        <h3>${escapeHtml(creator.authorLabel)}</h3>
+        <p>${escapeHtml(creator.ownerId)}</p>
+        <div class="admin-mini-metrics">
+          <div><strong>Routes</strong><span>${creator.routeCount}</span></div>
+          <div><strong>Paid</strong><span>${creator.paidRouteCount}</span></div>
+          <div><strong>Likes</strong><span>${creator.totalLikes}</span></div>
+        </div>
+      `;
+      adminCreatorList.appendChild(card);
+    });
+  }
+
+  if (!sales.length) {
+    adminSalesList.innerHTML = '<article class="published-route-card marketplace-admin-card"><p class="empty-note">No marketplace sales are recorded yet.</p></article>';
+  } else {
+    adminSalesList.innerHTML = "";
+    sales.forEach((request) => {
+      const payoutSent = request.creatorPayoutStatus === "sent";
+      const accessGranted = request.status === "paid_access_granted";
+      const card = document.createElement("article");
+      card.className = `published-route-card marketplace-admin-card${payoutSent ? " is-approved" : ""}`;
+      card.innerHTML = `
+        <h3>${escapeHtml(request.routeName)}</h3>
+        <div class="published-route-badges">
+          <span class="published-route-badge-chip is-price">${escapeHtml(request.priceUsd > 0 ? formatAdminUsd(request.priceUsd) : "Free")}</span>
+          <span class="published-route-badge-chip">${escapeHtml(accessGranted ? "Buyer Unlocked" : request.status.replace(/_/g, " "))}</span>
+          <span class="published-route-badge-chip">${escapeHtml(payoutSent ? "Creator Paid" : "Payout Pending")}</span>
+        </div>
+        <div class="published-route-meta">
+          <div><strong>Buyer</strong><span>${escapeHtml(request.buyerEmail || request.buyerUserId)}</span></div>
+          <div><strong>Publish ID</strong><span>${escapeHtml(request.publishId)}</span></div>
+          <div><strong>Updated</strong><span>${escapeHtml(niceDate(new Date(request.updatedAt || request.createdAt || Date.now())))}</span></div>
+          <div><strong>Capture</strong><span>${escapeHtml(request.paypalCaptureId || "Not captured yet")}</span></div>
+        </div>
+        <div class="button-row">
+          <button class="btn btn-primary" type="button" data-admin-payout="${escapeHtml(request.requestId)}" ${(payoutSent || !accessGranted) ? "disabled" : ""}>
+            ${payoutSent ? "Creator Paid" : accessGranted ? "Mark Creator Paid" : "Awaiting Buyer Payment"}
+          </button>
+        </div>
+      `;
+      const payoutBtn = card.querySelector("[data-admin-payout]");
+      if (payoutBtn) {
+        payoutBtn.addEventListener("click", () => {
+          void markMarketplaceCreatorPayoutSent(request);
+        });
+      }
+      adminSalesList.appendChild(card);
+    });
+  }
+
+  if (!routes.length) {
+    adminRoutesList.innerHTML = '<article class="published-route-card"><p class="empty-note">No published routes are available yet.</p></article>';
+  } else {
+    adminRoutesList.innerHTML = "";
+    routes.forEach((record) => {
+      const card = document.createElement("article");
+      card.className = "published-route-card";
+      card.innerHTML = `
+        <h3>${escapeHtml(record.routeName)}</h3>
+        <div class="published-route-badges">
+          <span class="published-route-mode">${escapeHtml(publishedRouteModeLabel(record.publishMode))}</span>
+          <span class="published-route-badge-chip is-price">${escapeHtml(publishedRoutePriceLabel(record))}</span>
+          ${record.verifiedStatus === "verified" ? '<span class="published-route-badge-chip is-verified">Verified Route</span>' : ""}
+        </div>
+        <div class="published-route-meta">
+          <div><strong>Owner ID</strong><span>${escapeHtml(record.ownerId || "Unknown")}</span></div>
+          <div><strong>Publish ID</strong><span>${escapeHtml(record.publishId)}</span></div>
+          <div><strong>Source Route</strong><span>${escapeHtml(record.sourceRouteId || "Custom")}</span></div>
+          <div><strong>Updated</strong><span>${escapeHtml(niceDate(new Date(record.updatedAt || record.publishedAt || Date.now())))}</span></div>
+        </div>
+        <div class="admin-mini-metrics">
+          <div><strong>Distance</strong><span>${escapeHtml(formatHomeMiles(record.routeDistance))}</span></div>
+          <div><strong>Stops</strong><span>${record.resupplyPoints.length}</span></div>
+          <div><strong>Votes</strong><span>${Math.max(0, Number(record.likeCount || 0))} / ${Math.max(0, Number(record.dislikeCount || 0))}</span></div>
+        </div>
+      `;
+      adminRoutesList.appendChild(card);
+    });
+  }
+
+  setAdminDashboardStatus(
+    pendingPayouts.length
+      ? `${pendingPayouts.length} creator payout${pendingPayouts.length === 1 ? "" : "s"} still need review.`
+      : "Admin dashboard is up to date."
+  );
+}
+
 async function loadMarketplacePurchaseRequests() {
   marketplacePurchaseRequests = [];
   if (!supabaseClient || !isMarketplaceAdmin()) return;
@@ -2889,6 +3164,7 @@ function renderMarketplaceAdminPanel() {
     }
     marketplaceAdminList.appendChild(card);
   });
+  renderAdminDashboard();
 }
 
 async function markMarketplaceCreatorPayoutSent(request) {
@@ -2923,6 +3199,7 @@ async function markMarketplaceCreatorPayoutSent(request) {
     if (requestError) throw requestError;
     await loadMarketplacePurchaseRequests();
     renderMarketplaceAdminPanel();
+    renderAdminDashboard();
     setMarketplaceAdminStatus(`Marked creator payout as sent for ${request.routeName}.`);
   } catch (error) {
     console.error("Marketplace payout update failed:", error);
@@ -2983,6 +3260,7 @@ async function loadPublishedCommunityRoutes(options = {}) {
   renderCustomRouteButtons();
   renderPublishedRoutesCollection();
   renderMarketplaceAdminPanel();
+  renderAdminDashboard();
   if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
   updatePublishRoutePanel();
   return publishedCommunityRoutes;
@@ -4007,6 +4285,7 @@ function syncAuthActionVisibility() {
   if (signInGoogleBtn) signInGoogleBtn.hidden = isSignedIn;
   if (heroSignInBtn) heroSignInBtn.hidden = isSignedIn;
   if (heroSignOutBtn) heroSignOutBtn.hidden = !isSignedIn;
+  if (headerSignOutBtn) headerSignOutBtn.hidden = !isSignedIn;
   if (syncNowBtn) syncNowBtn.hidden = !isSignedIn;
   if (signOutBtn) signOutBtn.hidden = !isSignedIn;
 }
@@ -4015,6 +4294,7 @@ function updateSignedInIndicators() {
   const email = normalizeEmail(authUser?.email || "");
   const isSignedIn = Boolean(email);
   syncAuthActionVisibility();
+  updateAdminNavigationVisibility();
   document.body.classList.toggle("signed-in-mode", isSignedIn);
 
   if (signedInUserLabel) {
@@ -4056,6 +4336,7 @@ function updateSignedInIndicators() {
     }
     unsignedWarningBanner.textContent = unsignedStatusOverride || "Signed out. Sign in to save and sync your route data.";
   }
+  renderAdminDashboard();
 }
 
 function maybeWarnUnsignedChanges() {
@@ -10337,6 +10618,12 @@ if (heroSignOutBtn) {
   });
 }
 
+if (headerSignOutBtn) {
+  headerSignOutBtn.addEventListener("click", () => {
+    if (signOutBtn && !signOutBtn.hidden) signOutBtn.click();
+  });
+}
+
 signUpBtn.addEventListener("click", async () => {
   if (authBusy) return;
   setAccountDropdownOpen(true);
@@ -10554,6 +10841,18 @@ if (homeViewBtn) {
   });
 }
 
+if (howToViewBtn) {
+  howToViewBtn.addEventListener("click", () => {
+    navigateWithinApp(howToUrl(getRouteFromUrl()));
+  });
+}
+
+if (adminViewBtn) {
+  adminViewBtn.addEventListener("click", () => {
+    navigateWithinApp(adminUrl(getRouteFromUrl()));
+  });
+}
+
 if (liveTrackerViewBtn) {
   liveTrackerViewBtn.addEventListener("click", () => {
     navigateWithinApp(liveTrackerUrl(getRouteFromUrl()));
@@ -10581,6 +10880,12 @@ if (donationsViewBtn) {
 if (homeOpenActiveBtn) {
   homeOpenActiveBtn.addEventListener("click", () => {
     navigateWithinApp(routeUrl(getRouteFromUrl()));
+  });
+}
+
+if (homeOpenHowToBtn) {
+  homeOpenHowToBtn.addEventListener("click", () => {
+    navigateWithinApp(howToUrl(getRouteFromUrl()));
   });
 }
 
@@ -10650,6 +10955,7 @@ updateAccountToggleLabel();
 setupPlannerUnits();
 renderHomeRouteCollection();
 renderPublishedRoutesCollection();
+renderAdminDashboard();
 setViewMode(viewModeFromUrl());
 appliedRouteId = getRouteFromUrl();
 appliedViewMode = viewModeFromUrl();

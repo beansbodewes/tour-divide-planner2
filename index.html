@@ -97,15 +97,20 @@
         </aside>
       </div>
       <section class="route-switcher-wrap">
-        <p class="route-switcher-label">Route Collection</p>
+        <div class="route-switcher-head">
+          <p class="route-switcher-label">Route Collection</p>
+          <button id="header-sign-out-btn" class="btn route-switcher-sign-out-btn" type="button" hidden>Sign Out</button>
+        </div>
         <nav class="route-switcher" aria-label="Choose route family">
           <button id="home-view-btn" class="route-btn" type="button">Home</button>
+          <button id="how-to-view-btn" class="route-btn route-btn-accent" type="button">How To</button>
           <button id="published-routes-view-btn" class="route-btn" type="button">Route Collection</button>
           <button class="route-btn route-btn-accent" data-route="custom_ride" type="button">Create Your Own Ride</button>
           <button id="my-route-shortcut-btn" class="route-btn route-btn-my" data-route="my_route" type="button" hidden>My Route</button>
           <button id="live-tracker-view-btn" class="route-btn route-btn-accent" type="button">Live Tracker</button>
           <button id="customer-service-view-btn" class="route-btn route-btn-accent" type="button">Customer Service</button>
           <button id="donations-view-btn" class="route-btn route-btn-accent" type="button">Donations + Suggestions</button>
+          <button id="admin-view-btn" class="route-btn route-btn-accent" type="button" hidden>Admin</button>
         </nav>
         <p id="route-switcher-note" class="route-switcher-note">Tour Divide Race is active now. Other routes are coming next.</p>
       </section>
@@ -176,8 +181,176 @@
             </div>
           </section>
           <div class="button-row">
+            <button id="home-open-how-to-btn" class="btn" type="button">Open How To Guide</button>
             <button id="home-open-active-btn" class="btn btn-primary" type="button">Open Active Planner</button>
           </div>
+        </div>
+      </section>
+      <section id="how-to-page" class="home-page" aria-label="How To Use Bikepack Finishers" hidden>
+        <div class="home-card how-to-card">
+          <p class="home-kicker">Bikepack Finishers</p>
+          <h2>How To Use Bikepack Finishers</h2>
+          <p class="home-intro">
+            This guide moves from the basics to the more advanced parts of the site so riders can get started quickly,
+            then learn how to buy, sell, upload, manage, and share routes with more confidence.
+          </p>
+          <section class="how-to-hero-grid" aria-label="How to overview">
+            <article class="home-block how-to-highlight">
+              <h3>What This Site Is</h3>
+              <p>
+                Bikepack Finishers is a route-planning workspace for long bikepacking rides. It combines a day-by-day planner,
+                route map, elevation profile, resupply structure, exports, and community notes in one place.
+              </p>
+            </article>
+            <article class="home-block how-to-highlight">
+              <h3>What It Does Best</h3>
+              <p>
+                It helps you turn a GPX route into a usable plan: projected days, daily distances, stop ideas, route notes,
+                and a cleaner overview of the ride before you start.
+              </p>
+            </article>
+          </section>
+          <section class="how-to-sections" aria-label="How to topics">
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">1. Start Here</p>
+              <h3>Basic Flow</h3>
+              <ol class="how-to-list">
+                <li>Sign in or create an account if you want your planner, uploads, and edits available across devices.</li>
+                <li>Open a route from the Route Collection or choose Create Your Own Ride.</li>
+                <li>Set projected days, rest days, and total distance, then build your plan.</li>
+                <li>Review the daily roadbook, route map, and resupply points, then export your plan if needed.</li>
+              </ol>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">2. Planning Basics</p>
+              <h3>How to Use the Main Planner</h3>
+              <ul class="how-to-list how-to-bullets">
+                <li>The Plan tab is where you set dates, daily mileage, rest days, target towns, and notes.</li>
+                <li>The Map tab helps you inspect route shape, resupply spacing, and elevation context.</li>
+                <li>The Community tab lets riders leave route-specific comments and updates.</li>
+                <li>Use Save Plan often, especially before switching devices or making bigger edits.</li>
+              </ul>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">3. Buying Routes</p>
+              <h3>How to Buy a Route</h3>
+              <ol class="how-to-list">
+                <li>Open Route Collection and browse published or community routes.</li>
+                <li>Check the route summary, price badge, and route details before opening it.</li>
+                <li>Use the purchase flow for paid routes. Access is tied to the account you used at checkout.</li>
+                <li>After purchase, reopen the route while signed in with the same account to use it in your planner.</li>
+              </ol>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">4. Selling Routes</p>
+              <h3>How to Sell a Route</h3>
+              <ol class="how-to-list">
+                <li>Create a custom route first by uploading a GPX and generating the planner.</li>
+                <li>Refine the route name, route structure, resupply points, and planner details before publishing.</li>
+                <li>Open the Publish Route section, choose what buyers receive, and set a price in USD.</li>
+                <li>Publish the route so other riders can browse it and purchase access through the marketplace.</li>
+              </ol>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">5. Uploading Routes</p>
+              <h3>How to Upload Your Own GPX</h3>
+              <ol class="how-to-list">
+                <li>Choose Create Your Own Ride from the top navigation.</li>
+                <li>Add a ride name and select how many resupply points you want the site to generate.</li>
+                <li>Upload a GPX file and use Create Route to build a new route planner.</li>
+                <li>Review the generated map, route distance, and stop layout before relying on it.</li>
+              </ol>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">6. Editing or Deleting Routes</p>
+              <h3>How to Change or Remove a Route</h3>
+              <ul class="how-to-list how-to-bullets">
+                <li>Change route details by editing daily mileage, notes, resupply stop names, and custom stop positions.</li>
+                <li>Add extra towns or resupply stops from the planner when the default layout is not enough.</li>
+                <li>Use Unpublish Route if you want to stop offering a published route.</li>
+                <li>Use Delete Route only when you want to remove a custom route from your working setup.</li>
+              </ul>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">7. Good Features</p>
+              <h3>Useful Strengths of the Site</h3>
+              <div class="how-to-feature-grid">
+                <div class="how-to-feature">
+                  <strong>All-in-one planning</strong>
+                  <span>Planner, map, route profile, notes, exports, and comments stay together.</span>
+                </div>
+                <div class="how-to-feature">
+                  <strong>Custom route support</strong>
+                  <span>You are not limited to built-in race routes and can upload your own GPX.</span>
+                </div>
+                <div class="how-to-feature">
+                  <strong>Account-backed access</strong>
+                  <span>Signed-in riders can keep planner progress and purchased route access tied to one login.</span>
+                </div>
+                <div class="how-to-feature">
+                  <strong>Marketplace options</strong>
+                  <span>Route creators can publish free or paid routes for other riders to use.</span>
+                </div>
+              </div>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">8. Limitations</p>
+              <h3>Things to Keep in Mind</h3>
+              <ul class="how-to-list how-to-bullets">
+                <li>Planner values, elevation numbers, and resupply suggestions are planning aids, not guarantees.</li>
+                <li>Route conditions, store hours, closures, weather, and water access can change quickly in real life.</li>
+                <li>Custom GPX quality matters: weak or messy GPX files can lead to rough map or stop outputs.</li>
+                <li>Unsigned use is more fragile because local-only data can be lost on refresh, device switch, or cleared storage.</li>
+              </ul>
+            </article>
+            <article class="home-block how-to-step-block">
+              <p class="how-to-step-label">9. More Advanced Use</p>
+              <h3>When You Want More Control</h3>
+              <ol class="how-to-list">
+                <li>Switch between built-in routes and custom routes to compare planning styles and daily structures.</li>
+                <li>Use exports for crew notes, spreadsheet review, or a second planning pass.</li>
+                <li>Publish finished custom routes when you want to share them publicly or sell them.</li>
+                <li>Use community comments and map review together instead of trusting a single source of route information.</li>
+              </ol>
+            </article>
+          </section>
+        </div>
+      </section>
+      <section id="admin-page" class="home-page" aria-label="Bikepack Finishers Admin" hidden>
+        <div class="home-card admin-card">
+          <p class="home-kicker">Bikepack Finishers</p>
+          <h2>Admin Dashboard</h2>
+          <p class="home-intro">
+            A behind-the-scenes view for the Bikepack Finishers admin account. Use it to monitor route inventory,
+            marketplace activity, creator payout status, and platform health in one place.
+          </p>
+          <p id="admin-dashboard-status" class="route-switcher-note" aria-live="polite">
+            Sign in with the Bikepack Finishers admin account to unlock this dashboard.
+          </p>
+
+          <section class="admin-summary-grid" aria-label="Admin summary">
+            <div id="admin-summary-grid" class="admin-summary-grid-inner"></div>
+          </section>
+
+          <section class="home-block" aria-label="Admin system status">
+            <h3>System + Account</h3>
+            <div id="admin-system-grid" class="admin-system-grid"></div>
+          </section>
+
+          <section class="home-block" aria-label="Creator snapshot">
+            <h3>Creator Snapshot</h3>
+            <div id="admin-creator-list" class="published-route-list"></div>
+          </section>
+
+          <section class="home-block" aria-label="Marketplace sales queue">
+            <h3>Marketplace Sales Queue</h3>
+            <div id="admin-sales-list" class="published-route-list"></div>
+          </section>
+
+          <section class="home-block" aria-label="Published route inventory">
+            <h3>Published Route Inventory</h3>
+            <div id="admin-routes-list" class="published-route-list"></div>
+          </section>
         </div>
       </section>
       <section id="customer-service-page" class="home-page" aria-label="Customer Service" hidden>
