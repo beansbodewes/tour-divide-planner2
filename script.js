@@ -4285,6 +4285,7 @@ function syncAuthActionVisibility() {
   if (signInGoogleBtn) signInGoogleBtn.hidden = isSignedIn;
   if (heroSignInBtn) heroSignInBtn.hidden = isSignedIn;
   if (heroSignOutBtn) heroSignOutBtn.hidden = !isSignedIn;
+  if (accountToggleBtn) accountToggleBtn.hidden = !isSignedIn;
   if (headerSignOutBtn) headerSignOutBtn.hidden = !isSignedIn;
   if (syncNowBtn) syncNowBtn.hidden = !isSignedIn;
   if (signOutBtn) signOutBtn.hidden = !isSignedIn;
@@ -4807,7 +4808,7 @@ function setMyRouteShortcutVisible(visible) {
 
 function updateAccountToggleLabel() {
   if (!accountToggleBtn) return;
-  accountToggleBtn.textContent = authUser ? "Manage Account" : "Sign In / Sync";
+  accountToggleBtn.textContent = "Manage Account";
   updateSignedInIndicators();
 }
 
@@ -6687,7 +6688,7 @@ async function initCloud() {
       // Keep current local planner state on transient auth blips.
       // Only explicit sign-out should clear the working session.
       if (!authRedirectMessage) {
-        setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
+        setCloudStatus("Sign in to load your saved routes and keep changes synced automatically.");
       }
       updateAccountToggleLabel();
       loadPublishedCommunityRoutes({ force: true });
@@ -10771,7 +10772,7 @@ signOutBtn.addEventListener("click", async () => {
     resetUiAfterSignOut();
     await firebaseAuth.signOut();
     authUser = null;
-    setCloudStatus("Signed out. Cloud mode ready. Sign in to sync and load saved routes.");
+    setCloudStatus("Sign in to load your saved routes and keep changes synced automatically.");
     setMyRouteShortcutVisible(false);
     updateAccountToggleLabel();
     updateSignedInIndicators();
