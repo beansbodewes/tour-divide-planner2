@@ -4456,6 +4456,15 @@ function normalizeSupabaseUser(user) {
   };
 }
 
+function primeSignedInUi(user, statusText = "") {
+  const normalized = normalizeSupabaseUser(user);
+  if (normalized?.uid || normalized?.email) {
+    authUser = normalized;
+    updateSignedInIndicators();
+  }
+  if (statusText) setCloudStatus(statusText);
+}
+
 function buildFirestoreAdapter() {
   return {
     collection(collectionName) {
@@ -6637,7 +6646,10 @@ async function initCloud() {
   if (restoredFromHash || exchangedFromCode) {
     const { data } = await supabaseClient.auth.getSession();
     if (data?.session?.user) {
-      setCloudStatus(`Signed in with Google as ${data.session.user.email || "your account"}. Loading your saved data...`);
+      primeSignedInUi(
+        data.session.user,
+        `Signed in with Google as ${data.session.user.email || "your account"}. Loading your saved data...`
+      );
       await bootstrapSignedInUser(normalizeSupabaseUser(data.session.user), authStateVersion);
     }
   }
@@ -6646,7 +6658,10 @@ async function initCloud() {
     .getRedirectResult()
     .then((result) => {
       if (result?.user) {
-        setCloudStatus(`Signed in with Google as ${result.user.email || "your account"}. Loading your saved data...`);
+        primeSignedInUi(
+          result.user,
+          `Signed in with Google as ${result.user.email || "your account"}. Loading your saved data...`
+        );
       }
     })
     .catch((error) => {
@@ -10645,7 +10660,7 @@ signUpBtn.addEventListener("click", async () => {
     await ensureFirebaseLocalPersistence();
     const result = await firebaseAuth.createUserWithEmailAndPassword(email, password);
     if (result?.session) {
-      setCloudStatus(`Account created for ${email}. Loading your saved data...`);
+      primeSignedInUi(result.user, `Account created for ${email}. Loading your saved data...`);
       return;
     } else if (result?.requiresEmailConfirmation) {
       finishPendingAuthState();
@@ -10685,8 +10700,8 @@ signInBtn.addEventListener("click", async () => {
     setAuthBusyState(true);
     beginPendingAuthState("account", email);
     await ensureFirebaseLocalPersistence();
-    await firebaseAuth.signInWithEmailAndPassword(email, password);
-    setCloudStatus(`Signed in as ${email}. Loading your saved data...`);
+    const result = await firebaseAuth.signInWithEmailAndPassword(email, password);
+    primeSignedInUi(result?.user, `Signed in as ${email}. Loading your saved data...`);
   } catch (error) {
     finishPendingAuthState();
     setAuthBusyState(false);
