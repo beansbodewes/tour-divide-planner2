@@ -1420,6 +1420,29 @@ select:focus {
   }
 }
 
+.route-processing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(33, 44, 38, 0.08);
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.route-processing-spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: button-spin 0.75s linear infinite;
+  flex: 0 0 auto;
+}
+
 .btn-primary {
   background: var(--ink);
   color: #fff;
