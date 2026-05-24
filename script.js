@@ -2100,7 +2100,7 @@ async function enhanceRouteDataInBackground(version, trackPoints, fileName = "")
       routeProfileMeta.textContent = "Route loaded, but elevation processing failed. Try refreshing once.";
     }
   } finally {
-    if (version === routeEnhancementVersion && trackPoints === gpxTrackPoints) {
+    if (version === routeEnhancementVersion) {
       setRouteProcessingState(false);
     }
   }
