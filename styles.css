@@ -903,9 +903,11 @@ body.signed-in-mode .hero {
 
 .account-dropdown {
   position: absolute;
-  right: 0;
-  top: calc(100% + 0.3rem);
-  width: min(460px, 94vw);
+  right: 1rem;
+  left: 1rem;
+  top: 1rem;
+  width: auto;
+  max-width: calc(100% - 2rem);
   z-index: 90;
   border: 1px solid rgba(31, 55, 45, 0.2);
   border-radius: 18px;
@@ -2259,9 +2261,11 @@ body.custom-builder-only-mode #planner-subhead {
   }
 
   .account-dropdown {
-    left: 0;
-    right: auto;
-    width: min(560px, 95vw);
+    left: 0.75rem;
+    right: 0.75rem;
+    top: 0.75rem;
+    width: auto;
+    max-width: calc(100% - 1.5rem);
   }
 
   .controls,
