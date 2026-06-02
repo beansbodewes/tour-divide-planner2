@@ -12,6 +12,7 @@ import { paypalApiFetch } from "../_shared/paypal.ts";
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
+    return jsonResponse({ error: "Paid route sales are temporarily unavailable." }, { status: 503 });
     const authHeader = request.headers.get("Authorization");
     const userClient = createUserClient(authHeader);
     const admin = createAdminClient();
@@ -46,12 +47,22 @@ Deno.serve(async (request) => {
     }
 
     const customId = entitlementId;
-    const invoiceId = `${customId}__${Date.now()}`;
+    const invoiceId = `route-${Date.now()}`;
     const amountText = route.priceUsd.toFixed(2);
     const order = await paypalApiFetch("/v2/checkout/orders", {
       method: "POST",
       body: JSON.stringify({
         intent: "CAPTURE",
+        payment_source: {
+          paypal: {
+            experience_context: {
+              return_url: returnUrl,
+              cancel_url: cancelUrl,
+              user_action: "PAY_NOW",
+              shipping_preference: "NO_SHIPPING"
+            }
+          }
+        },
         purchase_units: [
           {
             custom_id: customId,
@@ -62,18 +73,15 @@ Deno.serve(async (request) => {
               value: amountText
             }
           }
-        ],
-        application_context: {
-          return_url: returnUrl,
-          cancel_url: cancelUrl,
-          user_action: "PAY_NOW",
-          shipping_preference: "NO_SHIPPING"
-        }
+        ]
       })
     });
 
     const approveLink = Array.isArray(order?.links)
-      ? order.links.find((link: Record<string, unknown>) => String(link?.rel || "").trim() === "approve")
+      ? order.links.find((link: Record<string, unknown>) => {
+          const rel = String(link?.rel || "").trim();
+          return rel === "payer-action" || rel === "approve";
+        })
       : null;
     const approvalUrl = String(approveLink?.href || "").trim();
     if (!approvalUrl) throw new Error("PayPal approval URL was missing.");

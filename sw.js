@@ -1,4 +1,4 @@
-const CACHE_NAME = "bikepack-route-pwa-v98";
+const CACHE_NAME = "bikepack-route-pwa-v99";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -22,7 +22,8 @@ const CORE_ASSETS = [
   "./Bikepacking-Route-Colorado-Trail_v2017_08.gpx",
   "./AZT300_2026_v4.gpx",
   "./AZT800_2026_v1.gpx",
-  "./Peru_Great_Divide_Full_(Huaraz_to_Abancay)_22_07_2022.gpx"
+  "./Peru_Great_Divide_Full_(Huaraz_to_Abancay)_22_07_2022.gpx",
+  "./Silk_Road_Mountain_Race_2026.gpx"
 ];
 
 self.addEventListener("install", (event) => {

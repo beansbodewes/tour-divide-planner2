@@ -243,6 +243,10 @@ const MARKETPLACE_PAYPAL_REQUESTS_COLLECTION = "marketplace_paypal_purchase_requ
 const MARKETPLACE_PAYPAL_CREATE_ORDER_FUNCTION = "create-paypal-route-order";
 const MARKETPLACE_PAYPAL_CAPTURE_ORDER_FUNCTION = "capture-paypal-route-order";
 const MARKETPLACE_ROUTE_ACCESS_FUNCTION = "marketplace-route-access";
+const MARKETPLACE_DONATION_CHECKOUT_FUNCTION = "create-route-donation-checkout";
+const ROUTE_SALES_ENABLED = false;
+const ROUTE_DONATIONS_ENABLED = true;
+const ROUTE_SALES_DISABLED_MESSAGE = "Paid route sales are temporarily unavailable.";
 const SUPABASE_URL = "https://idvfsczcktulkgeqdzww.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_-RUH7QHKMzHVgbqOt6Dy8w_mBQdkd5j";
 const SUPABASE_DOCS_TABLE = "planner_documents";
@@ -2367,6 +2371,7 @@ function normalizePublishedRoutePrice(value) {
 
 function publishedRoutePriceLabel(record) {
   const amount = normalizePublishedRoutePrice(record?.priceUsd);
+  if (!ROUTE_SALES_ENABLED && amount > 0) return `Suggested $${amount.toFixed(2)}`;
   return amount > 0 ? `$${amount.toFixed(2)}` : "Free";
 }
 
@@ -2415,6 +2420,7 @@ function userHasMarketplaceEntitlement(record) {
 }
 
 function canImportPublishedRoute(record) {
+  if (!ROUTE_SALES_ENABLED) return true;
   const amount = normalizePublishedRoutePrice(record?.priceUsd);
   return userOwnsPublishedRoute(record) || amount <= 0 || userHasMarketplaceEntitlement(record);
 }
@@ -2422,6 +2428,7 @@ function canImportPublishedRoute(record) {
 function publishedRoutePrimaryActionLabel(record) {
   if (userOwnsPublishedRoute(record)) return "Open Your Route";
   if (canImportPublishedRoute(record)) return "Import Route";
+  if (!ROUTE_SALES_ENABLED) return "Sales Paused";
   return `Buy with PayPal • ${publishedRoutePriceLabel(record)}`;
 }
 
@@ -2691,6 +2698,7 @@ function updatePublishRoutePanel(options = {}) {
 
   const hasRoutePayload = hasValidCustomRideDataObject(buildCustomRideDataPayload() || getCustomRoutePayload(routeId)?.customRideData);
   const currentPublish = activePublishedRouteForCurrentUser();
+  const publishPriceField = publishPriceInput?.closest("label") || null;
 
   if (publishPriceInput) {
     if (currentPublish && document.activeElement !== publishPriceInput) {
@@ -2704,9 +2712,13 @@ function updatePublishRoutePanel(options = {}) {
     publishRouteCopy.textContent = !isPublishableRoute
       ? "Publishing is for custom routes. Open one of your saved custom routes here to share it with other riders."
       : currentPublish
-        ? "Your published version can be updated anytime. Price, route details, and social proof will stay attached to this listing."
-        : "Share a custom route so other riders can import it into their own planner, and set a price if you want to sell it with PayPal during this early test phase.";
+        ? "Your published version can be updated anytime. Route details and social proof will stay attached to this listing."
+        : ROUTE_SALES_ENABLED
+          ? "Share a custom route so other riders can import it into their own planner, and set a price if you want to sell it with PayPal during this early test phase."
+          : "Share a custom route so other riders can import it into their own planner. Supporters can donate directly to the creator from the route card.";
   }
+
+  if (publishPriceField) publishPriceField.hidden = !ROUTE_SALES_ENABLED;
 
   if (publishRouteBadge) publishRouteBadge.hidden = !currentPublish;
   if (unpublishRouteBtn) unpublishRouteBtn.hidden = !currentPublish;
@@ -2769,7 +2781,7 @@ function updatePublishRoutePanel(options = {}) {
   }
 
   if (publishVisibilitySelect) publishVisibilitySelect.disabled = false;
-  if (publishPriceInput) publishPriceInput.disabled = false;
+  if (publishPriceInput) publishPriceInput.disabled = !ROUTE_SALES_ENABLED;
   if (publishRouteBtn) {
     publishRouteBtn.disabled = false;
     publishRouteBtn.textContent = currentPublish ? "Update Published Route" : "Publish Route";
@@ -2779,11 +2791,19 @@ function updatePublishRoutePanel(options = {}) {
   if (currentPublish) {
     if (!preserveStatus) {
       setPublishRouteStatus(
-        `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}" for ${publishedRoutePriceLabel(currentPublish)}. Publishing again will update it.`
+        ROUTE_SALES_ENABLED
+          ? `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}" for ${publishedRoutePriceLabel(currentPublish)}. Publishing again will update it.`
+          : `Currently published as "${publishedRouteModeLabel(currentPublish.publishMode)}". Publishing again will update it.`
       );
     }
   } else {
-    if (!preserveStatus) setPublishRouteStatus("Choose what to share, set your price, then publish your route to the collection.");
+    if (!preserveStatus) {
+      setPublishRouteStatus(
+        ROUTE_SALES_ENABLED
+          ? "Choose what to share, set your price, then publish your route to the collection."
+          : "Choose what to share, then publish your route to the collection. Supporters can donate from the route card."
+      );
+    }
   }
 }
 
@@ -3303,7 +3323,9 @@ function buildPublishedRouteRecord(mode = "full") {
   const trimmedPayload = withTrackPointLimit(routePayload, 1600) || routePayload;
   const currentPublish = activePublishedRouteForCurrentUser();
   const nowIso = new Date().toISOString();
-  const priceUsd = normalizePublishedRoutePrice(publishPriceInput?.value || currentPublish?.priceUsd || 0);
+  const priceUsd = ROUTE_SALES_ENABLED
+    ? normalizePublishedRoutePrice(publishPriceInput?.value || currentPublish?.priceUsd || 0)
+    : 0;
 
   return {
     publishId: publishedRouteDocId(routeId, authUser?.uid || ""),
@@ -3533,7 +3555,7 @@ async function importPublishedRoute(record) {
 async function importEntitledPublishedRoute(record) {
   const normalized = normalizePublishedRouteRecord(record);
   if (!normalized) return;
-  if (userOwnsPublishedRoute(normalized) || normalizePublishedRoutePrice(normalized.priceUsd) <= 0) {
+  if (!ROUTE_SALES_ENABLED || userOwnsPublishedRoute(normalized) || normalizePublishedRoutePrice(normalized.priceUsd) <= 0) {
     await finishPublishedRouteImport(normalized);
     return;
   }
@@ -3559,6 +3581,10 @@ async function importEntitledPublishedRoute(record) {
 async function startPublishedRoutePayPalPurchase(record) {
   const normalized = normalizePublishedRouteRecord(record);
   if (!normalized) return;
+  if (!ROUTE_SALES_ENABLED) {
+    window.alert(ROUTE_SALES_DISABLED_MESSAGE);
+    return;
+  }
   if (!authUser) {
     window.alert("Sign in first so the purchase can be attached to your account.");
     return;
@@ -3578,6 +3604,39 @@ async function startPublishedRoutePayPalPurchase(record) {
   }
 }
 
+async function startCreatorDonation(record) {
+  const normalized = normalizePublishedRouteRecord(record);
+  if (!normalized || !ROUTE_DONATIONS_ENABLED) return;
+  if (!authUser) {
+    window.alert("Sign in first so the donation can be attached to your account.");
+    return;
+  }
+
+  const suggestedAmount = normalizePublishedRoutePrice(normalized.priceUsd) || 5;
+  const amountInput = window.prompt("Enter donation amount in USD", suggestedAmount.toFixed(2));
+  if (amountInput == null) return;
+  const amountUsd = normalizePublishedRoutePrice(amountInput);
+  if (!(amountUsd > 0)) {
+    window.alert("Enter a valid donation amount greater than $0.");
+    return;
+  }
+
+  try {
+    const result = await invokeMarketplaceFunction(MARKETPLACE_DONATION_CHECKOUT_FUNCTION, {
+      publishId: normalized.publishId,
+      amountUsd,
+      successUrl: `${window.location.origin}${window.location.pathname}?view=route-collection&donation=success`,
+      cancelUrl: `${window.location.origin}${window.location.pathname}?view=route-collection&donation=cancel`
+    });
+    const checkoutUrl = String(result?.url || "").trim();
+    if (!checkoutUrl) throw new Error("Donation checkout URL was missing.");
+    window.location.assign(checkoutUrl);
+  } catch (error) {
+    console.error("Creator donation start failed:", error);
+    window.alert(`Could not start creator donation (${String(error?.message || "unknown error")}).`);
+  }
+}
+
 async function handlePublishedRoutePrimaryAction(record) {
   const normalized = normalizePublishedRouteRecord(record);
   if (!normalized) return;
@@ -3587,6 +3646,10 @@ async function handlePublishedRoutePrimaryAction(record) {
   }
   if (canImportPublishedRoute(normalized)) {
     await importEntitledPublishedRoute(normalized);
+    return;
+  }
+  if (!ROUTE_SALES_ENABLED) {
+    window.alert(ROUTE_SALES_DISABLED_MESSAGE);
     return;
   }
   await startPublishedRoutePayPalPurchase(normalized);
@@ -3706,6 +3769,7 @@ function renderPublishedRoutesCollection() {
         </div>
         <div class="button-row published-route-actions">
           <button class="btn" type="button" data-published-primary="${escapeHtml(record.publishId)}">${escapeHtml(primaryActionLabel)}</button>
+          ${!isOwnedByCurrentUser && ROUTE_DONATIONS_ENABLED ? '<button class="btn" type="button" data-published-donate="' + escapeHtml(record.publishId) + '">Donate to Creator</button>' : ""}
         </div>
       </div>
       <div class="published-route-votes">
@@ -3719,8 +3783,18 @@ function renderPublishedRoutesCollection() {
     `;
     const primaryBtn = card.querySelector("[data-published-primary]");
     if (primaryBtn) {
+      if (!ROUTE_SALES_ENABLED && !canImportPublishedRoute(record)) {
+        primaryBtn.disabled = true;
+        primaryBtn.title = ROUTE_SALES_DISABLED_MESSAGE;
+      }
       primaryBtn.addEventListener("click", () => {
         void handlePublishedRoutePrimaryAction(record);
+      });
+    }
+    const donateBtn = card.querySelector("[data-published-donate]");
+    if (donateBtn) {
+      donateBtn.addEventListener("click", () => {
+        void startCreatorDonation(record);
       });
     }
     const likeBtn = card.querySelector("[data-published-vote-like]");
@@ -4469,6 +4543,12 @@ function normalizeSupabaseUser(user) {
   };
 }
 
+function authStateSignature(user) {
+  const normalized = normalizeSupabaseUser(user);
+  if (!normalized) return "signed_out";
+  return `signed_in:${String(normalized.uid || "").trim()}:${normalizeEmail(normalized.email || "")}`;
+}
+
 function primeSignedInUi(user, statusText = "") {
   const normalized = normalizeSupabaseUser(user);
   if (normalized?.uid || normalized?.email) {
@@ -4521,34 +4601,32 @@ function buildFirestoreAdapter() {
 }
 
 function buildFirebaseAuthAdapter() {
-  const listeners = new Set();
-  const notify = (supabaseUser) => {
-    const normalized = normalizeSupabaseUser(supabaseUser);
-    listeners.forEach((listener) => {
-      try {
-        listener(normalized);
-      } catch {
-        // Ignore per-listener errors.
-      }
-    });
-  };
-
   const authApi = {
     async getRedirectResult() {
       const { data } = await supabaseClient.auth.getSession();
       return { user: normalizeSupabaseUser(data?.session?.user || null) };
     },
     onAuthStateChanged(listener) {
-      listeners.add(listener);
+      let lastSignature = "__uninitialized__";
+      const emit = (supabaseUser) => {
+        const signature = authStateSignature(supabaseUser);
+        if (signature === lastSignature) return;
+        lastSignature = signature;
+        try {
+          listener(normalizeSupabaseUser(supabaseUser));
+        } catch {
+          // Ignore per-listener errors.
+        }
+      };
+
       supabaseClient.auth
         .getSession()
-        .then(({ data }) => listener(normalizeSupabaseUser(data?.session?.user || null)))
-        .catch(() => listener(null));
+        .then(({ data }) => emit(data?.session?.user || null))
+        .catch(() => emit(null));
       const { data: sub } = supabaseClient.auth.onAuthStateChange((_event, session) => {
-        notify(session?.user || null);
+        emit(session?.user || null);
       });
       return () => {
-        listeners.delete(listener);
         try {
           sub?.subscription?.unsubscribe?.();
         } catch {
@@ -4609,7 +4687,7 @@ function initSupabaseCompat() {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      flowType: "implicit"
+      flowType: "pkce"
     }
   });
   firebaseAuth = buildFirebaseAuthAdapter();

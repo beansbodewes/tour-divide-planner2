@@ -5,13 +5,17 @@ import { loadPublishedRouteById } from "../_shared/marketplace.ts";
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY") || "";
 const appUrl = Deno.env.get("APP_URL") || "http://127.0.0.1:4174";
-const marketplaceFeeBps = Number(Deno.env.get("MARKETPLACE_PLATFORM_FEE_BPS") || "3000");
 const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" });
+
+function normalizeDonationAmount(value: unknown) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Number(amount.toFixed(2));
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    return jsonResponse({ error: "Paid route sales are temporarily unavailable." }, { status: 503 });
     if (!stripeSecretKey) throw new Error("Missing STRIPE_SECRET_KEY.");
     const authHeader = request.headers.get("Authorization");
     const userClient = createUserClient(authHeader);
@@ -22,27 +26,17 @@ Deno.serve(async (request) => {
     } = await userClient.auth.getUser();
     if (!user) return jsonResponse({ error: "Sign in required." }, { status: 401 });
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const publishId = String(body?.publishId || "").trim();
+    const amountUsd = normalizeDonationAmount(body?.amountUsd);
     const successUrl = String(body?.successUrl || `${appUrl}/?view=route-collection`).trim() || `${appUrl}/?view=route-collection`;
     const cancelUrl = String(body?.cancelUrl || successUrl).trim() || successUrl;
     if (!publishId) return jsonResponse({ error: "publishId is required." }, { status: 400 });
+    if (!(amountUsd > 0)) return jsonResponse({ error: "amountUsd must be greater than 0." }, { status: 400 });
 
     const route = await loadPublishedRouteById(admin, publishId);
     if (!route) return jsonResponse({ error: "Route not found." }, { status: 404 });
-    if (route.ownerId === user.id) return jsonResponse({ error: "You already own this route." }, { status: 400 });
-    if (!(route.priceUsd > 0)) return jsonResponse({ error: "This route is free and does not require checkout." }, { status: 400 });
-
-    const { data: existingEntitlement } = await admin
-      .from("marketplace_entitlements")
-      .select("publish_id")
-      .eq("publish_id", route.publishId)
-      .eq("buyer_user_id", user.id)
-      .eq("status", "active")
-      .maybeSingle();
-    if (existingEntitlement) {
-      return jsonResponse({ alreadyOwned: true, publishId: route.publishId });
-    }
+    if (route.ownerId === user.id) return jsonResponse({ error: "You cannot donate to your own route." }, { status: 400 });
 
     const { data: creatorAccount } = await admin
       .from("marketplace_creator_accounts")
@@ -51,21 +45,17 @@ Deno.serve(async (request) => {
       .maybeSingle();
     if (!creatorAccount?.stripe_account_id || !creatorAccount?.onboarding_complete) {
       return jsonResponse(
-        { error: "This creator has not finished payout onboarding yet, so checkout is not available for this route." },
+        { error: "This creator has not finished donation onboarding yet." },
         { status: 409 }
       );
     }
 
-    const unitAmount = Math.round(route.priceUsd * 100);
-    const applicationFeeAmount = Math.max(0, Math.round((unitAmount * marketplaceFeeBps) / 10000));
-    const creatorAmount = Math.max(0, unitAmount - applicationFeeAmount);
-
+    const unitAmount = Math.round(amountUsd * 100);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       success_url: successUrl,
       cancel_url: cancelUrl,
       customer_email: user.email || undefined,
-      client_reference_id: `${route.publishId}:${user.id}`,
       line_items: [
         {
           quantity: 1,
@@ -73,35 +63,40 @@ Deno.serve(async (request) => {
             currency: "usd",
             unit_amount: unitAmount,
             product_data: {
-              name: route.routeName,
-              description: `${route.authorLabel} on Bikepack Finishers`
+              name: `Donate to ${route.authorLabel || "Creator"}`,
+              description: `${route.routeName} creator support`
             }
           }
         }
       ],
-      metadata: {
-        publishId: route.publishId,
-        buyerUserId: user.id,
-        sellerUserId: route.ownerId,
-        routeName: route.routeName,
-        platformFeeCents: String(applicationFeeAmount),
-        creatorAmountCents: String(creatorAmount)
-      },
       payment_intent_data: {
-        application_fee_amount: applicationFeeAmount,
         transfer_data: {
-          destination: creatorAccount.stripe_account_id
+          destination: String(creatorAccount.stripe_account_id || "").trim()
         },
         metadata: {
+          kind: "route_creator_donation",
           publishId: route.publishId,
-          buyerUserId: user.id,
-          sellerUserId: route.ownerId,
-          routeName: route.routeName
+          routeName: route.routeName,
+          creatorUserId: route.ownerId,
+          donorUserId: user.id,
+          amountUsd: amountUsd.toFixed(2)
         }
+      },
+      metadata: {
+        kind: "route_creator_donation",
+        publishId: route.publishId,
+        routeName: route.routeName,
+        creatorUserId: route.ownerId,
+        donorUserId: user.id,
+        amountUsd: amountUsd.toFixed(2)
       }
     });
 
-    return jsonResponse({ url: session.url, sessionId: session.id });
+    return jsonResponse({
+      url: String(session.url || "").trim(),
+      publishId: route.publishId,
+      amountUsd
+    });
   } catch (error) {
     return jsonResponse({ error: String(error instanceof Error ? error.message : error) }, { status: 500 });
   }
