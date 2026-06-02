@@ -806,6 +806,8 @@ body.signed-in-mode .hero {
 
 .account-menu {
   position: relative;
+  z-index: 80;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -904,7 +906,7 @@ body.signed-in-mode .hero {
   right: 0;
   top: calc(100% + 0.3rem);
   width: min(460px, 94vw);
-  z-index: 20;
+  z-index: 90;
   border: 1px solid rgba(31, 55, 45, 0.2);
   border-radius: 18px;
   background: #fffdf9;
