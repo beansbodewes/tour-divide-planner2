@@ -6815,7 +6815,7 @@ async function initCloud() {
       manualSignOutInProgress = false;
       // Keep current local planner state on transient auth blips.
       // Only explicit sign-out should clear the working session.
-      if (!authRedirectMessage) {
+      if (!authRedirectMessage && !authStatusShowsFailure()) {
         setCloudStatus("Sign in to load your saved routes and keep changes synced automatically.");
       }
       updateAccountToggleLabel();
@@ -7565,7 +7565,8 @@ function setupTabs() {
 }
 
 function setupAccountMenu() {
-  if (!accountToggleBtn || !accountDropdown) return;
+  const accountMenu = document.querySelector(".account-menu");
+  if (!accountToggleBtn || !accountDropdown || !accountMenu) return;
 
   accountToggleBtn.addEventListener("click", () => {
     setAccountDropdownOpen(accountDropdown.hidden);
@@ -7575,7 +7576,7 @@ function setupAccountMenu() {
     if (accountDropdown.hidden) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
-    if (accountDropdown.contains(target) || accountToggleBtn.contains(target)) return;
+    if (accountMenu.contains(target) || accountToggleBtn.contains(target)) return;
     setAccountDropdownOpen(false);
   });
 
@@ -10662,6 +10663,11 @@ function readStoredAuthDebugSnapshot() {
   }
 }
 
+function authStatusShowsFailure() {
+  const text = String(cloudStatus?.textContent || "").trim();
+  return /sign in failed:|sign up failed:|google sign-in failed:/i.test(text);
+}
+
 async function restoreSessionFromUrlHashIfNeeded() {
   if (!supabaseClient?.auth?.setSession) return false;
   try {
@@ -10763,6 +10769,7 @@ signUpBtn.addEventListener("click", async () => {
   try {
     setAuthBusyState(true);
     beginPendingAuthState("account", email);
+    setCloudStatus(`Creating account for ${email}...`);
     await ensureFirebaseLocalPersistence();
     const result = await firebaseAuth.createUserWithEmailAndPassword(email, password);
     if (result?.session) {
@@ -10805,6 +10812,7 @@ signInBtn.addEventListener("click", async () => {
   try {
     setAuthBusyState(true);
     beginPendingAuthState("account", email);
+    setCloudStatus(`Signing in as ${email}...`);
     await ensureFirebaseLocalPersistence();
     const result = await firebaseAuth.signInWithEmailAndPassword(email, password);
     primeSignedInUi(result?.user, `Signed in as ${email}. Loading your saved data...`);
@@ -10831,6 +10839,7 @@ if (signInGoogleBtn) {
     try {
       setAuthBusyState(true);
       beginPendingAuthState("Google", normalizeEmail(authEmailInput?.value || ""));
+      setCloudStatus("Opening Google sign-in...");
       const provider = new window.firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       if (isSafariBrowser()) {
