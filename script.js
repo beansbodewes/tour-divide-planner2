@@ -524,6 +524,7 @@ let publishedRoutesMapLayers = [];
 let publishedCommunityRoutes = [];
 let publishedRouteVoteCounts = new Map();
 let myPublishedRouteVotes = new Map();
+let pendingPublishedRouteVotes = new Set();
 let marketplaceOwnedPublishIds = new Set();
 let marketplacePurchaseRequests = [];
 let paypalReturnHandledForOrderId = "";
@@ -1299,6 +1300,136 @@ async function syncAllLocalCustomRoutesToCloud() {
   );
 }
 
+function captureLocalCustomRouteSyncSnapshot() {
+  const registry = loadCustomRouteRegistry();
+  if (!registry.length) return [];
+
+  return registry
+    .map((entry) => {
+      ensureCustomRouteDefinition(entry.id, entry.name);
+      const snapshot = loadLocalCustomRouteSnapshot(entry.id);
+      if (!snapshot || !hasValidCustomRideDataPayload(snapshot)) return null;
+      return {
+        id: entry.id,
+        name: sanitizeCustomRouteName(snapshot.routeName || entry.name || "My Route"),
+        snapshot: {
+          routeName: sanitizeCustomRouteName(snapshot.routeName || entry.name || "My Route"),
+          config: snapshot.config || buildFallbackConfigForMyRoute(),
+          plan: Array.isArray(snapshot.plan) ? snapshot.plan : [],
+          comments: Array.isArray(snapshot.comments) ? snapshot.comments : [],
+          customRideData: snapshot.customRideData,
+          updatedAt: snapshot.updatedAt || new Date().toISOString()
+        }
+      };
+    })
+    .filter(Boolean);
+}
+
+function extractCloudCustomRouteRegistry(customRouteDoc = {}) {
+  const customRoutesMap =
+    customRouteDoc?.customRoutes && typeof customRouteDoc.customRoutes === "object" ? customRouteDoc.customRoutes : {};
+  const hasPersistedPayload = (routeId) => hasValidCustomRideDataPayload(customRoutesMap?.[routeId]);
+  const hasRegistryField = Array.isArray(customRouteDoc?.customRouteRegistry);
+  if (hasRegistryField) {
+    return customRouteDoc.customRouteRegistry
+      .map((entry) => ({
+        id: String(entry?.id || ""),
+        name: sanitizeCustomRouteName(entry?.name || "My Route")
+      }))
+      .filter((entry) => isNamedCustomRoute(entry.id) && hasPersistedPayload(entry.id));
+  }
+  return Object.keys(customRoutesMap)
+    .filter((routeId) => isNamedCustomRoute(routeId) && hasPersistedPayload(routeId))
+    .map((routeId) => ({
+      id: routeId,
+      name: sanitizeCustomRouteName(customRoutesMap[routeId]?.routeName || "My Route")
+    }));
+}
+
+async function purgeStaleLocalCustomRoutesAfterCloudLoad() {
+  if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
+
+  const customDocRef = firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid);
+  const customDocSnap = await customDocRef.get();
+  const customDoc = customDocSnap?.exists ? customDocSnap.data() || {} : {};
+  const cloudRegistry = extractCloudCustomRouteRegistry(customDoc);
+  const keepIds = new Set(cloudRegistry.map((entry) => entry.id));
+  const localRegistry = loadCustomRouteRegistry();
+  const staleRouteIds = localRegistry
+    .map((entry) => String(entry?.id || ""))
+    .filter((routeId) => isNamedCustomRoute(routeId) && !keepIds.has(routeId));
+
+  if (!staleRouteIds.length) return;
+
+  staleRouteIds.forEach((routeId) => {
+    removeCustomRouteLocalArtifacts(routeId);
+    removeCustomRoutePayload(routeId);
+    if (ROUTES[routeId]) delete ROUTES[routeId];
+  });
+
+  saveCustomRouteRegistry(cloudRegistry);
+  pruneNamedCustomRouteDefinitions(cloudRegistry.map((entry) => entry.id));
+  hydrateCustomRoutesFromRegistry();
+  renderCustomRouteButtons();
+}
+
+async function syncCapturedCustomRoutesToCloudAfterSignIn(capturedRoutes = []) {
+  if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid || !Array.isArray(capturedRoutes) || !capturedRoutes.length) {
+    return;
+  }
+
+  const customDocRef = firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(authUser.uid);
+  const customDocSnap = await customDocRef.get();
+  const customDoc = customDocSnap?.exists ? customDocSnap.data() || {} : {};
+  const cloudRegistry = extractCloudCustomRouteRegistry(customDoc);
+  const cloudIds = new Set(cloudRegistry.map((entry) => entry.id));
+  const allowLocalOnlyRestore = cloudRegistry.length === 0;
+  const nextRegistryById = new Map(cloudRegistry.map((entry) => [entry.id, entry]));
+  const customRoutesPayload = {};
+
+  capturedRoutes.forEach((entry) => {
+    const routeId = String(entry?.id || "");
+    const snapshot = entry?.snapshot;
+    if (!isNamedCustomRoute(routeId) || !snapshot || !hasValidCustomRideDataPayload(snapshot)) return;
+    if (!allowLocalOnlyRestore && !cloudIds.has(routeId)) return;
+
+    customRoutesPayload[routeId] = {
+      routeName: sanitizeCustomRouteName(snapshot.routeName || entry?.name || "My Route"),
+      config: snapshot.config || buildFallbackConfigForMyRoute(),
+      plan: Array.isArray(snapshot.plan) ? snapshot.plan : [],
+      comments: Array.isArray(snapshot.comments) ? snapshot.comments : [],
+      customRideData: snapshot.customRideData,
+      updatedAt: snapshot.updatedAt || new Date().toISOString()
+    };
+    nextRegistryById.set(routeId, {
+      id: routeId,
+      name: sanitizeCustomRouteName(snapshot.routeName || entry?.name || "My Route")
+    });
+  });
+
+  if (!Object.keys(customRoutesPayload).length) return;
+
+  const nextRegistry = Array.from(nextRegistryById.values());
+  await customDocRef.set(
+    {
+      customRouteRegistry: nextRegistry,
+      customRoutes: customRoutesPayload,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
+
+  nextRegistry.forEach((entry) => ensureCustomRouteDefinition(entry.id, entry.name));
+  Object.entries(customRoutesPayload).forEach(([routeId, snapshot]) => {
+    upsertCustomRoutePayload(routeId, snapshot);
+  });
+  saveCustomRouteRegistry(nextRegistry);
+  pruneNamedCustomRouteDefinitions(nextRegistry.map((entry) => entry.id));
+  hydrateCustomRoutesFromRegistry();
+  renderCustomRouteButtons();
+  await saveAccountStateToCloud();
+}
+
 function upsertCustomRouteRegistryEntry(routeId, name) {
   if (!isNamedCustomRoute(routeId)) return;
   const safeName = sanitizeCustomRouteName(name);
@@ -1591,22 +1722,24 @@ function setViewMode(mode) {
     button.classList.toggle("active", !standaloneMode && button.dataset.route === getRouteFromUrl());
   });
   if (routeSwitcherNote) {
+    routeSwitcherNote.hidden = false;
     if (showHome) {
-      routeSwitcherNote.textContent = "Home is active. Choose any route to open that planner.";
+      routeSwitcherNote.textContent = "Choose any route to open its planner.";
     } else if (showHowTo) {
-      routeSwitcherNote.textContent = "How To is active. Learn the basics first, then move into route uploads and publishing.";
+      routeSwitcherNote.textContent = "Quick site guide and setup help.";
     } else if (showAdmin) {
-      routeSwitcherNote.textContent = "Admin is active. Review route inventory, sales, and platform status behind the scenes.";
+      routeSwitcherNote.textContent = "Admin tools and route management.";
     } else if (showLiveTracker) {
-      routeSwitcherNote.textContent = "Live Tracker is active. Follow route position updates in one place.";
+      routeSwitcherNote.textContent = "Follow live route position updates.";
     } else if (showRouteCollection) {
-      routeSwitcherNote.textContent = "Route Collection is active. Add routes to your top bar or open one now.";
+      routeSwitcherNote.textContent = "Browse built-in, published, and community routes.";
     } else if (showCustomerService) {
-      routeSwitcherNote.textContent = "Customer Service is active. Submit a form and we will review it.";
+      routeSwitcherNote.textContent = "Send support questions or report an issue.";
     } else if (showDonations) {
-      routeSwitcherNote.textContent = "Donations + Suggestions is active. Thanks for supporting Bikepack Finishers.";
+      routeSwitcherNote.textContent = "Support the project or leave a suggestion.";
     } else {
-      routeSwitcherNote.textContent = `${(ROUTES[getRouteFromUrl()] || ROUTES[DEFAULT_ROUTE_ID]).label} is active now. Switch routes anytime.`;
+      routeSwitcherNote.textContent = "";
+      routeSwitcherNote.hidden = true;
     }
   }
   if (isCreateRouteView) {
@@ -2398,6 +2531,28 @@ function publishedRouteVoteSummary(publishId, fallback = {}) {
   const dislikes = Math.max(0, Math.round(Number(counts?.dislikes ?? fallback.dislikes ?? 0)));
   const myVote = safePublishId ? normalizePublishedRouteVote(myPublishedRouteVotes.get(safePublishId)) : "";
   return { likes, dislikes, myVote };
+}
+
+function isPublishedRouteVotePending(publishId) {
+  return pendingPublishedRouteVotes.has(String(publishId || "").trim());
+}
+
+function applyPublishedRouteVoteLocally(publishId, nextVote) {
+  const safePublishId = String(publishId || "").trim();
+  if (!safePublishId) return;
+  const previousVote = normalizePublishedRouteVote(myPublishedRouteVotes.get(safePublishId));
+  const normalizedNextVote = normalizePublishedRouteVote(nextVote);
+  const counts = publishedRouteVoteCounts.get(safePublishId) || { likes: 0, dislikes: 0 };
+
+  if (previousVote === "like") counts.likes = Math.max(0, Number(counts.likes || 0) - 1);
+  if (previousVote === "dislike") counts.dislikes = Math.max(0, Number(counts.dislikes || 0) - 1);
+  if (normalizedNextVote === "like") counts.likes = Math.max(0, Number(counts.likes || 0) + 1);
+  if (normalizedNextVote === "dislike") counts.dislikes = Math.max(0, Number(counts.dislikes || 0) + 1);
+
+  publishedRouteVoteCounts.set(safePublishId, counts);
+  if (normalizedNextVote) myPublishedRouteVotes.set(safePublishId, normalizedNextVote);
+  else myPublishedRouteVotes.delete(safePublishId);
+  publishedCommunityRoutes = publishedCommunityRoutes.map((entry) => normalizePublishedRouteRecord(entry)).filter(Boolean);
 }
 
 async function getSupabaseAccessToken() {
@@ -3462,7 +3617,12 @@ async function setPublishedRouteVote(record, nextVote) {
   const currentVote = normalizePublishedRouteVote(normalized.myVote);
   const voteToSave = desiredVote && desiredVote !== currentVote ? desiredVote : "";
   const docId = publishedRouteVoteDocId(normalized.publishId, authUser.uid);
-  if (!docId) return;
+  if (!docId || isPublishedRouteVotePending(normalized.publishId)) return;
+
+  const previousVote = currentVote;
+  pendingPublishedRouteVotes.add(normalized.publishId);
+  applyPublishedRouteVoteLocally(normalized.publishId, voteToSave);
+  renderPublishedRoutesCollection();
 
   try {
     if (!voteToSave) {
@@ -3492,8 +3652,13 @@ async function setPublishedRouteVote(record, nextVote) {
     publishedCommunityRoutes = publishedCommunityRoutes.map((entry) => normalizePublishedRouteRecord(entry)).filter(Boolean);
     renderPublishedRoutesCollection();
   } catch (error) {
+    applyPublishedRouteVoteLocally(normalized.publishId, previousVote);
+    renderPublishedRoutesCollection();
     console.error("Published route vote failed:", error);
     window.alert(`Could not save your vote (${String(error?.message || "unknown error")}).`);
+  } finally {
+    pendingPublishedRouteVotes.delete(normalized.publishId);
+    renderPublishedRoutesCollection();
   }
 }
 
@@ -3747,6 +3912,16 @@ function renderPublishedRoutesCollection() {
       ? `${Math.round((Number(record.likeCount || 0) / ratingTotal) * 100)}% liked`
       : "No ratings yet";
     const primaryActionLabel = publishedRoutePrimaryActionLabel(record);
+    const votePending = isPublishedRouteVotePending(record.publishId);
+    const voteDisabledReason = !authUser
+      ? "Sign in to vote on community routes."
+      : isOwnedByCurrentUser
+        ? "You cannot vote on your own route."
+        : !supabaseClient || localAuthMode
+          ? "Community voting is unavailable in local-account mode."
+          : votePending
+            ? "Saving your vote..."
+            : "";
     card.innerHTML = `
       <h3>${safeName}</h3>
       <div class="published-route-badges">
@@ -3773,11 +3948,13 @@ function renderPublishedRoutesCollection() {
         </div>
       </div>
       <div class="published-route-votes">
-        <button class="btn published-route-vote-btn ${record.myVote === "like" ? "is-active" : ""}" type="button" data-published-vote-like="${escapeHtml(record.publishId)}">
-          Like ${Math.max(0, Math.round(Number(record.likeCount || 0)))}
+        <button class="btn published-route-vote-btn is-like ${record.myVote === "like" ? "is-active" : ""}" type="button" data-published-vote-like="${escapeHtml(record.publishId)}" aria-pressed="${record.myVote === "like" ? "true" : "false"}">
+          <span class="published-route-vote-label">Like</span>
+          <span class="published-route-vote-count">${Math.max(0, Math.round(Number(record.likeCount || 0)))}</span>
         </button>
-        <button class="btn published-route-vote-btn ${record.myVote === "dislike" ? "is-active" : ""}" type="button" data-published-vote-dislike="${escapeHtml(record.publishId)}">
-          Dislike ${Math.max(0, Math.round(Number(record.dislikeCount || 0)))}
+        <button class="btn published-route-vote-btn is-dislike ${record.myVote === "dislike" ? "is-active" : ""}" type="button" data-published-vote-dislike="${escapeHtml(record.publishId)}" aria-pressed="${record.myVote === "dislike" ? "true" : "false"}">
+          <span class="published-route-vote-label">Dislike</span>
+          <span class="published-route-vote-count">${Math.max(0, Math.round(Number(record.dislikeCount || 0)))}</span>
         </button>
       </div>
     `;
@@ -3799,16 +3976,18 @@ function renderPublishedRoutesCollection() {
     }
     const likeBtn = card.querySelector("[data-published-vote-like]");
     if (likeBtn) {
-      likeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode;
+      likeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode || votePending;
+      if (voteDisabledReason) likeBtn.title = voteDisabledReason;
       likeBtn.addEventListener("click", () => {
-        setPublishedRouteVote(record, "like");
+        void setPublishedRouteVote(record, "like");
       });
     }
     const dislikeBtn = card.querySelector("[data-published-vote-dislike]");
     if (dislikeBtn) {
-      dislikeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode;
+      dislikeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode || votePending;
+      if (voteDisabledReason) dislikeBtn.title = voteDisabledReason;
       dislikeBtn.addEventListener("click", () => {
-        setPublishedRouteVote(record, "dislike");
+        void setPublishedRouteVote(record, "dislike");
       });
     }
     card.addEventListener("click", (event) => {
@@ -4230,12 +4409,15 @@ function applyRouteConfig(routeId) {
 
   document.title = `Bikepack Finishers | ${route.label}`;
   enforceSiteBranding();
-  if (plannerTitle) plannerTitle.textContent = route.plannerTitle;
-  if (routeSwitcherNote) routeSwitcherNote.textContent = `${route.label} is active now. Switch routes anytime.`;
+  if (plannerTitle) plannerTitle.textContent = route.label;
+  if (routeSwitcherNote) {
+    routeSwitcherNote.textContent = "";
+    routeSwitcherNote.hidden = true;
+  }
   if (sectionsNav) sectionsNav.setAttribute("aria-label", `${route.label} sections`);
   if (routeProfileKicker) routeProfileKicker.textContent = `${route.label} Elevation Profile`;
   if (plannerSubhead) {
-    plannerSubhead.textContent = "Plan each race day, inspect the full route map with resupply points, and discuss route sections with other riders.";
+    plannerSubhead.textContent = "Plan, map, and review community notes for this route.";
   }
 
   if (routeDistanceInput) {
@@ -6672,6 +6854,7 @@ async function loadCloudData() {
 async function bootstrapSignedInUser(user, version = authStateVersion, previousUser = null) {
   authUser = user || null;
   if (!authUser) return;
+  const capturedLocalCustomRoutes = captureLocalCustomRouteSyncSnapshot();
   const previousEmail = normalizeEmail(previousUser?.email || "");
   const nextEmail = normalizeEmail(authUser?.email || "");
   const previousUid = String(previousUser?.uid || "").trim();
@@ -6702,12 +6885,14 @@ async function bootstrapSignedInUser(user, version = authStateVersion, previousU
     }
   }
   try {
-    await syncAllLocalCustomRoutesToCloud();
+    await loadCloudData();
+    if (version !== authStateVersion) return;
+    await syncCapturedCustomRoutesToCloudAfterSignIn(capturedLocalCustomRoutes);
+    if (version !== authStateVersion) return;
+    await purgeStaleLocalCustomRoutesAfterCloudLoad();
   } catch {
-    // Keep going even if pre-sync fails.
+    // Keep going even if guarded custom-route sync fails.
   }
-  if (version !== authStateVersion) return;
-  await loadCloudData();
   if (version !== authStateVersion) return;
   await loadPublishedCommunityRoutes({ force: true });
   if (version !== authStateVersion) return;
