@@ -576,14 +576,56 @@ body {
 }
 
 .published-route-vote-btn {
-  min-width: 6.25rem;
+  min-width: 7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border-width: 1px;
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.published-route-vote-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.published-route-vote-label {
+  font-weight: 600;
+}
+
+.published-route-vote-count {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  min-width: 1.9rem;
+  padding: 0.16rem 0.48rem;
+  border-radius: 999px;
+  background: rgba(39, 55, 45, 0.08);
+  font-size: 0.84rem;
 }
 
 .published-route-vote-btn.is-active {
+  box-shadow: 0 10px 20px rgba(22, 44, 33, 0.08);
+}
+
+.published-route-vote-btn.is-like.is-active {
   border-color: #1d7f5b;
   background: #e6f5ec;
   color: #1c6548;
+}
+
+.published-route-vote-btn.is-like.is-active .published-route-vote-count {
+  background: rgba(29, 127, 91, 0.14);
+}
+
+.published-route-vote-btn.is-dislike.is-active {
+  border-color: #b85b46;
+  background: #fbebe7;
+  color: #8d3f2f;
+}
+
+.published-route-vote-btn.is-dislike.is-active .published-route-vote-count {
+  background: rgba(184, 91, 70, 0.14);
 }
 
 .marketplace-admin-panel {
@@ -987,17 +1029,30 @@ h1 {
   line-height: 1.5;
 }
 
-.planner-route-title {
-  margin: 0.1rem 0 0.4rem;
+.planner-route-kicker {
+  margin: 0.4rem 0 0.1rem;
+  color: #5a645f;
+  font-size: 0.76rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  color: var(--ink-soft);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planner-route-title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  line-height: 0.98;
 }
 
 .subhead {
+  margin: 0.2rem 0 0;
   max-width: 760px;
   color: var(--ink-soft);
-  font-size: 1.05rem;
+  font-size: 0.98rem;
+  line-height: 1.45;
 }
 
 .app-shell {
@@ -1008,8 +1063,8 @@ h1 {
 
 .route-switcher-wrap {
   margin-top: 0.9rem;
-  margin-bottom: 0.25rem;
-  padding: 0.85rem 0.95rem 0.9rem;
+  margin-bottom: 0.12rem;
+  padding: 0.8rem 0.95rem 0.8rem;
   border: 1px solid #d2c8b6;
   border-radius: 14px;
   background: linear-gradient(150deg, #fdfaf3, #efe8dc);
@@ -1111,8 +1166,8 @@ h1 {
 }
 
 .route-switcher-note {
-  margin: 0.5rem 0 0;
-  font-size: 0.82rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
   color: var(--ink-soft);
 }
 
@@ -1151,7 +1206,8 @@ h1 {
 .tabs {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-top: 0.8rem;
+  margin-bottom: 0.85rem;
   flex-wrap: wrap;
 }
 
