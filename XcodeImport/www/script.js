@@ -10320,7 +10320,12 @@ if (customApplyUploadBtn) {
       if (!createdBtn) {
         throw new Error("Route tab creation failed");
       }
-      window.location.assign(routeUrl(newRouteId));
+      navigateWithinApp(routeUrl(newRouteId), {
+        sync: {
+          forceRouteRefresh: true,
+          forceCloudLoad: Boolean(authUser)
+        }
+      });
     } catch (error) {
       const message = String(error?.message || "");
       console.error("Create route failed:", error);
@@ -10329,7 +10334,12 @@ if (customApplyUploadBtn) {
           const btn = routeSwitcherNav?.querySelector(`.route-btn-user-route[data-route="${createdRouteId}"]`);
           if (btn) {
             setCustomBuilderStatus(`Created route: ${createdRouteName || "My Route"}. Opening route tab...`);
-            window.location.assign(routeUrl(createdRouteId));
+            navigateWithinApp(routeUrl(createdRouteId), {
+              sync: {
+                forceRouteRefresh: true,
+                forceCloudLoad: Boolean(authUser)
+              }
+            });
             return;
           }
         } catch {
