@@ -2098,6 +2098,27 @@ body.custom-builder-only-mode #planner-subhead {
   height: 16px;
 }
 
+@media (max-width: 540px) {
+  .profile-axis-labels .axis-y {
+    display: none;
+  }
+
+  .profile-axis-labels .axis-x {
+    right: 8px;
+    bottom: -0.1rem;
+    font-size: 0.64rem;
+  }
+
+  .route-profile-scale-label,
+  .route-profile-end-label {
+    font-size: 20px;
+  }
+
+  .route-profile-scale-label-mid {
+    font-size: 18px;
+  }
+}
+
 .map-section-profile-meta {
   margin: 0.1rem 0 0;
   font-size: 0.78rem;

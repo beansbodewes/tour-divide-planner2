@@ -539,6 +539,7 @@ const CUSTOM_ROUTE_ID_PREFIX = "my_route_";
 const CUSTOMER_SERVICE_SUBMISSIONS_KEY = "bikepack-finisher-customer-service-submissions-v1";
 const CUSTOMER_SERVICE_EMAIL = "bikepackfinishers@gmail.com";
 const DONATION_SUGGESTION_SUBMISSIONS_KEY = "bikepack-finisher-donations-suggestions-v1";
+const LIVE_TRACKER_SETTINGS_KEY = "bikepack-finisher-live-tracker-settings-v1";
 const MAP_STYLE_KEY = "bikepack-map-style-v2";
 const MAPBOX_TOKEN_KEY = "bikepack-mapbox-token-v1";
 const MY_ROUTE_SHORTCUT_KEY_PREFIX = "bikepack-finisher-my-route-shortcut-v1:";
@@ -1848,6 +1849,24 @@ function setLiveTrackerGarminText(text) {
   if (liveTrackerGarminStatus) liveTrackerGarminStatus.textContent = text;
 }
 
+function loadLiveTrackerSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LIVE_TRACKER_SETTINGS_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLiveTrackerSettings(settings) {
+  try {
+    localStorage.setItem(LIVE_TRACKER_SETTINGS_KEY, JSON.stringify(settings || {}));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function milesFromTrackPoints(trackPoints) {
   if (!Array.isArray(trackPoints) || trackPoints.length < 2) return 0;
   let miles = 0;
@@ -1958,7 +1977,15 @@ function setupLiveTracker() {
   if (!liveTrackerPage) return;
   buildLiveTrackerRouteOptions();
   ensureLiveTrackerMap();
+  const savedSettings = loadLiveTrackerSettings();
+  if (liveTrackerGarminLink && savedSettings.garminUrl) liveTrackerGarminLink.value = String(savedSettings.garminUrl || "");
+  if (liveTrackerRefreshSeconds && savedSettings.refreshSeconds) liveTrackerRefreshSeconds.value = String(savedSettings.refreshSeconds);
+  if (liveTrackerPrivacyMode && savedSettings.privacyMode) liveTrackerPrivacyMode.value = savedSettings.privacyMode === "private" ? "private" : "public";
+  if (liveTrackerAccessCode && savedSettings.accessCode) liveTrackerAccessCode.value = String(savedSettings.accessCode || "");
   if (liveTrackerRouteSelect) {
+    if (savedSettings.routeId && Array.from(liveTrackerRouteSelect.options).some((option) => option.value === savedSettings.routeId)) {
+      liveTrackerRouteSelect.value = savedSettings.routeId;
+    }
     liveTrackerRouteSelect.addEventListener("change", () => {
       liveTrackerLoadedRouteId = "";
       liveTrackerLoadedTrackPoints = [];
@@ -1981,12 +2008,23 @@ function setupLiveTracker() {
       }
       const sanitizedRefresh = Number.isFinite(refresh) ? Math.max(15, Math.min(600, Math.round(refresh))) : 60;
       if (liveTrackerRefreshSeconds) liveTrackerRefreshSeconds.value = String(sanitizedRefresh);
-      setLiveTrackerGarminText(`Tracker setup saved (refresh every ${sanitizedRefresh}s).`);
+      const saved = saveLiveTrackerSettings({
+        garminUrl: url,
+        refreshSeconds: sanitizedRefresh,
+        routeId: String(liveTrackerRouteSelect?.value || ""),
+        privacyMode: String(liveTrackerPrivacyMode?.value || "public") === "private" ? "private" : "public",
+        accessCode: String(liveTrackerAccessCode?.value || "").trim()
+      });
+      setLiveTrackerGarminText(
+        saved
+          ? `Tracker setup saved on this device (refresh every ${sanitizedRefresh}s when live sync is connected).`
+          : "Could not save tracker setup in this browser."
+      );
     });
   }
   setLiveTrackerMeta("Select a route to load live tracker.");
   setLiveTrackerRiderText("No live riders loaded.");
-  setLiveTrackerGarminText("No Garmin link saved yet.");
+  setLiveTrackerGarminText(savedSettings.garminUrl ? "Saved Garmin setup loaded from this device." : "No Garmin link saved yet.");
 }
 
 function gpxCandidates(fileName) {
@@ -2241,9 +2279,15 @@ async function enhanceRouteDataInBackground(version, trackPoints, fileName = "")
       if (version !== routeEnhancementVersion || trackPoints !== gpxTrackPoints) return;
       applyProcessedRouteData(processed);
     }
-    recomputeDerivedFields();
     const config = parseForm();
-    if (config && plan.length) renderMetrics(config, plan);
+    recomputeDerivedFields();
+    if (config && plan.length) {
+      renderMetrics(config, plan);
+      if (!isUserActivelyEditingPlanner()) {
+        renderPlan(plan);
+        persistPlan();
+      }
+    }
     if (routeProfileMeta) routeProfileMeta.textContent = "Rendering elevation profile...";
     renderRouteProfile();
   } catch (error) {
@@ -8344,8 +8388,8 @@ function renderRouteProfile() {
 
   const { min: minEle, max: maxEle } = numericSeriesBounds(profile.profileSamples);
   const range = Math.max(maxEle - minEle, 1);
-  const left = 60;
-  const right = 2340;
+  const left = 190;
+  const right = 2310;
   const top = 12;
   const bottom = 120;
   const midY = top + (bottom - top) / 2;
@@ -8534,8 +8578,8 @@ function renderRouteProfileFallbackSimple() {
       return;
     }
 
-    const left = 60;
-    const right = 2340;
+    const left = 190;
+    const right = 2310;
     const top = 12;
     const bottom = 120;
 
@@ -8562,10 +8606,10 @@ function renderRouteProfileFallbackSimple() {
     profileSvgEl.innerHTML = [
       '<defs><linearGradient id="route-profile-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d95a4e" stop-opacity="0.34"></stop><stop offset="100%" stop-color="#d95a4e" stop-opacity="0.08"></stop></linearGradient></defs>',
       '<rect x="0" y="0" width="2400" height="160" fill="#f7f3ea"></rect>',
-      '<line x1="60" y1="12" x2="2340" y2="12" stroke="#ddd2bf" stroke-width="1"></line>',
-      '<line x1="60" y1="66" x2="2340" y2="66" stroke="#e7ddcd" stroke-width="1" stroke-dasharray="6 8"></line>',
-      '<line x1="60" y1="120" x2="2340" y2="120" stroke="#a79883" stroke-width="1.3"></line>',
-      '<line x1="60" y1="12" x2="60" y2="120" stroke="#c8baa4" stroke-width="1"></line>',
+      `<line x1="${left}" y1="12" x2="${right}" y2="12" stroke="#ddd2bf" stroke-width="1"></line>`,
+      `<line x1="${left}" y1="66" x2="${right}" y2="66" stroke="#e7ddcd" stroke-width="1" stroke-dasharray="6 8"></line>`,
+      `<line x1="${left}" y1="120" x2="${right}" y2="120" stroke="#a79883" stroke-width="1.3"></line>`,
+      `<line x1="${left}" y1="12" x2="${left}" y2="120" stroke="#c8baa4" stroke-width="1"></line>`,
       `<polygon points="${areaPoints}" fill="url(#route-profile-fill)"></polygon>`,
       `<polyline points="${points}" fill="none" stroke="#fff7ef" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>`,
       `<polyline points="${points}" fill="none" stroke="#c94b40" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>`
@@ -8710,14 +8754,13 @@ function ensureMapArtifacts() {
   }
 
   try {
-    const summary =
-      `GPX ${gpxTrackPoints.length} pts • Days ${stageOptions.length} (${dayMarkers.length} icons) • ` +
-      `Resupplies ${resupplyPoints.length} (${resupplyMarkers.length} icons) • List ${markerList ? markerList.children.length : 0}`;
     if (mapSubhead) {
       const baseText = mapboxFallbackActive
-        ? "Mapbox tiles failed to load here, so this view switched to OpenStreetMap automatically."
+        ? "This map switched to an alternate base layer automatically."
         : "Loaded from your GPX file with evenly spaced days.";
-      mapSubhead.textContent = `${baseText} ${summary}`;
+      const stopCount = resupplyPoints.length;
+      const dayCount = stageOptions.length || getRequestedStageCount();
+      mapSubhead.textContent = `${baseText} Showing ${dayCount} planned days and ${stopCount} resupply stops.`;
     }
   } catch (error) {
     console.error("ensureMapArtifacts summary render failed:", error);
