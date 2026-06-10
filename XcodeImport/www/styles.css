@@ -1171,6 +1171,11 @@ h1 {
   color: var(--ink-soft);
 }
 
+.route-switcher-note.status-error {
+  color: #9f2f24;
+  font-weight: 700;
+}
+
 .unsigned-warning-banner {
   margin: 0.55rem 0 0;
   padding: 0.62rem 0.8rem;

@@ -414,6 +414,7 @@ const commentMileInput = document.getElementById("comment-mile");
 const commentNameInput = document.getElementById("comment-name");
 const commentTextInput = document.getElementById("comment-text");
 const commentImageInput = document.getElementById("comment-image");
+const commentStatus = document.getElementById("comment-status");
 const commentFeed = document.getElementById("comment-feed");
 const commentTemplate = document.getElementById("comment-template");
 const communityMapEl = document.getElementById("community-map");
@@ -531,6 +532,7 @@ let paypalReturnHandledForOrderId = "";
 let pendingPublishRecord = null;
 let appliedRouteId = "";
 let appliedViewMode = "";
+let mapInitPromise = null;
 const CUSTOM_ROUTE_REGISTRY_KEY = "bikepack-finisher-custom-route-registry-v1";
 const CUSTOM_ROUTE_REGISTRY_SESSION_KEY = "bikepack-finisher-custom-route-registry-session-v1";
 const CUSTOM_ROUTE_ID_PREFIX = "my_route_";
@@ -1764,13 +1766,16 @@ function setViewMode(mode) {
     renderPublishedRoutesCollection();
     renderMarketplaceAdminPanel();
     loadPublishedCommunityRoutes();
-    setTimeout(() => renderPublishedRoutesMap(), 30);
+    schedulePublishedRoutesMapRender();
   }
   if (showAdmin) {
     renderAdminDashboard();
     void loadPublishedCommunityRoutes({ force: true });
   }
   updatePublishRoutePanel();
+  if (appInitialized && !standaloneMode && !isCreateRouteView) {
+    void ensurePlannerMapInitialized();
+  }
   if (!standaloneMode && map) {
     setTimeout(() => {
       map.invalidateSize();
@@ -1786,6 +1791,17 @@ function setViewMode(mode) {
       }
     }, 30);
   }
+}
+
+function bringRouteLayersToFront() {
+  [routeLineHalo, routeLine].forEach((layer) => {
+    if (!layer || !map?.hasLayer(layer)) return;
+    try {
+      layer.bringToFront();
+    } catch {
+      // Leaflet can briefly lose renderer nodes while hidden panels resize.
+    }
+  });
 }
 
 function getLiveTrackerSelectableRoutes() {
@@ -2110,8 +2126,7 @@ function hardRebuildMapUi() {
     hideMapHoverSnapshot();
     clearRouteProfileHover();
   });
-  routeLineHalo.bringToFront();
-  routeLine.bringToFront();
+  bringRouteLayersToFront();
   try {
     const bounds = routeLine.getBounds();
     if (bounds && bounds.isValid && bounds.isValid()) {
@@ -2817,6 +2832,22 @@ function setPublishRouteStatus(text, isError = false) {
   publishRouteStatus.classList.toggle("status-error", Boolean(isError));
 }
 
+function setCommentStatus(text, isError = false) {
+  if (!commentStatus) return;
+  commentStatus.textContent = String(text || "").trim();
+  commentStatus.classList.toggle("status-error", Boolean(isError));
+}
+
+function schedulePublishedRoutesMapRender(delayMs = 400) {
+  if (viewModeFromUrl() !== "route_collection") return;
+  const render = () => renderPublishedRoutesMap();
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(render, { timeout: delayMs + 800 });
+    return;
+  }
+  setTimeout(render, delayMs);
+}
+
 function closePublishConfirmModal() {
   pendingPublishRecord = null;
   if (!publishConfirmModal) return;
@@ -3408,7 +3439,7 @@ async function loadPublishedCommunityRoutes(options = {}) {
     renderCustomRouteButtons();
     renderPublishedRoutesCollection();
     renderMarketplaceAdminPanel();
-    if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+    schedulePublishedRoutesMapRender();
     updatePublishRoutePanel();
     return publishedCommunityRoutes;
   }
@@ -3449,7 +3480,7 @@ async function loadPublishedCommunityRoutes(options = {}) {
   renderPublishedRoutesCollection();
   renderMarketplaceAdminPanel();
   renderAdminDashboard();
-  if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+  schedulePublishedRoutesMapRender();
   updatePublishRoutePanel();
   return publishedCommunityRoutes;
 }
@@ -3511,8 +3542,6 @@ async function savePublishedRouteRecord(record) {
     return;
   }
 
-  let hadError = false;
-
   if (publishRouteBtn) {
     publishRouteBtn.disabled = true;
     publishRouteBtn.textContent = "Publishing...";
@@ -3531,18 +3560,17 @@ async function savePublishedRouteRecord(record) {
     if (error) throw error;
     upsertPublishedCommunityRouteLocal(record);
     renderPublishedRoutesCollection();
-    if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+    schedulePublishedRoutesMapRender();
     await loadPublishedCommunityRoutes({ force: true });
     setPublishRouteStatus(
       `Published: ${record.routeName} (${publishedRouteModeLabel(record.publishMode)}, ${publishedRoutePriceLabel(record)}).`
     );
   } catch (error) {
-    hadError = true;
     const message = String(error?.message || "unknown error");
     console.error("Publish route failed:", error);
     setPublishRouteStatus(`Could not publish route (${message}).`, true);
   } finally {
-    updatePublishRoutePanel({ preserveStatus: hadError });
+    updatePublishRoutePanel({ preserveStatus: true });
   }
 }
 
@@ -3585,7 +3613,7 @@ async function unpublishCurrentRoute() {
     if (error) throw error;
     removePublishedCommunityRouteLocal(currentPublish.publishId);
     renderPublishedRoutesCollection();
-    if (viewModeFromUrl() === "route_collection") setTimeout(() => renderPublishedRoutesMap(), 30);
+    schedulePublishedRoutesMapRender();
     setPublishRouteStatus("Route unpublished. Other riders will no longer see it in the route collection.");
   } catch (error) {
     const message = String(error?.message || "unknown error");
@@ -3593,7 +3621,7 @@ async function unpublishCurrentRoute() {
     setPublishRouteStatus(`Could not unpublish route (${message}).`, true);
   } finally {
     if (unpublishRouteBtn) unpublishRouteBtn.textContent = "Unpublish Route";
-    updatePublishRoutePanel();
+    updatePublishRoutePanel({ preserveStatus: true });
   }
 }
 
@@ -3976,7 +4004,7 @@ function renderPublishedRoutesCollection() {
     }
     const likeBtn = card.querySelector("[data-published-vote-like]");
     if (likeBtn) {
-      likeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode || votePending;
+      likeBtn.disabled = isOwnedByCurrentUser || (!authUser && !supabaseClient) || (Boolean(authUser) && (!supabaseClient || localAuthMode)) || votePending;
       if (voteDisabledReason) likeBtn.title = voteDisabledReason;
       likeBtn.addEventListener("click", () => {
         void setPublishedRouteVote(record, "like");
@@ -3984,7 +4012,7 @@ function renderPublishedRoutesCollection() {
     }
     const dislikeBtn = card.querySelector("[data-published-vote-dislike]");
     if (dislikeBtn) {
-      dislikeBtn.disabled = !authUser || isOwnedByCurrentUser || !supabaseClient || localAuthMode || votePending;
+      dislikeBtn.disabled = isOwnedByCurrentUser || (!authUser && !supabaseClient) || (Boolean(authUser) && (!supabaseClient || localAuthMode)) || votePending;
       if (voteDisabledReason) dislikeBtn.title = voteDisabledReason;
       dislikeBtn.addEventListener("click", () => {
         void setPublishedRouteVote(record, "dislike");
@@ -7707,8 +7735,10 @@ function setupTabs() {
     if (tabName === "map" && map) {
       setTimeout(() => {
         map.invalidateSize();
-        ensureMapArtifacts();
-        hardRebuildMapUi();
+        void ensurePlannerMapInitialized().then(() => {
+          ensureMapArtifacts();
+          hardRebuildMapUi();
+        });
         if (routeLine) {
           try {
             const bounds = routeLine.getBounds();
@@ -9654,8 +9684,7 @@ function applyTrackToMap(trackPoints, options = {}) {
     clearRouteProfileHover();
   });
 
-  routeLineHalo.bringToFront();
-  routeLine.bringToFront();
+  bringRouteLayersToFront();
 
   if (activeRouteGpxDistanceMiles > 0) {
     setRouteDistanceInputMiles(activeRouteGpxDistanceMiles);
@@ -9738,6 +9767,10 @@ function applyTrackToMap(trackPoints, options = {}) {
 async function initMap() {
   const mapElement = document.getElementById("route-map");
   if (!mapElement || typeof L === "undefined") return;
+  if (map) {
+    setTimeout(() => map.invalidateSize(), 30);
+    return;
+  }
   ensureMapPlanPanel();
   if (isCustomRouteActive() && customUploadedTrackPoints.length < 2) {
     const customSnapshot = loadLocalCustomRouteSnapshot(activeRouteId());
@@ -9971,6 +10004,16 @@ async function initMap() {
   setupCommentSections();
 }
 
+function ensurePlannerMapInitialized() {
+  if (map) return Promise.resolve();
+  if (!mapInitPromise) {
+    mapInitPromise = initMap().finally(() => {
+      mapInitPromise = null;
+    });
+  }
+  return mapInitPromise;
+}
+
 function updateStagesFromInput() {
   if (!gpxTrackPoints.length || !stageLayer) return;
 
@@ -10116,17 +10159,37 @@ function fileToDataUrl(file) {
 function setupCommentForm() {
   commentForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    setCommentStatus("");
 
     const mile = normalizeCommentMile(commentMileInput?.value);
     const name = commentNameInput.value.trim();
     const text = commentTextInput.value.trim();
     const imageFile = commentImageInput.files && commentImageInput.files[0] ? commentImageInput.files[0] : null;
 
-    if (mile === null || !name || !text) return;
+    if (mile === null) {
+      setCommentStatus("Enter a valid mile marker before posting.", true);
+      commentMileInput?.focus();
+      return;
+    }
+    if (!name) {
+      setCommentStatus("Add your rider name before posting.", true);
+      commentNameInput?.focus();
+      return;
+    }
+    if (!text) {
+      setCommentStatus("Add a comment before posting.", true);
+      commentTextInput?.focus();
+      return;
+    }
 
     let image = "";
     if (imageFile) {
-      image = await fileToDataUrl(imageFile);
+      try {
+        image = await fileToDataUrl(imageFile);
+      } catch {
+        setCommentStatus("Could not read that image. Try a different file or post without a picture.", true);
+        return;
+      }
     }
 
     const section = sectionNameForMile(mile);
@@ -10146,6 +10209,7 @@ function setupCommentForm() {
     if (commentMileInput) commentMileInput.value = "";
     commentTextInput.value = "";
     commentImageInput.value = "";
+    setCommentStatus("Comment posted to this route.");
   });
 }
 
@@ -11303,7 +11367,6 @@ renderComments();
 loadSavedPlan();
 loadPublishedCommunityRoutes();
 updatePublishRoutePanel();
-initMap();
 
 if (!plan.length) {
   const config = parseForm();
@@ -11321,3 +11384,6 @@ if (startDateInput.value && totalDaysInput.value && !finishDateInput.value) {
 
 resetUndoBaseline();
 appInitialized = true;
+if (viewModeFromUrl() === "planner" && !isRouteBuilderActive()) {
+  void ensurePlannerMapInitialized();
+}

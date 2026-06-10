@@ -562,7 +562,7 @@
           <p class="home-kicker">Create Your Own Ride</p>
           <h2>Build a Custom Route</h2>
           <p class="home-intro">
-            Add a name, choose how many resupply points to generate, and upload your GPX. We will create a full planner tab for that route.
+            Add a name, choose how many resupply points to generate, and upload your GPX. We will create a full planner tab for that route, where you can review it and publish it when you are signed in.
           </p>
           <article class="home-block custom-builder-box">
             <div class="control-grid custom-projection-grid">
@@ -824,6 +824,7 @@
                 <input id="comment-image" type="file" accept="image/*" />
               </label>
               <button class="btn btn-primary" type="submit">Post Comment</button>
+              <p id="comment-status" class="route-switcher-note comment-status" aria-live="polite"></p>
             </form>
           </section>
 
@@ -1027,21 +1028,8 @@
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
           navigator.serviceWorker
-            .getRegistrations()
-            .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+            .register("./sw.js")
             .catch(() => {});
-          if ("caches" in window) {
-            caches
-              .keys()
-              .then((keys) =>
-                Promise.all(
-                  keys
-                    .filter((key) => /^bikepack-route-pwa-v/i.test(key))
-                    .map((key) => caches.delete(key))
-                )
-              )
-              .catch(() => {});
-          }
         });
       }
     </script>

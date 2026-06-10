@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bikepack Finishers icon</title>
+  <desc id="desc">A mountain route badge with a bicycle wheel and finish flag.</desc>
+  <rect width="512" height="512" rx="96" fill="#1e241f"/>
+  <path d="M70 330 174 198l72 86 50-61 146 107v56H70z" fill="#f2efe8"/>
+  <path d="M70 330 174 198l72 86 50-61 146 107" fill="none" stroke="#1d7f5b" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="180" cy="366" r="44" fill="none" stroke="#eb5e28" stroke-width="22"/>
+  <circle cx="332" cy="366" r="44" fill="none" stroke="#eb5e28" stroke-width="22"/>
+  <path d="M180 366h72l42-80h-70l-44 80Zm72 0 80 .5M224 286l-34-44m104 44 40-52" fill="none" stroke="#f2efe8" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M356 120v118" stroke="#f2efe8" stroke-width="18" stroke-linecap="round"/>
+  <path d="M356 126h82l-18 34 18 34h-82z" fill="#eb5e28"/>
+</svg>

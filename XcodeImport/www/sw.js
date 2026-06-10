@@ -1,4 +1,4 @@
-const CACHE_NAME = "bikepack-route-pwa-v99";
+const CACHE_NAME = "bikepack-route-pwa-v100";
 const CORE_ASSETS = [
   "./",
   "./index.html",
