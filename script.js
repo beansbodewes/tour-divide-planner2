@@ -1681,15 +1681,47 @@ function renderCustomRouteButtons() {
   });
 }
 
+function buildCurrentRouteAccountSnapshot() {
+  const routeId = activeRouteId();
+  if (!routeId || isRouteBuilderActive()) return null;
+  const config = parseForm();
+  if (!config || !Array.isArray(plan)) return null;
+  const customRideData = buildCustomRideDataPayload();
+  return {
+    routeId,
+    profileCollection: PROFILE_COLLECTION,
+    config,
+    plan: Array.isArray(plan) ? plan : [],
+    comments: Array.isArray(comments) ? comments : [],
+    customRideData,
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function buildAccountStatePayload() {
+  const currentRouteSnapshot = buildCurrentRouteAccountSnapshot();
+  const routePlannerSnapshots = currentRouteSnapshot
+    ? {
+        [currentRouteSnapshot.routeId]: currentRouteSnapshot
+      }
+    : {};
   return {
     pinnedBuiltinRouteIds: getPinnedBuiltinRouteIds(),
     customRouteRegistry: loadCustomRouteRegistry(),
     customRoutePayloads: loadCustomRoutePayloadStore(),
+    routePlannerSnapshots,
     planUnitSystem,
     mapStylePreference: getMapStylePreference(),
     updatedAt: new Date().toISOString()
   };
+}
+
+function getAccountRouteSnapshot(payload, routeId) {
+  const snapshots = payload?.routePlannerSnapshots && typeof payload.routePlannerSnapshots === "object" ? payload.routePlannerSnapshots : {};
+  const snapshot = snapshots[String(routeId || "")];
+  if (!snapshot || typeof snapshot !== "object") return null;
+  if (!snapshot.config || !Array.isArray(snapshot.plan)) return null;
+  return snapshot;
 }
 
 function applyAccountStatePayload(payload) {
@@ -4684,7 +4716,19 @@ function setCloudStatus(text) {
   }
 }
 
-function markUserEditingNow() {
+function isPlannerEditTarget(target) {
+  if (!target || typeof target.closest !== "function") return false;
+  return Boolean(
+    target.closest("#tab-planner") ||
+      target.closest("#map-plan-panel") ||
+      target.closest("#custom-upload-panel") ||
+      target.closest("#comment-form")
+  );
+}
+
+function markUserEditingNow(event) {
+  const target = event?.target || document.activeElement;
+  if (!isPlannerEditTarget(target)) return;
   lastUserInputAt = Date.now();
 }
 
@@ -4692,6 +4736,7 @@ function isUserActivelyEditingPlanner() {
   const active = document.activeElement;
   if (
     active &&
+    isPlannerEditTarget(active) &&
     (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)
   ) {
     return true;
@@ -6944,12 +6989,14 @@ async function loadCloudData() {
     return;
   }
   try {
+    let accountStateData = null;
     const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
     if (accountStateDocId) {
       try {
         const accountStateSnap = await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).get();
         if (accountStateSnap?.exists) {
-          applyAccountStatePayload(accountStateSnap.data() || {});
+          accountStateData = accountStateSnap.data() || {};
+          applyAccountStatePayload(accountStateData);
         }
       } catch {
         // Ignore account-state read failures so route load can still continue.
@@ -6971,6 +7018,13 @@ async function loadCloudData() {
     } else {
       const snapshot = await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).get();
       if (snapshot.exists) data = snapshot.data() || {};
+    }
+    if (!data) {
+      const accountRouteSnapshot = getAccountRouteSnapshot(accountStateData, routeId);
+      if (accountRouteSnapshot) {
+        data = accountRouteSnapshot;
+        setCloudStatus(`Loaded account backup for ${authUser.email}.`);
+      }
     }
     if (!data) {
       if (isCustomRouteActive()) {
@@ -11505,15 +11559,15 @@ document.addEventListener("keydown", (event) => {
 
 document.addEventListener(
   "input",
-  () => {
-    markUserEditingNow();
+  (event) => {
+    markUserEditingNow(event);
   },
   true
 );
 document.addEventListener(
   "change",
-  () => {
-    markUserEditingNow();
+  (event) => {
+    markUserEditingNow(event);
   },
   true
 );
