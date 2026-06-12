@@ -482,6 +482,7 @@ let cloudSyncInFlight = false;
 let cloudSyncQueued = false;
 let cloudLoadInProgress = false;
 let cloudLoadRetryTimer = null;
+let signOutInProgress = false;
 let lastUserInputAt = 0;
 let localAuthMode = false;
 let authBusy = false;
@@ -6837,6 +6838,7 @@ async function pushCloudData() {
     if (cloudSyncQueued) {
       cloudSyncQueued = false;
       setTimeout(() => {
+        if (signOutInProgress) return;
         pushCloudData();
       }, 200);
     }
@@ -6844,20 +6846,51 @@ async function pushCloudData() {
 }
 
 function scheduleCloudSync() {
+  if (signOutInProgress) return;
   if (!cloudReady()) return;
   if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
+    if (signOutInProgress) return;
     pushCloudData();
   }, 900);
 }
 
 function flushPendingCloudSync() {
-  if (!cloudReady()) return;
+  if (!cloudReady()) return Promise.resolve({ ok: false, message: "Cloud mode is not ready." });
   if (cloudSyncTimer) {
     clearTimeout(cloudSyncTimer);
     cloudSyncTimer = null;
   }
-  void pushCloudData();
+  return pushCloudData();
+}
+
+function waitForCloudSyncIdle(timeoutMs = 10000) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      if (!cloudSyncInFlight || Date.now() - startedAt >= timeoutMs) {
+        resolve(!cloudSyncInFlight);
+        return;
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+async function saveSignedInStateBeforeSignOut() {
+  if (!cloudReady()) return { ok: true, message: "No signed-in cloud session." };
+  if (cloudSyncTimer) {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = null;
+  }
+  if (cloudSyncInFlight) {
+    cloudSyncQueued = false;
+    const becameIdle = await waitForCloudSyncIdle();
+    if (!becameIdle) return { ok: false, message: "Timed out waiting for the current cloud save." };
+  }
+  cloudSyncQueued = false;
+  return pushCloudData();
 }
 
 async function loadCloudData() {
@@ -11294,6 +11327,7 @@ signOutBtn.addEventListener("click", async () => {
   setAuthBusyState(true);
   finishPendingAuthState();
   manualSignOutInProgress = true;
+  signOutInProgress = true;
   if (localAuthMode) {
     const previousEmail = normalizeEmail(authUser?.email || "");
     authUser = null;
@@ -11306,19 +11340,30 @@ signOutBtn.addEventListener("click", async () => {
     updateSignedInIndicators();
     setAuthBusyState(false);
     manualSignOutInProgress = false;
+    signOutInProgress = false;
     return;
   }
   if (!firebaseAuth) {
     setAuthBusyState(false);
     manualSignOutInProgress = false;
+    signOutInProgress = false;
     return;
   }
   try {
     const previousEmail = normalizeEmail(authUser?.email || "");
+    setCloudStatus("Saving latest planner changes before sign out...");
+    const finalSave = await saveSignedInStateBeforeSignOut();
+    if (!finalSave?.ok) {
+      setCloudStatus(`Sign out paused: ${finalSave?.message || "latest planner changes did not sync."}`);
+      setAuthBusyState(false);
+      manualSignOutInProgress = false;
+      signOutInProgress = false;
+      return;
+    }
+    authUser = null;
     purgeSignedInDataFromDevice(previousEmail);
     resetUiAfterSignOut();
     await firebaseAuth.signOut();
-    authUser = null;
     setCloudStatus("Sign in to load your saved routes and keep changes synced automatically.");
     setMyRouteShortcutVisible(false);
     updateAccountToggleLabel();
@@ -11328,6 +11373,7 @@ signOutBtn.addEventListener("click", async () => {
     setTimeout(() => {
       if (!authUser) setAuthBusyState(false);
       if (!authUser) manualSignOutInProgress = false;
+      if (!authUser) signOutInProgress = false;
     }, 1000);
   }
 });
