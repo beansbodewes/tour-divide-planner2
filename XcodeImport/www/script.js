@@ -904,6 +904,81 @@ function loadCustomRouteRegistry() {
   }
 }
 
+function readStorageValue(key) {
+  if (!key) return null;
+  try {
+    const localValue = localStorage.getItem(key);
+    if (localValue !== null) return localValue;
+  } catch {
+    // Ignore localStorage read failures.
+  }
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function clearSessionStorageValue(key) {
+  if (!key) return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Ignore sessionStorage cleanup failures.
+  }
+}
+
+function storeJsonWithFallback(key, value, options = {}) {
+  if (!key) return { ok: false, storage: "none", degraded: false };
+  const { degradeValue = null } = options;
+  const originalJson = JSON.stringify(value);
+  try {
+    localStorage.setItem(key, originalJson);
+    clearSessionStorageValue(key);
+    return { ok: true, storage: "local", degraded: false };
+  } catch {
+    // Fall back below.
+  }
+
+  if (typeof degradeValue === "function") {
+    try {
+      const degraded = degradeValue(value);
+      localStorage.setItem(key, JSON.stringify(degraded));
+      clearSessionStorageValue(key);
+      return { ok: true, storage: "local", degraded: true };
+    } catch {
+      // Continue to session fallback.
+    }
+  }
+
+  try {
+    sessionStorage.setItem(key, originalJson);
+    return { ok: true, storage: "session", degraded: false };
+  } catch {
+    // Try degraded session fallback below.
+  }
+
+  if (typeof degradeValue === "function") {
+    try {
+      const degraded = degradeValue(value);
+      sessionStorage.setItem(key, JSON.stringify(degraded));
+      return { ok: true, storage: "session", degraded: true };
+    } catch {
+      // Give up.
+    }
+  }
+
+  return { ok: false, storage: "none", degraded: false };
+}
+
+function stripCommentImages(commentList) {
+  if (!Array.isArray(commentList)) return [];
+  return commentList.map((comment) => ({
+    ...comment,
+    image: ""
+  }));
+}
+
 function saveCustomRouteRegistry(registry) {
   const normalized = normalizeCustomRouteRegistryEntries(registry);
   const serialized = JSON.stringify(normalized);
@@ -1221,13 +1296,13 @@ function loadLocalCustomRouteSnapshot(routeId) {
   let commentsList = [];
   if (keys) {
     try {
-      const rawPlan = localStorage.getItem(keys.planKey);
+      const rawPlan = readStorageValue(keys.planKey);
       parsedPlan = rawPlan ? JSON.parse(rawPlan) : null;
     } catch {
       parsedPlan = null;
     }
     try {
-      const rawComments = localStorage.getItem(keys.commentsKey);
+      const rawComments = readStorageValue(keys.commentsKey);
       commentsList = rawComments ? JSON.parse(rawComments) : [];
     } catch {
       commentsList = [];
@@ -1253,11 +1328,11 @@ function loadLocalCustomRouteSnapshot(routeId) {
   }
   if (!keys) return null;
   try {
-    const rawPlan = localStorage.getItem(keys.planKey);
+    const rawPlan = readStorageValue(keys.planKey);
     if (!rawPlan) return null;
     const parsedPlan = JSON.parse(rawPlan);
     if (!hasValidCustomRideDataPayload(parsedPlan)) return null;
-    const rawComments = localStorage.getItem(keys.commentsKey);
+    const rawComments = readStorageValue(keys.commentsKey);
     const commentsList = rawComments ? JSON.parse(rawComments) : [];
     return {
       routeName: sanitizeCustomRouteName(parsedPlan?.customRideData?.routeName || ROUTES[routeId]?.label || "My Route"),
@@ -1610,6 +1685,8 @@ function buildAccountStatePayload() {
     pinnedBuiltinRouteIds: getPinnedBuiltinRouteIds(),
     customRouteRegistry: loadCustomRouteRegistry(),
     customRoutePayloads: loadCustomRoutePayloadStore(),
+    planUnitSystem,
+    mapStylePreference: getMapStylePreference(),
     updatedAt: new Date().toISOString()
   };
 }
@@ -1619,6 +1696,18 @@ function applyAccountStatePayload(payload) {
   if (Array.isArray(payload.pinnedBuiltinRouteIds)) {
     savePinnedBuiltinRouteIds(payload.pinnedBuiltinRouteIds);
     renderPinnedBuiltinRouteButtons();
+  }
+  if (payload.planUnitSystem === "metric" || payload.planUnitSystem === "imperial") {
+    applyPlannerUnits(payload.planUnitSystem, { preserveDistance: true });
+    try {
+      localStorage.setItem(PLAN_UNITS_KEY, payload.planUnitSystem);
+    } catch {
+      // Ignore local preference write failures.
+    }
+  }
+  if (typeof payload.mapStylePreference === "string" && payload.mapStylePreference.trim()) {
+    saveMapStylePreference(payload.mapStylePreference);
+    if (mapStyleSelect) mapStyleSelect.value = payload.mapStylePreference;
   }
   const hasPayloadStore = Boolean(payload.customRoutePayloads && typeof payload.customRoutePayloads === "object");
   const payloadStore = hasPayloadStore ? payload.customRoutePayloads : {};
@@ -4358,7 +4447,7 @@ function refreshCustomRouteVisibility(routeId) {
 
 function loadCustomResupplyStops() {
   if (!CUSTOM_STOPS_KEY) return [];
-  const raw = localStorage.getItem(CUSTOM_STOPS_KEY);
+  const raw = readStorageValue(CUSTOM_STOPS_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -4389,7 +4478,12 @@ function saveCustomResupplyStops() {
       lon: Number(point.lon || 0),
       resupply: String(point.resupply || "")
     }));
-  localStorage.setItem(CUSTOM_STOPS_KEY, JSON.stringify(customStops));
+  const result = storeJsonWithFallback(CUSTOM_STOPS_KEY, customStops);
+  if (!result.ok) {
+    setCloudStatus("Custom stop save failed in this browser.");
+  } else if (result.storage === "session") {
+    setCloudStatus("Custom stops are saved for this tab only until browser storage is cleared up.");
+  }
 }
 
 function sortResupplyPointsByMile() {
@@ -7089,14 +7183,15 @@ function persistPlan() {
   captureUndoPoint();
   const customRideData = buildCustomRideDataPayload();
   const compactRouteStorage = isNamedCustomRoute(activeRouteId());
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      config,
-      plan,
-      customRideData: compactRouteStorage ? null : customRideData
-    })
-  );
+  const result = storeJsonWithFallback(STORAGE_KEY, {
+    config,
+    plan,
+    customRideData: compactRouteStorage ? null : customRideData
+  });
+  if (!result.ok) {
+    setCloudStatus("Planner auto-save failed in this browser. Try Save Plan after clearing some storage.");
+    return;
+  }
   if (isNamedCustomRoute(activeRouteId()) && hasValidCustomRideDataPayload({ customRideData })) {
     upsertCustomRoutePayload(activeRouteId(), {
       routeName: sanitizeCustomRouteName(customRouteDisplayName || ROUTES[activeRouteId()]?.label || "My Route"),
@@ -7106,6 +7201,9 @@ function persistPlan() {
       customRideData,
       updatedAt: new Date().toISOString()
     });
+  }
+  if (result.storage === "session") {
+    setCloudStatus("Planner auto-saved for this tab only. Browser storage is full, so it may not survive a full browser restart.");
   }
   maybeWarnUnsignedChanges();
   scheduleCloudSync();
@@ -7118,7 +7216,7 @@ function loadSavedPlan() {
     }
     return;
   }
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = readStorageValue(STORAGE_KEY);
   if (!raw) {
     if (isNamedCustomRoute(activeRouteId())) {
       const localCustomSnapshot = loadLocalCustomRouteSnapshot(activeRouteId());
@@ -7183,7 +7281,12 @@ function loadSavedPlan() {
         return;
       }
     }
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore storage cleanup failures.
+    }
     startDateInput.value = localDateString(new Date());
   }
 }
@@ -10102,7 +10205,7 @@ function updateStagesFromInput() {
 }
 
 function loadComments() {
-  const raw = localStorage.getItem(COMMENTS_KEY);
+  const raw = readStorageValue(COMMENTS_KEY);
   if (!raw) {
     comments = [];
     return;
@@ -10135,7 +10238,13 @@ function loadComments() {
 
 function persistComments() {
   captureUndoPoint();
-  localStorage.setItem(COMMENTS_KEY, JSON.stringify(comments));
+  const result = storeJsonWithFallback(COMMENTS_KEY, comments, {
+    degradeValue: stripCommentImages
+  });
+  if (!result.ok) {
+    setCloudStatus("Comment save failed in this browser. Try a smaller image or clear some storage.");
+    return;
+  }
   if (isNamedCustomRoute(activeRouteId())) {
     const customRideData = buildCustomRideDataPayload();
     const config = parseForm() || buildFallbackConfigForMyRoute();
@@ -10149,6 +10258,11 @@ function persistComments() {
         updatedAt: new Date().toISOString()
       });
     }
+  }
+  if (result.degraded) {
+    setCloudStatus("Comments saved, but attached images were trimmed to fit browser storage.");
+  } else if (result.storage === "session") {
+    setCloudStatus("Comments auto-saved for this tab only. Browser storage is full.");
   }
   maybeWarnUnsignedChanges();
   scheduleCloudSync();
@@ -10574,6 +10688,7 @@ if (mapStyleSelect) {
   mapStyleSelect.addEventListener("change", () => {
     const nextStyle = String(mapStyleSelect.value || "esriTopo");
     saveMapStylePreference(nextStyle);
+    void saveAccountStateToCloud();
     if (!map || !activeBaseLayer) return;
     if (typeof applyMapStyleImmediately === "function" && applyMapStyleImmediately(nextStyle, "Map style changed.")) {
       setTimeout(() => {
