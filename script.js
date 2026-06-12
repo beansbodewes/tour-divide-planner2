@@ -6923,6 +6923,15 @@ function waitForCloudSyncIdle(timeoutMs = 10000) {
   });
 }
 
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ ok: false, message }), timeoutMs);
+    })
+  ]);
+}
+
 async function saveSignedInStateBeforeSignOut() {
   if (!cloudReady()) return { ok: true, message: "No signed-in cloud session." };
   if (cloudSyncTimer) {
@@ -6935,7 +6944,7 @@ async function saveSignedInStateBeforeSignOut() {
     if (!becameIdle) return { ok: false, message: "Timed out waiting for the current cloud save." };
   }
   cloudSyncQueued = false;
-  return pushCloudData();
+  return withTimeout(pushCloudData(), 6000, "Cloud save timed out before sign out.");
 }
 
 async function loadCloudData() {
@@ -11406,29 +11415,31 @@ signOutBtn.addEventListener("click", async () => {
   try {
     const previousEmail = normalizeEmail(authUser?.email || "");
     setCloudStatus("Saving latest planner changes before sign out...");
-    const finalSave = await saveSignedInStateBeforeSignOut();
-    if (!finalSave?.ok) {
-      setCloudStatus(`Sign out paused: ${finalSave?.message || "latest planner changes did not sync."}`);
-      setAuthBusyState(false);
-      manualSignOutInProgress = false;
-      signOutInProgress = false;
-      return;
+    let finalSave = { ok: true };
+    try {
+      finalSave = await saveSignedInStateBeforeSignOut();
+    } catch (error) {
+      finalSave = { ok: false, message: String(error?.message || "latest planner changes did not sync.") };
     }
+    if (!finalSave?.ok) {
+      console.warn("Final cloud save before sign out did not confirm:", finalSave?.message || "unknown error");
+      setCloudStatus("Signing out. Latest cloud save did not confirm, so use Save Plan before leaving next time.");
+    }
+    await firebaseAuth.signOut();
     authUser = null;
     purgeSignedInDataFromDevice(previousEmail);
     resetUiAfterSignOut();
-    await firebaseAuth.signOut();
     setCloudStatus("Sign in to load your saved routes and keep changes synced automatically.");
     setMyRouteShortcutVisible(false);
     updateAccountToggleLabel();
     updateSignedInIndicators();
+  } catch (error) {
+    setCloudStatus(`Sign out failed: ${describeAuthError(error, "sign_out")}`);
   } finally {
     // onAuthStateChanged will set final UI state; keep controls responsive even if callback is delayed.
-    setTimeout(() => {
-      if (!authUser) setAuthBusyState(false);
-      if (!authUser) manualSignOutInProgress = false;
-      if (!authUser) signOutInProgress = false;
-    }, 1000);
+    setAuthBusyState(false);
+    manualSignOutInProgress = false;
+    signOutInProgress = false;
   }
 });
 
