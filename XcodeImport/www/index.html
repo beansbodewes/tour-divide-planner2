@@ -1002,6 +1002,16 @@
         </div>
       </div>
     </div>
+    <div id="sign-out-modal" class="sign-out-modal" hidden aria-hidden="true">
+      <div class="sign-out-card" role="dialog" aria-modal="true" aria-labelledby="sign-out-modal-title">
+        <span class="route-processing-spinner sign-out-spinner" aria-hidden="true"></span>
+        <div>
+          <p class="home-kicker">Account Sync</p>
+          <h3 id="sign-out-modal-title">Signing Out</h3>
+          <p id="sign-out-modal-status">Saving your latest planner changes to cloud first...</p>
+        </div>
+      </div>
+    </div>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -1010,11 +1020,11 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=51"></script>
+    <script src="script.js?v=52"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "145";
+        const BUILD_VERSION = "146";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);

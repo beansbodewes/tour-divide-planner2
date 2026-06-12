@@ -665,7 +665,8 @@ body {
   text-transform: uppercase;
 }
 
-.publish-confirm-modal {
+.publish-confirm-modal,
+.sign-out-modal {
   position: fixed;
   inset: 0;
   z-index: 10000;
@@ -676,13 +677,37 @@ body {
   backdrop-filter: blur(4px);
 }
 
-.publish-confirm-card {
+.publish-confirm-card,
+.sign-out-card {
   width: min(560px, 100%);
   border: 1px solid #cdbfa7;
   border-radius: 22px;
   background: linear-gradient(180deg, #fffdf8, #f5efe4);
   box-shadow: 0 28px 70px rgba(16, 24, 19, 0.3);
   padding: 1.2rem;
+}
+
+.sign-out-card {
+  width: min(440px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.sign-out-card h3 {
+  margin: 0.15rem 0 0;
+}
+
+.sign-out-card p:last-child {
+  margin: 0.35rem 0 0;
+  color: var(--ink-soft);
+}
+
+.sign-out-spinner {
+  width: 1.4rem;
+  height: 1.4rem;
+  color: var(--accent-2);
 }
 
 .publish-confirm-summary {

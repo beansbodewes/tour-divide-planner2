@@ -314,6 +314,8 @@ const publishConfirmMode = document.getElementById("publish-confirm-mode");
 const publishConfirmPrice = document.getElementById("publish-confirm-price");
 const publishConfirmCancelBtn = document.getElementById("publish-confirm-cancel-btn");
 const publishConfirmSubmitBtn = document.getElementById("publish-confirm-submit-btn");
+const signOutModal = document.getElementById("sign-out-modal");
+const signOutModalStatus = document.getElementById("sign-out-modal-status");
 const cloudStatus = document.getElementById("cloud-status");
 const authForm = document.getElementById("auth-form");
 const authEmailInput = document.getElementById("auth-email");
@@ -10883,6 +10885,19 @@ function setAuthBusyState(busy) {
   });
 }
 
+function showSignOutModal(message = "Saving your latest planner changes to cloud first...") {
+  if (!signOutModal) return;
+  signOutModal.hidden = false;
+  signOutModal.setAttribute("aria-hidden", "false");
+  if (signOutModalStatus) signOutModalStatus.textContent = message;
+}
+
+function hideSignOutModal() {
+  if (!signOutModal) return;
+  signOutModal.hidden = true;
+  signOutModal.setAttribute("aria-hidden", "true");
+}
+
 async function handleManualPlannerSave() {
   const config = parseForm();
   if (!config) {
@@ -11388,6 +11403,7 @@ signOutBtn.addEventListener("click", async () => {
   if (authBusy) return;
   setAccountDropdownOpen(true);
   setAuthBusyState(true);
+  showSignOutModal();
   finishPendingAuthState();
   manualSignOutInProgress = true;
   signOutInProgress = true;
@@ -11404,16 +11420,19 @@ signOutBtn.addEventListener("click", async () => {
     setAuthBusyState(false);
     manualSignOutInProgress = false;
     signOutInProgress = false;
+    hideSignOutModal();
     return;
   }
   if (!firebaseAuth) {
     setAuthBusyState(false);
     manualSignOutInProgress = false;
     signOutInProgress = false;
+    hideSignOutModal();
     return;
   }
   try {
     const previousEmail = normalizeEmail(authUser?.email || "");
+    showSignOutModal("Saving your latest planner changes to cloud first...");
     setCloudStatus("Saving latest planner changes before sign out...");
     let finalSave = { ok: true };
     try {
@@ -11423,7 +11442,10 @@ signOutBtn.addEventListener("click", async () => {
     }
     if (!finalSave?.ok) {
       console.warn("Final cloud save before sign out did not confirm:", finalSave?.message || "unknown error");
+      showSignOutModal("Cloud save did not confirm. Signing out now...");
       setCloudStatus("Signing out. Latest cloud save did not confirm, so use Save Plan before leaving next time.");
+    } else {
+      showSignOutModal("Cloud sync finished. Signing out now...");
     }
     await firebaseAuth.signOut();
     authUser = null;
@@ -11440,6 +11462,7 @@ signOutBtn.addEventListener("click", async () => {
     setAuthBusyState(false);
     manualSignOutInProgress = false;
     signOutInProgress = false;
+    hideSignOutModal();
   }
 });
 
