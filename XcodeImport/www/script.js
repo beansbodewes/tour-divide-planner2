@@ -465,6 +465,7 @@ const builtInProcessedRouteCache = new Map();
 let routeEnhancementTimer = null;
 let routeEnhancementVersion = 0;
 let applyMapStyleImmediately = null;
+let syncingRenderedPlannerInputs = false;
 let dayMarkers = [];
 let communityMap = null;
 let communityMapRouteLine = null;
@@ -6394,6 +6395,7 @@ function applyCommentsArray(incomingComments) {
 
 function createDayCard(day, index) {
   const node = dayTemplate.content.firstElementChild.cloneNode(true);
+  node.dataset.dayIndex = String(index);
   const normalized = normalizeDay(day);
   const title = node.querySelector(".day-title");
   const date = node.querySelector(".day-date");
@@ -6517,6 +6519,8 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
     return document.createTextNode("");
   }
   const node = resupplyTemplate.content.firstElementChild.cloneNode(true);
+  node.dataset.dayIndex = String(dayIndex);
+  if (Number.isInteger(stopInfo?.stopIndex)) node.dataset.stopIndex = String(stopInfo.stopIndex);
   const normalized = normalizeDay(day);
   node.querySelector(".resupply-title").textContent = `${stopInfo.point.name} Resupply`;
   node.querySelector(".resupply-subtitle").textContent = `Near mile ${stopInfo.point.mile.toFixed(1)} on Day ${day.id}`;
@@ -7129,11 +7133,17 @@ async function savePlannerToCloudNow(timeoutMs = 15000) {
     if (!becameIdle) return { ok: false, message: "Timed out waiting for the current cloud save." };
   }
   cloudSyncQueued = false;
-  return withTimeout(pushCloudData(), timeoutMs, "Cloud save timed out.");
+  const result = await withTimeout(pushCloudData(), timeoutMs, "Cloud save timed out.");
+  if (!result || typeof result !== "object") {
+    return { ok: false, message: "Cloud save did not return a confirmation." };
+  }
+  return result;
 }
 
 async function saveSignedInStateBeforeSignOut() {
   if (!cloudReady()) return { ok: true, message: "No signed-in cloud session." };
+  persistPlan();
+  persistComments();
   return savePlannerToCloudNow(6000);
 }
 
@@ -7466,9 +7476,78 @@ async function initCloud() {
   });
 }
 
+function syncRenderedPlannerInputsToPlan() {
+  if (syncingRenderedPlannerInputs || !dayList || !Array.isArray(plan) || !plan.length) return false;
+  syncingRenderedPlannerInputs = true;
+  let changed = false;
+  const readValue = (container, selector) => container.querySelector(selector)?.value ?? "";
+  const readNumber = (container, selector) => Number(readValue(container, selector) || 0);
+  const updateDay = (index, patch) => {
+    if (!Number.isInteger(index) || index < 0 || index >= plan.length) return;
+    plan[index] = { ...plan[index], ...patch };
+    changed = true;
+  };
+
+  try {
+    Array.from(dayList.querySelectorAll(".day-card:not(.resupply-card)")).forEach((card, fallbackIndex) => {
+      const explicitIndex = Number(card.dataset.dayIndex);
+      const index = Number.isInteger(explicitIndex) ? explicitIndex : fallbackIndex;
+      updateDay(index, {
+        miles: displayDistanceToMiles(readNumber(card, ".miles-input")),
+        gain: displayElevationToFeet(readNumber(card, ".gain-input")),
+        loss: displayElevationToFeet(readNumber(card, ".loss-input")),
+        town: readValue(card, ".town-input"),
+        notes: readValue(card, ".notes-input")
+      });
+    });
+
+    Array.from(dayList.querySelectorAll(".day-card.resupply-card")).forEach((card) => {
+      const index = Number(card.dataset.dayIndex);
+      if (!Number.isInteger(index)) return;
+      const extraOptions = Array.from(card.querySelectorAll(".extra-resupply-row"))
+        .map((row) => ({
+          option: readValue(row, ".extra-resupply-option-input").trim(),
+          hours: readValue(row, ".extra-resupply-hours-input").trim(),
+          distance: readNumber(row, ".extra-resupply-distance-input"),
+          address: readValue(row, ".extra-resupply-address-input").trim()
+        }))
+        .filter((item) => item.option || item.hours || item.distance > 0 || item.address);
+      const bikeShops = Array.from(card.querySelectorAll(".extra-bike-row"))
+        .map((row) => ({
+          name: readValue(row, ".extra-bike-shop-name-input").trim(),
+          hours: readValue(row, ".extra-bike-shop-hours-input").trim(),
+          distance: readNumber(row, ".extra-bike-shop-distance-input"),
+          address: readValue(row, ".extra-bike-shop-address-input").trim()
+        }))
+        .filter((item) => item.name || item.hours || item.distance > 0 || item.address);
+
+      updateDay(index, {
+        resupplyOptions1: readValue(card, ".resupply-options-1-input"),
+        resupplyHours1: readValue(card, ".resupply-hours-1-input"),
+        resupplyDistance1: readNumber(card, ".resupply-distance-1-input"),
+        resupplyAddress1: readValue(card, ".resupply-address-1-input").trim(),
+        resupplyOptions2: readValue(card, ".resupply-options-2-input"),
+        resupplyHours2: readValue(card, ".resupply-hours-2-input"),
+        resupplyDistance2: readNumber(card, ".resupply-distance-2-input"),
+        resupplyAddress2: readValue(card, ".resupply-address-2-input").trim(),
+        shoppingList: readValue(card, ".shopping-list-input"),
+        calorieTarget: readNumber(card, ".calorie-input"),
+        daysUntilNextResupply: readNumber(card, ".days-until-input") || 1,
+        resupplyNotes: readValue(card, ".resupply-notes-input"),
+        resupplyExtraOptions: extraOptions,
+        resupplyBikeShops: bikeShops
+      });
+    });
+  } finally {
+    syncingRenderedPlannerInputs = false;
+  }
+  return changed;
+}
+
 function persistPlan() {
   const config = parseForm();
   if (!config) return;
+  syncRenderedPlannerInputsToPlan();
   captureUndoPoint();
   const customRideData = buildCustomRideDataPayload();
   const compactRouteStorage = isNamedCustomRoute(activeRouteId());
