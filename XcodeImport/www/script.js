@@ -1060,10 +1060,16 @@ function compactCustomRoutePayloadStore() {
     }
     compacted[routeId] = {
       routeName: sanitizeCustomRouteName(payload.routeName || "My Route"),
+      config: payload.config && typeof payload.config === "object" ? payload.config : null,
+      plan: Array.isArray(payload.plan) ? payload.plan : [],
+      comments: Array.isArray(payload.comments) ? payload.comments : [],
+      resupplyPoints: Array.isArray(payload.resupplyPoints)
+        ? payload.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+        : [],
       customRideData: payload.customRideData,
       updatedAt: payload.updatedAt || new Date().toISOString()
     };
-    if ("config" in payload || "plan" in payload || "comments" in payload) changed = true;
+    if (!Array.isArray(payload.resupplyPoints)) changed = true;
   });
   if (changed) saveCustomRoutePayloadStore(compacted);
 }
@@ -1119,6 +1125,12 @@ function upsertCustomRoutePayload(routeId, payload) {
   if (!hasValidCustomRideDataPayload(payload)) return;
   const normalizedPayload = {
     routeName: sanitizeCustomRouteName(payload.routeName || "My Route"),
+    config: payload.config && typeof payload.config === "object" ? payload.config : null,
+    plan: Array.isArray(payload.plan) ? payload.plan : [],
+    comments: Array.isArray(payload.comments) ? payload.comments : [],
+    resupplyPoints: Array.isArray(payload.resupplyPoints)
+      ? payload.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+      : [],
     customRideData: payload.customRideData,
     updatedAt: payload.updatedAt || new Date().toISOString()
   };
@@ -1325,6 +1337,13 @@ function loadLocalCustomRouteSnapshot(routeId) {
         : Array.isArray(storePayload?.comments)
           ? storePayload.comments
           : [],
+      resupplyPoints: Array.isArray(parsedPlan?.resupplyPoints)
+        ? parsedPlan.resupplyPoints
+        : Array.isArray(storePayload?.resupplyPoints)
+          ? storePayload.resupplyPoints
+          : Array.isArray(storePayload?.customRideData?.resupplyPoints)
+            ? storePayload.customRideData.resupplyPoints
+            : [],
       customRideData: storePayload?.customRideData || null,
       updatedAt: String(storePayload?.updatedAt || new Date().toISOString())
     };
@@ -1342,6 +1361,11 @@ function loadLocalCustomRouteSnapshot(routeId) {
       config: parsedPlan?.config || buildFallbackConfigForMyRoute(),
       plan: Array.isArray(parsedPlan?.plan) ? parsedPlan.plan : [],
       comments: Array.isArray(commentsList) ? commentsList : [],
+      resupplyPoints: Array.isArray(parsedPlan?.resupplyPoints)
+        ? parsedPlan.resupplyPoints
+        : Array.isArray(parsedPlan?.customRideData?.resupplyPoints)
+          ? parsedPlan.customRideData.resupplyPoints
+          : [],
       customRideData: parsedPlan?.customRideData || null,
       updatedAt: new Date().toISOString()
     };
@@ -1365,6 +1389,7 @@ async function syncAllLocalCustomRoutesToCloud() {
       config: snapshot.config || buildFallbackConfigForMyRoute(),
       plan: Array.isArray(snapshot.plan) ? snapshot.plan : [],
       comments: Array.isArray(snapshot.comments) ? snapshot.comments : [],
+      resupplyPoints: Array.isArray(snapshot.resupplyPoints) ? snapshot.resupplyPoints : [],
       customRideData: snapshot.customRideData,
       updatedAt: new Date().toISOString()
     };
@@ -1398,6 +1423,7 @@ function captureLocalCustomRouteSyncSnapshot() {
           config: snapshot.config || buildFallbackConfigForMyRoute(),
           plan: Array.isArray(snapshot.plan) ? snapshot.plan : [],
           comments: Array.isArray(snapshot.comments) ? snapshot.comments : [],
+          resupplyPoints: Array.isArray(snapshot.resupplyPoints) ? snapshot.resupplyPoints : [],
           customRideData: snapshot.customRideData,
           updatedAt: snapshot.updatedAt || new Date().toISOString()
         }
@@ -1479,6 +1505,7 @@ async function syncCapturedCustomRoutesToCloudAfterSignIn(capturedRoutes = []) {
       config: snapshot.config || buildFallbackConfigForMyRoute(),
       plan: Array.isArray(snapshot.plan) ? snapshot.plan : [],
       comments: Array.isArray(snapshot.comments) ? snapshot.comments : [],
+      resupplyPoints: Array.isArray(snapshot.resupplyPoints) ? snapshot.resupplyPoints : [],
       customRideData: snapshot.customRideData,
       updatedAt: snapshot.updatedAt || new Date().toISOString()
     };
@@ -1695,6 +1722,7 @@ function buildCurrentRouteAccountSnapshot() {
     config,
     plan: Array.isArray(plan) ? plan : [],
     comments: Array.isArray(comments) ? comments : [],
+    resupplyPoints: buildRouteResupplySnapshot(),
     customRideData,
     updatedAt: new Date().toISOString()
   };
@@ -5424,6 +5452,28 @@ function normalizeStoredResupplyPoint(point) {
   };
 }
 
+function buildRouteResupplySnapshot() {
+  return Array.isArray(resupplyPoints) ? resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean) : [];
+}
+
+function applyRouteResupplySnapshot(points) {
+  if (!Array.isArray(points)) return false;
+  const normalized = points.map(normalizeStoredResupplyPoint).filter(Boolean);
+  if (normalized.length < 2) return false;
+  resupplyPoints = normalized.map((point) => ({ ...point }));
+  sortResupplyPointsByMile();
+  saveCustomResupplyStops();
+  renderResupplyMarkers();
+  routeSections = buildResupplySections(gpxTrackPoints);
+  setupCommentSections();
+  renderRouteProfile();
+  renderMarkerList();
+  drawSectionOverlays();
+  renderMapSectionComments(selectedSectionName);
+  applyDragModeToMarkers();
+  return true;
+}
+
 function thinTrackPointsForStorage(points, maxPoints = CUSTOM_ROUTE_MAX_STORED_TRACK_POINTS) {
   if (!Array.isArray(points)) return [];
   if (points.length <= maxPoints) return points;
@@ -5526,6 +5576,8 @@ async function persistMyRouteSnapshot(options = {}) {
       ? plan
       : buildPlan(config);
   const commentsToStore = Array.isArray(options.commentsOverride) ? options.commentsOverride : Array.isArray(comments) ? comments : [];
+  const sourceStops = Array.isArray(options.resupplyPointsOverride) ? options.resupplyPointsOverride : resupplyPoints;
+  const routeResupplySnapshot = sourceStops.map(normalizeStoredResupplyPoint).filter(Boolean);
   let localWriteOk = true;
   try {
     localStorage.setItem(
@@ -5533,6 +5585,7 @@ async function persistMyRouteSnapshot(options = {}) {
       JSON.stringify({
         config,
         plan: planToStore,
+        resupplyPoints: routeResupplySnapshot,
         // Keep this key light; GPX payload lives in dedicated custom payload store.
         customRideData: null
       })
@@ -5542,7 +5595,6 @@ async function persistMyRouteSnapshot(options = {}) {
     localWriteOk = false;
   }
 
-  const sourceStops = Array.isArray(options.resupplyPointsOverride) ? options.resupplyPointsOverride : resupplyPoints;
   const customStops = sourceStops
     .filter((point) => point.isCustom)
     .map((point) => ({
@@ -5571,6 +5623,7 @@ async function persistMyRouteSnapshot(options = {}) {
       config,
       plan: Array.isArray(planToStore) ? planToStore : [],
       comments: Array.isArray(commentsToStore) ? commentsToStore : [],
+      resupplyPoints: routeResupplySnapshot,
       customRideData: candidateCustomRideData,
       updatedAt: new Date().toISOString()
     };
@@ -5588,6 +5641,7 @@ async function persistMyRouteSnapshot(options = {}) {
                 config,
                 plan: planToStore,
                 comments: commentsToStore,
+                resupplyPoints: routeResupplySnapshot,
                 customRideData: candidateCustomRideData,
                 updatedAt: new Date().toISOString()
               })
@@ -5606,6 +5660,7 @@ async function persistMyRouteSnapshot(options = {}) {
                     config,
                     plan: planToStore,
                     comments: commentsToStore,
+                    resupplyPoints: routeResupplySnapshot,
                     customRideData: candidateCustomRideData,
                     updatedAt: new Date().toISOString()
                   }
@@ -6802,6 +6857,7 @@ async function pushCloudData() {
         config,
         plan,
         comments,
+        resupplyPoints: buildRouteResupplySnapshot(),
         customRideData,
         updatedAt: new Date().toISOString()
       });
@@ -6837,6 +6893,7 @@ async function pushCloudData() {
               config: customConfig,
               plan: customPlan,
               comments: Array.isArray(comments) ? comments : [],
+              resupplyPoints: buildRouteResupplySnapshot(),
               customRideData,
               updatedAt: new Date().toISOString()
             }
@@ -6851,6 +6908,7 @@ async function pushCloudData() {
           config,
           plan,
           comments,
+          resupplyPoints: buildRouteResupplySnapshot(),
           customRideData,
           updatedAt: new Date().toISOString()
         },
@@ -6992,6 +7050,7 @@ async function loadCloudData() {
       }
       applyPlannerConfig(data.config);
       enforceRouteDistanceBaseline();
+      applyRouteResupplySnapshot(data.resupplyPoints);
       applyPlanArray(data.plan);
       applyCommentsArray(data.comments);
       if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
@@ -7049,6 +7108,7 @@ async function loadCloudData() {
           applyCustomRideDataPayload(localCustomSnapshot.customRideData);
           applyPlannerConfig(localCustomSnapshot.config);
           enforceRouteDistanceBaseline();
+          applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
           applyPlanArray(localCustomSnapshot.plan);
           applyCommentsArray(localCustomSnapshot.comments);
           if (map && customUploadedTrackPoints.length >= 2) {
@@ -7084,6 +7144,7 @@ async function loadCloudData() {
     }
     applyPlannerConfig(data.config);
     enforceRouteDistanceBaseline();
+    applyRouteResupplySnapshot(data.resupplyPoints);
     applyPlanArray(data.plan);
     applyCommentsArray(data.comments);
     if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
@@ -7289,6 +7350,7 @@ function persistPlan() {
   const result = storeJsonWithFallback(STORAGE_KEY, {
     config,
     plan,
+    resupplyPoints: buildRouteResupplySnapshot(),
     customRideData: compactRouteStorage ? null : customRideData
   });
   if (!result.ok) {
@@ -7301,6 +7363,7 @@ function persistPlan() {
       config,
       plan: Array.isArray(plan) ? plan : [],
       comments: Array.isArray(comments) ? comments : [],
+      resupplyPoints: buildRouteResupplySnapshot(),
       customRideData,
       updatedAt: new Date().toISOString()
     });
@@ -7327,6 +7390,7 @@ function loadSavedPlan() {
         applyCustomRideDataPayload(localCustomSnapshot.customRideData);
         applyPlannerConfig(localCustomSnapshot.config);
         enforceRouteDistanceBaseline();
+        applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
         applyPlanArray(localCustomSnapshot.plan);
         applyCommentsArray(localCustomSnapshot.comments);
         if (map && customUploadedTrackPoints.length >= 2) {
@@ -7351,6 +7415,7 @@ function loadSavedPlan() {
           applyCustomRideDataPayload(localCustomSnapshot.customRideData);
           applyPlannerConfig(localCustomSnapshot.config);
           enforceRouteDistanceBaseline();
+          applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
           applyPlanArray(localCustomSnapshot.plan);
           applyCommentsArray(localCustomSnapshot.comments);
           if (map && customUploadedTrackPoints.length >= 2) {
@@ -7365,6 +7430,7 @@ function loadSavedPlan() {
       finishDate: saved.config.finishDate || addDays(saved.config.startDate, saved.config.totalDays - 1)
     });
     enforceRouteDistanceBaseline();
+    applyRouteResupplySnapshot(saved.resupplyPoints);
     applyPlanArray(saved.plan);
     if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
       applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
@@ -7376,6 +7442,7 @@ function loadSavedPlan() {
         applyCustomRideDataPayload(localCustomSnapshot.customRideData);
         applyPlannerConfig(localCustomSnapshot.config);
         enforceRouteDistanceBaseline();
+        applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
         applyPlanArray(localCustomSnapshot.plan);
         applyCommentsArray(localCustomSnapshot.comments);
         if (map && customUploadedTrackPoints.length >= 2) {
@@ -10357,6 +10424,7 @@ function persistComments() {
         config,
         plan: Array.isArray(plan) ? plan : [],
         comments: Array.isArray(comments) ? comments : [],
+        resupplyPoints: buildRouteResupplySnapshot(),
         customRideData,
         updatedAt: new Date().toISOString()
       });
@@ -10613,6 +10681,10 @@ if (customApplyUploadBtn) {
       }
       upsertCustomRoutePayload(newRouteId, {
         routeName: sanitizeCustomRouteName(customRouteDisplayName),
+        config: configForRoute,
+        plan: initialPlan,
+        comments: Array.isArray(comments) ? comments : [],
+        resupplyPoints: Array.isArray(initialStops) ? initialStops.map(normalizeStoredResupplyPoint).filter(Boolean) : [],
         customRideData: explicitPayload,
         updatedAt: new Date().toISOString()
       });
@@ -10621,7 +10693,8 @@ if (customApplyUploadBtn) {
         customRideData: explicitPayload,
         config: configForRoute,
         plan: initialPlan,
-        comments: Array.isArray(comments) ? comments : []
+        comments: Array.isArray(comments) ? comments : [],
+        resupplyPoints: Array.isArray(initialStops) ? initialStops.map(normalizeStoredResupplyPoint).filter(Boolean) : []
       });
       const persisted = await persistMyRouteSnapshot({
         syncCloud: !localAuthMode && cloudReady(),
@@ -11627,11 +11700,20 @@ if (isNamedCustomRoute(getRouteFromUrl())) {
     applyCustomRideDataPayload(handoff.customRideData);
     upsertCustomRoutePayload(getRouteFromUrl(), {
       routeName: sanitizeCustomRouteName(handoff.routeName || "My Route"),
+      config: handoff.config || null,
+      plan: Array.isArray(handoff.plan) ? handoff.plan : [],
+      comments: Array.isArray(handoff.comments) ? handoff.comments : [],
+      resupplyPoints: Array.isArray(handoff.resupplyPoints)
+        ? handoff.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+        : Array.isArray(handoff.customRideData?.resupplyPoints)
+          ? handoff.customRideData.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
+          : [],
       customRideData: handoff.customRideData,
       updatedAt: new Date().toISOString()
     });
     if (handoff.config) applyPlannerConfig(handoff.config);
     enforceRouteDistanceBaseline();
+    applyRouteResupplySnapshot(handoff.resupplyPoints || handoff.customRideData?.resupplyPoints);
     if (Array.isArray(handoff.plan) && handoff.plan.length) applyPlanArray(handoff.plan);
     if (Array.isArray(handoff.comments)) applyCommentsArray(handoff.comments);
   }
