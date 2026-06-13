@@ -10885,7 +10885,7 @@ function authCredentials() {
 
 function setAuthBusyState(busy) {
   authBusy = Boolean(busy);
-  [signUpBtn, signInBtn, signInGoogleBtn, signOutBtn, syncNowBtn, ...manualSaveButtons].forEach((button) => {
+  [signUpBtn, signInBtn, signInGoogleBtn, signOutBtn, heroSignOutBtn, headerSignOutBtn, syncNowBtn, ...manualSaveButtons].forEach((button) => {
     if (button) button.disabled = authBusy;
   });
 }
@@ -11274,15 +11274,11 @@ if (heroSignInBtn) {
 }
 
 if (heroSignOutBtn) {
-  heroSignOutBtn.addEventListener("click", () => {
-    if (signOutBtn && !signOutBtn.hidden) signOutBtn.click();
-  });
+  heroSignOutBtn.addEventListener("click", handleSignOutClick);
 }
 
 if (headerSignOutBtn) {
-  headerSignOutBtn.addEventListener("click", () => {
-    if (signOutBtn && !signOutBtn.hidden) signOutBtn.click();
-  });
+  headerSignOutBtn.addEventListener("click", handleSignOutClick);
 }
 
 signUpBtn.addEventListener("click", async () => {
@@ -11404,7 +11400,7 @@ if (signInGoogleBtn) {
   });
 }
 
-signOutBtn.addEventListener("click", async () => {
+async function handleSignOutClick() {
   if (authBusy) return;
   setAccountDropdownOpen(true);
   setAuthBusyState(true);
@@ -11469,7 +11465,9 @@ signOutBtn.addEventListener("click", async () => {
     signOutInProgress = false;
     hideSignOutModal();
   }
-});
+}
+
+signOutBtn.addEventListener("click", handleSignOutClick);
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushPendingCloudSync();
