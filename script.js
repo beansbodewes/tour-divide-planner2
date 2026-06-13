@@ -6934,8 +6934,8 @@ function withTimeout(promise, timeoutMs, message) {
   ]);
 }
 
-async function saveSignedInStateBeforeSignOut() {
-  if (!cloudReady()) return { ok: true, message: "No signed-in cloud session." };
+async function savePlannerToCloudNow(timeoutMs = 15000) {
+  if (!cloudReady()) return { ok: false, message: "Cloud mode is not ready." };
   if (cloudSyncTimer) {
     clearTimeout(cloudSyncTimer);
     cloudSyncTimer = null;
@@ -6946,7 +6946,12 @@ async function saveSignedInStateBeforeSignOut() {
     if (!becameIdle) return { ok: false, message: "Timed out waiting for the current cloud save." };
   }
   cloudSyncQueued = false;
-  return withTimeout(pushCloudData(), 6000, "Cloud save timed out before sign out.");
+  return withTimeout(pushCloudData(), timeoutMs, "Cloud save timed out.");
+}
+
+async function saveSignedInStateBeforeSignOut() {
+  if (!cloudReady()) return { ok: true, message: "No signed-in cloud session." };
+  return savePlannerToCloudNow(6000);
 }
 
 async function loadCloudData() {
@@ -10914,13 +10919,13 @@ async function handleManualPlannerSave() {
       setCloudStatus("Planner saved on this device. Sign in to sync it across devices.");
       return;
     }
-    const result = await pushCloudData();
+    const result = await savePlannerToCloudNow(15000);
     if (result?.ok) {
       setCloudStatus(result.local ? "Planner saved to your local account." : "Planner saved and synced to your account.");
     } else if (result?.queued) {
       setCloudStatus("Save queued. Your planner will sync as soon as the current save finishes.");
     } else if (result?.message) {
-      setCloudStatus(result.message);
+      setCloudStatus(`Planner save failed: ${result.message}`);
     } else {
       setCloudStatus("Planner save finished.");
     }
