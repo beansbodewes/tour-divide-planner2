@@ -295,6 +295,8 @@ const customGpxStatus = document.getElementById("custom-gpx-status");
 const customRouteNameInput = document.getElementById("custom-route-name");
 const customProjectedResuppliesInput = document.getElementById("custom-projected-resupplies");
 const customApplyUploadBtn = document.getElementById("custom-apply-upload-btn");
+const customClearRoutesBtn = document.getElementById("custom-clear-routes-btn");
+const customClearRoutesStatus = document.getElementById("custom-clear-routes-status");
 const exportBtn = document.getElementById("export-btn");
 const exportExcelBtn = document.getElementById("export-excel-btn");
 const exportFormatSelect = document.getElementById("export-format");
@@ -1631,6 +1633,88 @@ function removeCustomRouteById(routeId) {
   void deleteCustomRouteCloudArtifacts(routeId, routeDef);
   void saveAccountStateToCloud();
   return true;
+}
+
+function currentCustomRouteIds() {
+  const ids = new Set();
+  loadCustomRouteRegistry().forEach((entry) => {
+    const routeId = String(entry?.id || "");
+    if (isNamedCustomRoute(routeId)) ids.add(routeId);
+  });
+  Object.keys(loadCustomRoutePayloadStore()).forEach((routeId) => {
+    if (isNamedCustomRoute(routeId)) ids.add(routeId);
+  });
+  Object.keys(ROUTES || {}).forEach((routeId) => {
+    if (isNamedCustomRoute(routeId)) ids.add(routeId);
+  });
+  return Array.from(ids);
+}
+
+function setClearCustomRoutesStatus(message = "", isError = false) {
+  if (!customClearRoutesStatus) return;
+  customClearRoutesStatus.textContent = message;
+  customClearRoutesStatus.classList.toggle("error", Boolean(isError));
+}
+
+function setClearCustomRoutesBusy(busy) {
+  if (!customClearRoutesBtn) return;
+  const isBusy = Boolean(busy);
+  customClearRoutesBtn.disabled = isBusy;
+  customClearRoutesBtn.classList.toggle("is-loading", isBusy);
+  customClearRoutesBtn.setAttribute("aria-busy", isBusy ? "true" : "false");
+  customClearRoutesBtn.textContent = isBusy ? "Clearing..." : "Clear Saved Custom Routes";
+}
+
+async function clearAllCustomRoutesData() {
+  const routeIds = currentCustomRouteIds();
+  if (!routeIds.length) {
+    setClearCustomRoutesStatus("No saved custom routes to clear.");
+    return;
+  }
+  const confirmed = window.confirm(
+    `Clear ${routeIds.length} saved custom route${routeIds.length === 1 ? "" : "s"}? This removes the blue custom route buttons from this account.`
+  );
+  if (!confirmed) return;
+
+  setClearCustomRoutesBusy(true);
+  setClearCustomRoutesStatus("Clearing saved custom routes...");
+  try {
+    const routeDefs = new Map(routeIds.map((routeId) => [routeId, ROUTES[routeId] || null]));
+    routeIds.forEach((routeId) => {
+      removeCustomRouteLocalArtifacts(routeId);
+      removeCustomRoutePayload(routeId);
+      if (ROUTES[routeId]) delete ROUTES[routeId];
+    });
+
+    saveCustomRouteRegistry([]);
+    saveCustomRoutePayloadStore({});
+    runtimeCustomRoutePayloads.clear();
+    customUploadedTrackPoints = [];
+    customUploadedFile = null;
+    customRouteDisplayName = "My Route";
+    clearMyRouteMeta();
+    setMyRouteShortcutFlag(false);
+    setMyRouteShortcutVisible(false);
+    pruneNamedCustomRouteDefinitions([]);
+    renderCustomRouteButtons();
+
+    if (customRouteNameInput) customRouteNameInput.value = "";
+    if (customGpxFileInput) customGpxFileInput.value = "";
+    if (customGpxStatus) customGpxStatus.textContent = "No GPX uploaded yet.";
+
+    if (cloudReady() && !localAuthMode) {
+      await Promise.all(routeIds.map((routeId) => deleteCustomRouteCloudArtifacts(routeId, routeDefs.get(routeId))));
+      await saveAccountStateToCloud();
+    }
+
+    setCloudStatus("Saved custom routes cleared.");
+    setClearCustomRoutesStatus("Saved custom routes cleared.");
+  } catch (error) {
+    const message = String(error?.message || "unknown error");
+    setClearCustomRoutesStatus(`Could not clear custom routes: ${message}`, true);
+  } finally {
+    setClearCustomRoutesBusy(false);
+  }
 }
 
 function hydrateCustomRoutesFromRegistry() {
@@ -10795,6 +10879,12 @@ if (customApplyUploadBtn) {
     } finally {
       setCreateRouteButtonBusy(false);
     }
+  });
+}
+
+if (customClearRoutesBtn) {
+  customClearRoutesBtn.addEventListener("click", async () => {
+    await clearAllCustomRoutesData();
   });
 }
 

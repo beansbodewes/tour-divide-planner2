@@ -582,7 +582,9 @@
             </div>
             <div class="button-row">
               <button id="custom-apply-upload-btn" type="button" class="btn btn-primary">Create Route</button>
+              <button id="custom-clear-routes-btn" type="button" class="btn">Clear Saved Custom Routes</button>
             </div>
+            <p id="custom-clear-routes-status" class="route-switcher-note" aria-live="polite"></p>
           </article>
         </div>
       </section>
@@ -1020,11 +1022,11 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=56"></script>
+    <script src="script.js?v=57"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "150";
+        const BUILD_VERSION = "151";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);
