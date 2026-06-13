@@ -1237,6 +1237,72 @@ async function saveAccountStateToCloud() {
   }
 }
 
+async function deleteCustomRouteCloudArtifacts(routeId, routeDef = null) {
+  if (!isNamedCustomRoute(routeId) || !cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return false;
+  const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
+  const customDocId = cloudProfileDocIdForRoute(routeId, authUser.uid);
+  const registry = loadCustomRouteRegistry();
+  let ok = true;
+
+  try {
+    if (customDocId) {
+      await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(customDocId).set(
+        {
+          customRouteRegistry: registry,
+          customRoutes: {
+            [routeId]: CLOUD_DELETE_SENTINEL
+          },
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    }
+  } catch {
+    ok = false;
+  }
+
+  try {
+    if (accountStateDocId) {
+      await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).set(
+        {
+          customRouteRegistry: registry,
+          customRoutePayloads: {
+            [routeId]: CLOUD_DELETE_SENTINEL
+          },
+          routePlannerSnapshots: {
+            [routeId]: CLOUD_DELETE_SENTINEL
+          },
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    }
+  } catch {
+    ok = false;
+  }
+
+  try {
+    const profileCollection = routeDef?.profileCollection;
+    if (profileCollection && profileCollection !== ROUTES.custom_ride.profileCollection && customDocId) {
+      await firestoreDb.collection(profileCollection).doc(customDocId).set(
+        {
+          config: CLOUD_DELETE_SENTINEL,
+          plan: CLOUD_DELETE_SENTINEL,
+          comments: CLOUD_DELETE_SENTINEL,
+          resupplyPoints: CLOUD_DELETE_SENTINEL,
+          customRideData: CLOUD_DELETE_SENTINEL,
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    }
+  } catch {
+    ok = false;
+  }
+
+  return ok;
+}
+
 async function loadCustomRouteRegistryFromCloud() {
   if (!cloudReady() || localAuthMode || !firestoreDb || !authUser?.uid) return;
   try {
@@ -1556,11 +1622,13 @@ function removeCustomRouteRegistryEntry(routeId) {
 
 function removeCustomRouteById(routeId) {
   if (!isNamedCustomRoute(routeId)) return false;
+  const routeDef = ROUTES[routeId] || null;
   removeCustomRouteLocalArtifacts(routeId);
   removeCustomRoutePayload(routeId);
   removeCustomRouteRegistryEntry(routeId);
   if (ROUTES[routeId]) delete ROUTES[routeId];
   renderCustomRouteButtons();
+  void deleteCustomRouteCloudArtifacts(routeId, routeDef);
   void saveAccountStateToCloud();
   return true;
 }
@@ -5810,39 +5878,12 @@ async function deleteCustomRouteData() {
     renderComments();
 
     if (cloudReady()) {
-      try {
-        if (localAuthMode) {
-          const routeLocalKey = `${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`;
-          localStorage.removeItem(routeLocalKey);
-          sessionStorage.removeItem(routeLocalKey);
-        } else if (firestoreDb && window.firebase?.firestore?.FieldValue && authUser?.uid) {
-          const cloudDocId = cloudProfileDocIdForRoute(routeId, authUser.uid);
-          if (isNamedCustomRoute(routeId)) {
-            await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(cloudDocId).set(
-              {
-                customRouteRegistry: loadCustomRouteRegistry(),
-                customRoutes: {
-                  [routeId]: window.firebase.firestore.FieldValue.delete()
-                },
-                updatedAt: new Date().toISOString()
-              },
-              { merge: true }
-            );
-          } else {
-            await firestoreDb.collection(routeDef.profileCollection).doc(cloudDocId).set(
-              {
-                config: window.firebase.firestore.FieldValue.delete(),
-                plan: window.firebase.firestore.FieldValue.delete(),
-                comments: window.firebase.firestore.FieldValue.delete(),
-                customRideData: window.firebase.firestore.FieldValue.delete(),
-                updatedAt: new Date().toISOString()
-              },
-              { merge: true }
-            );
-          }
-        }
-      } catch {
-        // Keep local delete state even if cloud cleanup fails.
+      if (localAuthMode) {
+        const routeLocalKey = `${routeDef.storagePrefix}-local-profile-v1:${normalizeEmail(authUser.email)}`;
+        localStorage.removeItem(routeLocalKey);
+        sessionStorage.removeItem(routeLocalKey);
+      } else {
+        await deleteCustomRouteCloudArtifacts(routeId, routeDef);
       }
       await saveAccountStateToCloud();
     }
