@@ -5122,6 +5122,19 @@ function withCloudDocTimeout(promise, timeoutMs, label) {
   ]);
 }
 
+function cloudTimestampIsSameOrNewer(actual, expected) {
+  if (!actual || !expected) return false;
+  if (actual === expected) return true;
+  const actualTime = Date.parse(actual);
+  const expectedTime = Date.parse(expected);
+  if (!Number.isFinite(actualTime) || !Number.isFinite(expectedTime)) return false;
+  return actualTime >= expectedTime;
+}
+
+function describeCloudTimestamp(value) {
+  return value ? String(value) : "missing";
+}
+
 function normalizeSupabaseUser(user) {
   if (!user) return null;
   return {
@@ -5182,12 +5195,19 @@ function buildFirestoreAdapter() {
                 payload: nextPayload,
                 updated_at: new Date().toISOString()
               };
-              const { error } = await withCloudDocTimeout(
-                supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" }),
+              const { data, error } = await withCloudDocTimeout(
+                supabaseClient
+                  .from(SUPABASE_DOCS_TABLE)
+                  .upsert(row, { onConflict: "doc_key" })
+                  .select("payload")
+                  .maybeSingle(),
                 8000,
                 `Cloud write ${key}`
               );
               if (error) throw error;
+              return {
+                payload: data?.payload && typeof data.payload === "object" ? data.payload : null
+              };
             }
           };
         }
@@ -7031,11 +7051,14 @@ async function pushCloudData() {
     const accountUpdatedAt = accountStatePayload.updatedAt || new Date().toISOString();
     accountStatePayload.updatedAt = accountUpdatedAt;
     let verifyCollection = PROFILE_COLLECTION;
+    let routeWriteResult = null;
+    const routeUpdatedAtFromPayload = (payload) =>
+      isCustomRouteActive() ? payload?.customRoutes?.[routeId]?.updatedAt : payload?.updatedAt;
     if (isCustomRouteActive()) {
       verifyCollection = ROUTES.custom_ride.profileCollection;
       const customConfig = config || buildFallbackConfigForMyRoute();
       const customPlan = Array.isArray(plan) && plan.length ? plan : buildPlan(customConfig);
-      await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
+      routeWriteResult = await firestoreDb.collection(ROUTES.custom_ride.profileCollection).doc(docId).set(
         {
           customRouteRegistry: loadCustomRouteRegistry(),
           customRoutes: {
@@ -7054,7 +7077,7 @@ async function pushCloudData() {
         { merge: true }
       );
     } else {
-      await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).set(
+      routeWriteResult = await firestoreDb.collection(PROFILE_COLLECTION).doc(docId).set(
         {
           config,
           plan,
@@ -7066,7 +7089,19 @@ async function pushCloudData() {
         { merge: true }
       );
     }
-    await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).set(accountStatePayload, { merge: true });
+    const routeWriteUpdatedAt = routeUpdatedAtFromPayload(routeWriteResult?.payload);
+    if (!cloudTimestampIsSameOrNewer(routeWriteUpdatedAt, routeUpdatedAt)) {
+      throw new Error(
+        `Route write returned ${describeCloudTimestamp(routeWriteUpdatedAt)}; expected ${routeUpdatedAt}.`
+      );
+    }
+    const accountWriteResult = await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).set(accountStatePayload, { merge: true });
+    const accountWriteUpdatedAt = accountWriteResult?.payload?.updatedAt;
+    if (!cloudTimestampIsSameOrNewer(accountWriteUpdatedAt, accountUpdatedAt)) {
+      throw new Error(
+        `Account write returned ${describeCloudTimestamp(accountWriteUpdatedAt)}; expected ${accountUpdatedAt}.`
+      );
+    }
     // Verify write actually landed by reading the same doc back.
     try {
       const verifySnap = await firestoreDb.collection(verifyCollection).doc(docId).get();
@@ -7074,19 +7109,21 @@ async function pushCloudData() {
         throw new Error("Write verification failed: document not found after sync.");
       }
       const verifyData = verifySnap.data() || {};
-      const verifiedRouteUpdatedAt = isCustomRouteActive()
-        ? verifyData?.customRoutes?.[routeId]?.updatedAt
-        : verifyData?.updatedAt;
-      if (verifiedRouteUpdatedAt !== routeUpdatedAt) {
-        throw new Error("Write verification failed: Supabase did not return the latest route save.");
+      const verifiedRouteUpdatedAt = routeUpdatedAtFromPayload(verifyData);
+      if (!cloudTimestampIsSameOrNewer(verifiedRouteUpdatedAt, routeUpdatedAt)) {
+        throw new Error(
+          `Write verification failed: route read returned ${describeCloudTimestamp(verifiedRouteUpdatedAt)}; expected ${routeUpdatedAt}.`
+        );
       }
       const verifyAccountSnap = await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).get();
       if (!verifyAccountSnap?.exists) {
         throw new Error("Account-state verification failed: document not found after sync.");
       }
       const verifyAccountData = verifyAccountSnap.data() || {};
-      if (verifyAccountData.updatedAt !== accountUpdatedAt) {
-        throw new Error("Account-state verification failed: Supabase did not return the latest account save.");
+      if (!cloudTimestampIsSameOrNewer(verifyAccountData.updatedAt, accountUpdatedAt)) {
+        throw new Error(
+          `Account-state verification failed: account read returned ${describeCloudTimestamp(verifyAccountData.updatedAt)}; expected ${accountUpdatedAt}.`
+        );
       }
     } catch (verifyError) {
       const verifyMessage = String(verifyError?.message || "unknown verification error");
