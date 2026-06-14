@@ -329,6 +329,7 @@ const signOutBtn = document.getElementById("sign-out-btn");
 const heroSignInBtn = document.getElementById("hero-sign-in-btn");
 const heroSignOutBtn = document.getElementById("hero-sign-out-btn");
 const headerSignOutBtn = document.getElementById("header-sign-out-btn");
+const headerAccountEmail = document.getElementById("header-account-email");
 const syncNowBtn = document.getElementById("sync-now-btn");
 const manualSaveButtons = Array.from(document.querySelectorAll("[data-manual-save-btn]"));
 const manualSaveStatusEls = Array.from(document.querySelectorAll("[data-manual-save-status]"));
@@ -4974,6 +4975,16 @@ function updateSignedInIndicators() {
     }
   }
 
+  if (headerAccountEmail) {
+    if (isSignedIn) {
+      headerAccountEmail.hidden = false;
+      headerAccountEmail.textContent = `Signed in: ${email}`;
+    } else {
+      headerAccountEmail.hidden = true;
+      headerAccountEmail.textContent = "Not signed in";
+    }
+  }
+
   if (accountHelperCopy) {
     accountHelperCopy.textContent = isSignedIn
       ? "Your planner is connected. Use your account panel to sync changes, manage custom routes, or sign out when you're done."
@@ -5524,8 +5535,18 @@ function setMyRouteShortcutVisible(visible) {
 
 function updateAccountToggleLabel() {
   if (!accountToggleBtn) return;
-  accountToggleBtn.textContent = "Manage Account";
+  const email = normalizeEmail(authUser?.email || "");
+  accountToggleBtn.textContent = email ? `Account: ${email}` : "Manage Account";
   updateSignedInIndicators();
+}
+
+function buildGoogleAuthProvider() {
+  const provider = new window.firebase.auth.GoogleAuthProvider();
+  const emailHint = normalizeEmail(authEmailInput?.value || "");
+  const customParameters = { prompt: "select_account" };
+  if (emailHint) customParameters.login_hint = emailHint;
+  provider.setCustomParameters(customParameters);
+  return provider;
 }
 
 async function refreshMyRouteShortcutVisibility() {
@@ -11762,8 +11783,7 @@ if (signInGoogleBtn) {
       setAuthBusyState(true);
       beginPendingAuthState("Google", normalizeEmail(authEmailInput?.value || ""));
       setCloudStatus("Opening Google sign-in...");
-      const provider = new window.firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
+      const provider = buildGoogleAuthProvider();
       if (isSafariBrowser()) {
         setCloudStatus("Opening Google sign-in...");
         await firebaseAuth.signInWithRedirect(provider);
@@ -11776,7 +11796,7 @@ if (signInGoogleBtn) {
       const popupBlocked = /popup|blocked|closed/i.test(message);
       if (popupBlocked) {
         try {
-          const provider = new window.firebase.auth.GoogleAuthProvider();
+          const provider = buildGoogleAuthProvider();
           await firebaseAuth.signInWithRedirect(provider);
           return;
         } catch (redirectError) {

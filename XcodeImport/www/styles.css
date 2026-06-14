@@ -1102,6 +1102,14 @@ h1 {
   gap: 0.8rem;
 }
 
+.route-switcher-account {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
 .route-switcher-label {
   margin: 0 0 0.45rem;
   font-size: 0.76rem;
@@ -1109,6 +1117,18 @@ h1 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #5a645f;
+}
+
+.header-account-email {
+  margin: 0;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(51, 75, 63, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.88);
+  color: #31443b;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .route-switcher-sign-out-btn {
@@ -2408,6 +2428,11 @@ body.custom-builder-only-mode #planner-subhead {
     top: 0.75rem;
     width: auto;
     max-width: calc(100% - 1.5rem);
+  }
+
+  .route-switcher-account {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .controls,
