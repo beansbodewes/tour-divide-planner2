@@ -602,6 +602,7 @@
           </div>
           <div class="button-row planner-save-actions">
             <button class="btn btn-primary" type="button" data-manual-save-btn>Save Plan</button>
+            <p class="planner-save-status" data-manual-save-status aria-live="polite">Ready to save.</p>
           </div>
         </div>
         <div class="layout">
@@ -703,6 +704,7 @@
           </div>
           <div class="button-row planner-save-actions">
             <button class="btn btn-primary" type="button" data-manual-save-btn>Save Plan</button>
+            <p class="planner-save-status" data-manual-save-status aria-live="polite">Ready to save.</p>
           </div>
         </div>
         <section id="publish-route-panel" class="panel publish-route-panel">
@@ -1022,11 +1024,11 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=61"></script>
+    <script src="script.js?v=62"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "155";
+        const BUILD_VERSION = "156";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);

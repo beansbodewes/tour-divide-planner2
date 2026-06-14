@@ -331,6 +331,7 @@ const heroSignOutBtn = document.getElementById("hero-sign-out-btn");
 const headerSignOutBtn = document.getElementById("header-sign-out-btn");
 const syncNowBtn = document.getElementById("sync-now-btn");
 const manualSaveButtons = Array.from(document.querySelectorAll("[data-manual-save-btn]"));
+const manualSaveStatusEls = Array.from(document.querySelectorAll("[data-manual-save-status]"));
 const undoBtn = document.getElementById("undo-btn");
 const accountToggleBtn = document.getElementById("account-toggle-btn");
 const accountDropdown = document.getElementById("account-dropdown");
@@ -497,6 +498,7 @@ let manualSignOutInProgress = false;
 let authPendingProvider = "";
 let authPendingEmail = "";
 let authPendingTimer = null;
+let manualSaveFeedbackTimer = null;
 let authRedirectMessage = "";
 let unsignedStatusOverride = "";
 let unsignedStatusTone = "signed-out";
@@ -11206,6 +11208,30 @@ function setAuthBusyState(busy) {
   });
 }
 
+function setManualSaveButtonLabel(label = "Save Plan") {
+  manualSaveButtons.forEach((button) => {
+    button.textContent = label;
+  });
+}
+
+function setManualSaveFeedback(message = "Ready to save.", tone = "idle") {
+  manualSaveStatusEls.forEach((statusEl) => {
+    statusEl.textContent = message;
+    statusEl.dataset.saveTone = tone;
+  });
+}
+
+function holdManualSaveFeedback(message, tone = "success", label = "Saved") {
+  if (manualSaveFeedbackTimer) clearTimeout(manualSaveFeedbackTimer);
+  setManualSaveFeedback(message, tone);
+  setManualSaveButtonLabel(label);
+  manualSaveFeedbackTimer = setTimeout(() => {
+    manualSaveFeedbackTimer = null;
+    setManualSaveButtonLabel("Save Plan");
+    setManualSaveFeedback("Ready to save.", "idle");
+  }, tone === "error" ? 5500 : 3500);
+}
+
 function showSignOutModal(message = "Saving your latest planner changes to cloud first...") {
   if (!signOutModal) return;
   signOutModal.hidden = false;
@@ -11223,30 +11249,44 @@ async function handleManualPlannerSave() {
   const config = parseForm();
   if (!config) {
     setCloudStatus("Complete the planner setup first, then save the plan.");
+    holdManualSaveFeedback("Complete the planner setup first.", "error", "Check Setup");
     return;
   }
   if (authBusy) return;
+  if (manualSaveFeedbackTimer) {
+    clearTimeout(manualSaveFeedbackTimer);
+    manualSaveFeedbackTimer = null;
+  }
   setAuthBusyState(true);
   setCloudStatus("Saving planner...");
+  setManualSaveButtonLabel("Saving...");
+  setManualSaveFeedback("Saving latest planner changes...", "saving");
   try {
     persistPlan();
     persistComments();
     if (!cloudReady()) {
       setCloudStatus("Planner saved on this device. Sign in to sync it across devices.");
+      holdManualSaveFeedback("Saved on this device. Sign in to sync.", "warning", "Saved Local");
       return;
     }
     const result = await savePlannerToCloudNow(15000);
     if (result?.ok) {
       setCloudStatus(result.local ? "Planner saved to your local account." : "Planner saved and synced to your account.");
+      holdManualSaveFeedback(result.local ? "Saved to your local account." : "Saved to account just now.", "success", "Saved");
     } else if (result?.queued) {
       setCloudStatus("Save queued. Your planner will sync as soon as the current save finishes.");
+      holdManualSaveFeedback("Save queued. Sync will finish next.", "warning", "Queued");
     } else if (result?.message) {
       setCloudStatus(`Planner save failed: ${result.message}`);
+      holdManualSaveFeedback(`Save failed: ${result.message}`, "error", "Save Failed");
     } else {
       setCloudStatus("Planner save finished.");
+      holdManualSaveFeedback("Save finished.", "success", "Saved");
     }
   } catch (error) {
-    setCloudStatus(`Planner save failed: ${String(error?.message || "unknown error")}`);
+    const message = String(error?.message || "unknown error");
+    setCloudStatus(`Planner save failed: ${message}`);
+    holdManualSaveFeedback(`Save failed: ${message}`, "error", "Save Failed");
   } finally {
     setAuthBusyState(false);
   }

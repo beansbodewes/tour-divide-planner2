@@ -1318,6 +1318,41 @@ body.home-only-mode .tab-panel {
   flex-shrink: 0;
 }
 
+.planner-save-status {
+  min-width: 15rem;
+  border: 1px solid rgba(73, 96, 82, 0.18);
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.planner-save-status[data-save-tone="saving"] {
+  border-color: rgba(191, 137, 61, 0.38);
+  background: #fff4db;
+  color: #7a4f10;
+}
+
+.planner-save-status[data-save-tone="success"] {
+  border-color: rgba(45, 130, 76, 0.34);
+  background: #e7f7eb;
+  color: #23633a;
+}
+
+.planner-save-status[data-save-tone="warning"] {
+  border-color: rgba(191, 137, 61, 0.38);
+  background: #fff4db;
+  color: #7a4f10;
+}
+
+.planner-save-status[data-save-tone="error"] {
+  border-color: rgba(170, 57, 57, 0.34);
+  background: #fdeaea;
+  color: #943131;
+}
+
 .controls {
   grid-column: span 7;
 }
@@ -2413,6 +2448,11 @@ body.custom-builder-only-mode #planner-subhead {
 
   .planner-save-actions {
     width: 100%;
+  }
+
+  .planner-save-status {
+    width: 100%;
+    min-width: 0;
   }
 
   .route-map {
