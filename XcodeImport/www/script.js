@@ -7024,7 +7024,10 @@ async function pushCloudData() {
     const docId = cloudProfileDocIdForRoute(routeId, authUser.uid);
     if (!docId) return;
     const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
+    const routeUpdatedAt = new Date().toISOString();
     const accountStatePayload = buildAccountStatePayload();
+    const accountUpdatedAt = accountStatePayload.updatedAt || new Date().toISOString();
+    accountStatePayload.updatedAt = accountUpdatedAt;
     let verifyCollection = PROFILE_COLLECTION;
     if (isCustomRouteActive()) {
       verifyCollection = ROUTES.custom_ride.profileCollection;
@@ -7041,10 +7044,10 @@ async function pushCloudData() {
               comments: Array.isArray(comments) ? comments : [],
               resupplyPoints: buildRouteResupplySnapshot(),
               customRideData,
-              updatedAt: new Date().toISOString()
+              updatedAt: routeUpdatedAt
             }
           },
-          updatedAt: new Date().toISOString()
+          updatedAt: routeUpdatedAt
         },
         { merge: true }
       );
@@ -7056,7 +7059,7 @@ async function pushCloudData() {
           comments,
           resupplyPoints: buildRouteResupplySnapshot(),
           customRideData,
-          updatedAt: new Date().toISOString()
+          updatedAt: routeUpdatedAt
         },
         { merge: true }
       );
@@ -7068,9 +7071,20 @@ async function pushCloudData() {
       if (!verifySnap?.exists) {
         throw new Error("Write verification failed: document not found after sync.");
       }
+      const verifyData = verifySnap.data() || {};
+      const verifiedRouteUpdatedAt = isCustomRouteActive()
+        ? verifyData?.customRoutes?.[routeId]?.updatedAt
+        : verifyData?.updatedAt;
+      if (verifiedRouteUpdatedAt !== routeUpdatedAt) {
+        throw new Error("Write verification failed: Supabase did not return the latest route save.");
+      }
       const verifyAccountSnap = await firestoreDb.collection(ACCOUNT_STATE_COLLECTION).doc(accountStateDocId).get();
       if (!verifyAccountSnap?.exists) {
         throw new Error("Account-state verification failed: document not found after sync.");
+      }
+      const verifyAccountData = verifyAccountSnap.data() || {};
+      if (verifyAccountData.updatedAt !== accountUpdatedAt) {
+        throw new Error("Account-state verification failed: Supabase did not return the latest account save.");
       }
     } catch (verifyError) {
       const verifyMessage = String(verifyError?.message || "unknown verification error");
