@@ -1,4 +1,4 @@
-const CACHE_NAME = "bikepack-route-pwa-v100";
+const CACHE_NAME = "bikepack-route-pwa-v101";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -26,6 +26,23 @@ const CORE_ASSETS = [
   "./Silk_Road_Mountain_Race_2026.gpx"
 ];
 
+function normalizedCacheUrl(request) {
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return "";
+  url.search = "";
+  url.hash = "";
+  return url.href;
+}
+
+const CORE_ASSET_URLS = new Set(
+  CORE_ASSETS.map((asset) => {
+    const url = new URL(asset, self.location.href);
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  })
+);
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
@@ -46,6 +63,24 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const requestUrl = new URL(event.request.url);
+
+  if (requestUrl.origin !== self.location.origin) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match("./index.html"))
+    );
+    return;
+  }
+
+  if (!CORE_ASSET_URLS.has(normalizedCacheUrl(event.request))) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
