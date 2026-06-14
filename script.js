@@ -5111,6 +5111,15 @@ function mergeDocPayload(base, patch) {
   return output;
 }
 
+function withCloudDocTimeout(promise, timeoutMs, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s.`)), timeoutMs);
+    })
+  ]);
+}
+
 function normalizeSupabaseUser(user) {
   if (!user) return null;
   return {
@@ -5143,11 +5152,15 @@ function buildFirestoreAdapter() {
           const key = `${collectionName}:${docId}`;
           return {
             async get() {
-              const { data, error } = await supabaseClient
-                .from(SUPABASE_DOCS_TABLE)
-                .select("payload")
-                .eq("doc_key", key)
-                .maybeSingle();
+              const { data, error } = await withCloudDocTimeout(
+                supabaseClient
+                  .from(SUPABASE_DOCS_TABLE)
+                  .select("payload")
+                  .eq("doc_key", key)
+                  .maybeSingle(),
+                8000,
+                `Cloud read ${key}`
+              );
               if (error) throw error;
               return {
                 exists: Boolean(data),
@@ -5167,7 +5180,11 @@ function buildFirestoreAdapter() {
                 payload: nextPayload,
                 updated_at: new Date().toISOString()
               };
-              const { error } = await supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" });
+              const { error } = await withCloudDocTimeout(
+                supabaseClient.from(SUPABASE_DOCS_TABLE).upsert(row, { onConflict: "doc_key" }),
+                8000,
+                `Cloud write ${key}`
+              );
               if (error) throw error;
             }
           };
