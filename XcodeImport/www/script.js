@@ -565,6 +565,7 @@ const AUTH_REDIRECT_RETURN_PATH_KEY = "bikepack-auth-redirect-return-path-v1";
 const AUTH_REDIRECT_ERROR_KEY = "bikepack-auth-redirect-error-v1";
 const AUTH_DEBUG_SNAPSHOT_KEY = "bikepack-auth-debug-snapshot-v1";
 const CLOUD_DELETE_SENTINEL = Object.freeze({ __bikepackDelete: true });
+const SIGNED_OUT_SCOPE_KEY = "__signed_out__";
 const HOME_ROUTE_DETAILS = {
   tour_divide: {
     location: "Canada to New Mexico, Rocky Mountains",
@@ -901,12 +902,12 @@ function loadCustomRouteRegistry() {
     }
   };
   try {
-    const localList = parseList(localStorage.getItem(CUSTOM_ROUTE_REGISTRY_KEY));
-    const sessionList = parseList(sessionStorage.getItem(CUSTOM_ROUTE_REGISTRY_SESSION_KEY));
+    const localList = parseList(localStorage.getItem(customRouteRegistryStorageKey()));
+    const sessionList = parseList(sessionStorage.getItem(customRouteRegistrySessionStorageKey()));
     return normalizeCustomRouteRegistryEntries([...localList, ...sessionList]);
   } catch {
     try {
-      return parseList(sessionStorage.getItem(CUSTOM_ROUTE_REGISTRY_SESSION_KEY));
+      return parseList(sessionStorage.getItem(customRouteRegistrySessionStorageKey()));
     } catch {
       return [];
     }
@@ -994,13 +995,13 @@ function saveCustomRouteRegistry(registry) {
   let wroteLocal = false;
   let wroteSession = false;
   try {
-    localStorage.setItem(CUSTOM_ROUTE_REGISTRY_KEY, serialized);
+    localStorage.setItem(customRouteRegistryStorageKey(), serialized);
     wroteLocal = true;
   } catch {
     // Ignore local storage failures.
   }
   try {
-    sessionStorage.setItem(CUSTOM_ROUTE_REGISTRY_SESSION_KEY, serialized);
+    sessionStorage.setItem(customRouteRegistrySessionStorageKey(), serialized);
     wroteSession = true;
   } catch {
     // Ignore session storage failures.
@@ -1019,12 +1020,12 @@ function loadCustomRoutePayloadStore() {
     }
   };
   try {
-    const localStore = parseStore(localStorage.getItem(CUSTOM_ROUTE_PAYLOADS_KEY));
-    const sessionStore = parseStore(sessionStorage.getItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY));
+    const localStore = parseStore(localStorage.getItem(customRoutePayloadsStorageKey()));
+    const sessionStore = parseStore(sessionStorage.getItem(customRoutePayloadsSessionStorageKey()));
     return { ...localStore, ...sessionStore };
   } catch {
     try {
-      return parseStore(sessionStorage.getItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY));
+      return parseStore(sessionStorage.getItem(customRoutePayloadsSessionStorageKey()));
     } catch {
       return {};
     }
@@ -1036,13 +1037,13 @@ function saveCustomRoutePayloadStore(store) {
   let wroteLocal = false;
   let wroteSession = false;
   try {
-    localStorage.setItem(CUSTOM_ROUTE_PAYLOADS_KEY, serialized);
+    localStorage.setItem(customRoutePayloadsStorageKey(), serialized);
     wroteLocal = true;
   } catch {
     // Ignore storage write failures.
   }
   try {
-    sessionStorage.setItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY, serialized);
+    sessionStorage.setItem(customRoutePayloadsSessionStorageKey(), serialized);
     wroteSession = true;
   } catch {
     // Ignore session storage failures.
@@ -5341,6 +5342,31 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function currentAccountStorageScope() {
+  const email = normalizeEmail(authUser?.email || "");
+  return email || SIGNED_OUT_SCOPE_KEY;
+}
+
+function customRouteRegistryStorageKey() {
+  return `${CUSTOM_ROUTE_REGISTRY_KEY}:${currentAccountStorageScope()}`;
+}
+
+function customRouteRegistrySessionStorageKey() {
+  return `${CUSTOM_ROUTE_REGISTRY_SESSION_KEY}:${currentAccountStorageScope()}`;
+}
+
+function customRoutePayloadsStorageKey() {
+  return `${CUSTOM_ROUTE_PAYLOADS_KEY}:${currentAccountStorageScope()}`;
+}
+
+function customRoutePayloadsSessionStorageKey() {
+  return `${CUSTOM_ROUTE_PAYLOADS_SESSION_KEY}:${currentAccountStorageScope()}`;
+}
+
+function myRouteMetaStorageKey() {
+  return `${MY_ROUTE_META_KEY}:${currentAccountStorageScope()}`;
+}
+
 function localProfileKey(email) {
   return `${LOCAL_PROFILE_PREFIX}${normalizeEmail(email)}`;
 }
@@ -5450,7 +5476,7 @@ function sanitizeCustomRouteName(rawName) {
 
 function loadMyRouteMeta() {
   try {
-    const raw = localStorage.getItem(MY_ROUTE_META_KEY);
+    const raw = localStorage.getItem(myRouteMetaStorageKey());
     if (!raw) return { hasRoute: false, name: "My Route" };
     const parsed = JSON.parse(raw);
     return {
@@ -5468,7 +5494,7 @@ function saveMyRouteMeta(meta = {}) {
     name: sanitizeCustomRouteName(meta.name || "My Route")
   };
   try {
-    localStorage.setItem(MY_ROUTE_META_KEY, JSON.stringify(payload));
+    localStorage.setItem(myRouteMetaStorageKey(), JSON.stringify(payload));
   } catch {
     // Ignore storage write failures.
   }
@@ -5476,7 +5502,7 @@ function saveMyRouteMeta(meta = {}) {
 
 function clearMyRouteMeta() {
   try {
-    localStorage.removeItem(MY_ROUTE_META_KEY);
+    localStorage.removeItem(myRouteMetaStorageKey());
   } catch {
     // Ignore storage failures.
   }
@@ -7410,6 +7436,11 @@ async function loadCloudData() {
 async function bootstrapSignedInUser(user, version = authStateVersion, previousUser = null) {
   authUser = user || null;
   if (!authUser) return;
+  if (!previousUser) {
+    runtimeCustomRoutePayloads.clear();
+    pruneNamedCustomRouteDefinitions([]);
+    renderCustomRouteButtons();
+  }
   const capturedLocalCustomRoutes = captureLocalCustomRouteSyncSnapshot();
   const previousEmail = normalizeEmail(previousUser?.email || "");
   const nextEmail = normalizeEmail(authUser?.email || "");
@@ -11423,6 +11454,11 @@ function purgeSignedInDataFromDevice(emailRaw = "") {
     localStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_KEY);
     sessionStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY);
     localStorage.removeItem(MY_ROUTE_META_KEY);
+    localStorage.removeItem(customRouteRegistryStorageKey());
+    sessionStorage.removeItem(customRouteRegistrySessionStorageKey());
+    localStorage.removeItem(customRoutePayloadsStorageKey());
+    sessionStorage.removeItem(customRoutePayloadsSessionStorageKey());
+    localStorage.removeItem(myRouteMetaStorageKey());
     sessionStorage.removeItem(CUSTOM_ROUTE_HANDOFF_KEY);
     if (email) {
       localStorage.removeItem(legacyCustomRideLocalProfileKey(email));
@@ -11453,6 +11489,11 @@ function clearAccountScopedClientState() {
     localStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_KEY);
     sessionStorage.removeItem(CUSTOM_ROUTE_PAYLOADS_SESSION_KEY);
     localStorage.removeItem(MY_ROUTE_META_KEY);
+    localStorage.removeItem(customRouteRegistryStorageKey());
+    sessionStorage.removeItem(customRouteRegistrySessionStorageKey());
+    localStorage.removeItem(customRoutePayloadsStorageKey());
+    sessionStorage.removeItem(customRoutePayloadsSessionStorageKey());
+    localStorage.removeItem(myRouteMetaStorageKey());
     sessionStorage.removeItem(CUSTOM_ROUTE_HANDOFF_KEY);
     localStorage.removeItem(PINNED_BUILTIN_ROUTES_KEY);
   } catch {
