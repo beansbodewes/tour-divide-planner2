@@ -7436,12 +7436,14 @@ async function initCloud() {
   ensureFirebaseLocalPersistence();
   firebaseAuth
     .getRedirectResult()
-    .then((result) => {
+    .then(async (result) => {
       if (result?.user) {
+        const version = ++authStateVersion;
         primeSignedInUi(
           result.user,
           `Signed in with Google as ${result.user.email || "your account"}. Loading your saved data...`
         );
+        await bootstrapSignedInUser(result.user, version, authUser ? { ...authUser } : null);
       }
     })
     .catch((error) => {
