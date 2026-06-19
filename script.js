@@ -518,6 +518,89 @@ let routeProfileHoverLineEl = null;
 let routeProfileHoverDotEl = null;
 let routeProfileDefaultMetaText = "";
 let routeProfilePointForMile = null;
+const BETWEEN_DAY_ACTION_OPTIONS = [
+  { id: "food", label: "Food", symbol: "\u{1F354}" },
+  {
+    id: "water-uncertain",
+    label: "Potential water source",
+    html:
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M12 2C9.2 5.7 6 9.3 6 13.2A6 6 0 0 0 18 13.2C18 9.3 14.8 5.7 12 2Z" fill="#fffaf2" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>' +
+      '<path d="M7.2 14.2A4.8 4.8 0 0 0 12 19a4.8 4.8 0 0 0 4.8-4.8v-0.3H7.2Z" fill="currentColor"/>' +
+      "</svg>"
+  },
+  { id: "water", label: "Water", symbol: "\u{1F4A7}" },
+  { id: "photo", label: "Pictures", symbol: "\u{1F4F7}" },
+  { id: "scenery", label: "Scenery", symbol: "\u{1F3DE}" }
+];
+
+function betweenDayIconMarkup(option) {
+  if (option?.html) return option.html;
+  return `<span aria-hidden="true">${option?.symbol || ""}</span>`;
+}
+
+function defaultBetweenDayEntry(type) {
+  if (type === "food") {
+    return {
+      type,
+      mile: "",
+      title: "",
+      resupplyOptions1: "",
+      resupplyHours1: "",
+      resupplyDistance1: 0,
+      resupplyAddress1: "",
+      resupplyOptions2: "",
+      resupplyHours2: "",
+      resupplyDistance2: 0,
+      resupplyAddress2: "",
+      notes: ""
+    };
+  }
+
+  return {
+    type,
+    mile: "",
+    title: "",
+    description: ""
+  };
+}
+
+function normalizeBetweenDayEntries(day) {
+  const entries = Array.isArray(day?.betweenDayEntries)
+    ? day.betweenDayEntries
+    : Array.isArray(day?.betweenDayActions)
+      ? day.betweenDayActions.map((type) => ({ type }))
+      : [];
+
+  return entries
+    .map((raw) => {
+      const type = String(raw?.type || "").trim();
+      if (!BETWEEN_DAY_ACTION_OPTIONS.some((option) => option.id === type)) return null;
+      const base = defaultBetweenDayEntry(type);
+      return {
+        ...base,
+        ...raw,
+        type,
+        mile: raw?.mile === "" || raw?.mile === null || raw?.mile === undefined ? "" : Number(raw.mile || 0),
+        title: String(raw?.title || "").trim(),
+        description: String(raw?.description || "").trim(),
+        notes: String(raw?.notes || "").trim(),
+        resupplyOptions1: String(raw?.resupplyOptions1 || "").trim(),
+        resupplyHours1: String(raw?.resupplyHours1 || "").trim(),
+        resupplyDistance1: Number(raw?.resupplyDistance1 || 0),
+        resupplyAddress1: String(raw?.resupplyAddress1 || "").trim(),
+        resupplyOptions2: String(raw?.resupplyOptions2 || "").trim(),
+        resupplyHours2: String(raw?.resupplyHours2 || "").trim(),
+        resupplyDistance2: Number(raw?.resupplyDistance2 || 0),
+        resupplyAddress2: String(raw?.resupplyAddress2 || "").trim()
+      };
+    })
+    .filter((entry, index, items) => entry && items.findIndex((item) => item?.type === entry.type) === index);
+}
+
+function buildBetweenDayActionList(entries) {
+  return entries.map((entry) => entry.type);
+}
 let routeProfileBounds = null;
 let routeProfileInitializedView = false;
 let mapRenderWatchdogTimer = null;
@@ -6368,6 +6451,9 @@ function normalizeDay(day) {
     extraOptions.push(legacyOption3);
   }
 
+  const betweenDayEntries = normalizeBetweenDayEntries(day);
+  const betweenDayActions = buildBetweenDayActionList(betweenDayEntries);
+
   return {
     ...day,
     resupplyOptions1: day.resupplyOptions1 || day.resupplyOptions || day.resupply || "",
@@ -6386,6 +6472,8 @@ function normalizeDay(day) {
     daysUntilNextResupply: Number(day.daysUntilNextResupply || 1),
     resupplyNotes: day.resupplyNotes || "",
     loss: Number(day.loss || 0),
+    betweenDayEntries,
+    betweenDayActions,
     resupplyExtraOptions: extraOptions,
     resupplyBikeShops: bikeShops
   };
@@ -6898,6 +6986,338 @@ function createResupplyCard(day, dayIndex, stopInfo, daysUntilNext) {
   return node;
 }
 
+function createBetweenDaySection(day, index) {
+  const section = document.createElement("div");
+  section.className = "between-day-section";
+  section.dataset.dayIndex = String(index);
+
+  const connector = document.createElement("div");
+  connector.className = "between-day-connector";
+
+  const selectedWrap = document.createElement("div");
+  selectedWrap.className = "between-day-selected";
+
+  const actionWrap = document.createElement("div");
+  actionWrap.className = "between-day-actions";
+
+  const menu = document.createElement("div");
+  menu.className = "between-day-menu";
+  menu.setAttribute("aria-hidden", "true");
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "between-day-toggle";
+  toggle.setAttribute("aria-label", `Add between-day markers after Day ${day.id}`);
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.textContent = "+";
+
+  const detailWrap = document.createElement("div");
+  detailWrap.className = "between-day-details";
+
+  const readEntries = () => normalizeBetweenDayEntries(plan[index] || {});
+  const writeEntries = (nextEntries) => {
+    plan[index] = {
+      ...plan[index],
+      betweenDayEntries: nextEntries,
+      betweenDayActions: buildBetweenDayActionList(nextEntries)
+    };
+    persistPlan();
+  };
+
+  const renderSelected = () => {
+    const selectedIds = Array.isArray(plan[index]?.betweenDayActions) ? plan[index].betweenDayActions : [];
+    selectedWrap.innerHTML = "";
+    selectedIds.forEach((actionId) => {
+      const option = BETWEEN_DAY_ACTION_OPTIONS.find((item) => item.id === actionId);
+      if (!option) return;
+      const chip = document.createElement("span");
+      chip.className = `between-day-chip is-${option.id}`;
+      chip.innerHTML = `<span class="between-day-chip-icon" aria-hidden="true">${betweenDayIconMarkup(option)}</span><span>${option.label}</span>`;
+      selectedWrap.appendChild(chip);
+    });
+  };
+
+  const syncOptionStates = () => {
+    const selectedIds = new Set(Array.isArray(plan[index]?.betweenDayActions) ? plan[index].betweenDayActions : []);
+    Array.from(menu.querySelectorAll(".between-day-option")).forEach((button) => {
+      const isActive = selectedIds.has(button.dataset.actionId || "");
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  };
+
+  const refreshConnector = () => {
+    renderSelected();
+    syncOptionStates();
+  };
+
+  const removeEntry = (type) => {
+    const nextEntries = readEntries().filter((entry) => entry.type !== type);
+    writeEntries(nextEntries);
+    refreshConnector();
+    renderDetails();
+  };
+
+  const updateEntry = (type, patch) => {
+    const nextEntries = readEntries().map((entry) => (entry.type === type ? { ...entry, ...patch } : entry));
+    writeEntries(nextEntries);
+  };
+
+  const makeFoodDetailCard = (entry) => {
+    const card = document.createElement("article");
+    card.className = "day-card between-day-detail-card between-day-detail-card-food";
+    card.innerHTML = `
+      <div class="between-day-detail-top">
+        <div>
+          <h4>Food / Resupply</h4>
+          <p>Between Day ${day.id} and Day ${day.id + 1}</p>
+        </div>
+        <button type="button" class="btn between-day-remove-btn">Remove</button>
+      </div>
+      <div class="between-day-detail-grid between-day-detail-grid-compact">
+        <label>
+          Mile marker
+          <input type="number" class="between-day-mile-input" min="0" step="0.1" placeholder="142.6" />
+        </label>
+        <label>
+          Stop name
+          <input type="text" class="between-day-title-input" placeholder="Town, cafe, market..." />
+        </label>
+      </div>
+      <div class="resupply-row between-day-resupply-row">
+        <label>
+          Resupply option 1
+          <input type="text" class="between-day-option-1-input" placeholder="Market, gas station, cafe..." />
+        </label>
+        <label>
+          Hours of operation
+          <input type="text" class="between-day-hours-1-input" placeholder="6:00 AM - 9:00 PM" />
+        </label>
+        <label class="distance-box">
+          Distance from route (mi)
+          <input type="number" class="between-day-distance-1-input" min="0" step="0.1" placeholder="0.4" />
+        </label>
+        <label>
+          Address / map search
+          <input type="text" class="between-day-address-1-input" placeholder="Street address or place name" />
+          <a class="between-day-map-link-1 inline-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+        </label>
+      </div>
+      <div class="resupply-row between-day-resupply-row">
+        <label>
+          Resupply option 2
+          <input type="text" class="between-day-option-2-input" placeholder="Backup market or cafe..." />
+        </label>
+        <label>
+          Hours of operation
+          <input type="text" class="between-day-hours-2-input" placeholder="7:00 AM - 8:00 PM" />
+        </label>
+        <label class="distance-box">
+          Distance from route (mi)
+          <input type="number" class="between-day-distance-2-input" min="0" step="0.1" placeholder="0.8" />
+        </label>
+        <label>
+          Address / map search
+          <input type="text" class="between-day-address-2-input" placeholder="Street address or place name" />
+          <a class="between-day-map-link-2 inline-map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+        </label>
+      </div>
+      <label>
+        Notes
+        <textarea class="between-day-notes-input" rows="2" placeholder="What to buy, best stop, backup plan..."></textarea>
+      </label>
+    `;
+
+    const mileInput = card.querySelector(".between-day-mile-input");
+    const titleInput = card.querySelector(".between-day-title-input");
+    const option1Input = card.querySelector(".between-day-option-1-input");
+    const hours1Input = card.querySelector(".between-day-hours-1-input");
+    const distance1Input = card.querySelector(".between-day-distance-1-input");
+    const address1Input = card.querySelector(".between-day-address-1-input");
+    const mapLink1 = card.querySelector(".between-day-map-link-1");
+    const option2Input = card.querySelector(".between-day-option-2-input");
+    const hours2Input = card.querySelector(".between-day-hours-2-input");
+    const distance2Input = card.querySelector(".between-day-distance-2-input");
+    const address2Input = card.querySelector(".between-day-address-2-input");
+    const mapLink2 = card.querySelector(".between-day-map-link-2");
+    const notesInput = card.querySelector(".between-day-notes-input");
+
+    mileInput.value = entry.mile === "" ? "" : String(entry.mile);
+    titleInput.value = entry.title || "";
+    option1Input.value = entry.resupplyOptions1 || "";
+    hours1Input.value = entry.resupplyHours1 || "";
+    distance1Input.value = entry.resupplyDistance1 ? String(entry.resupplyDistance1) : "";
+    address1Input.value = entry.resupplyAddress1 || "";
+    option2Input.value = entry.resupplyOptions2 || "";
+    hours2Input.value = entry.resupplyHours2 || "";
+    distance2Input.value = entry.resupplyDistance2 ? String(entry.resupplyDistance2) : "";
+    address2Input.value = entry.resupplyAddress2 || "";
+    notesInput.value = entry.notes || "";
+    setMapsLink(mapLink1, address1Input.value);
+    setMapsLink(mapLink2, address2Input.value);
+
+    const sync = () => {
+      setMapsLink(mapLink1, address1Input.value);
+      setMapsLink(mapLink2, address2Input.value);
+      updateEntry("food", {
+        mile: mileInput.value === "" ? "" : Number(mileInput.value || 0),
+        title: titleInput.value.trim(),
+        resupplyOptions1: option1Input.value.trim(),
+        resupplyHours1: hours1Input.value.trim(),
+        resupplyDistance1: Number(distance1Input.value || 0),
+        resupplyAddress1: address1Input.value.trim(),
+        resupplyOptions2: option2Input.value.trim(),
+        resupplyHours2: hours2Input.value.trim(),
+        resupplyDistance2: Number(distance2Input.value || 0),
+        resupplyAddress2: address2Input.value.trim(),
+        notes: notesInput.value.trim()
+      });
+    };
+
+    [
+      mileInput,
+      titleInput,
+      option1Input,
+      hours1Input,
+      distance1Input,
+      address1Input,
+      option2Input,
+      hours2Input,
+      distance2Input,
+      address2Input,
+      notesInput
+    ].forEach((input) => input.addEventListener("input", sync));
+
+    card.querySelector(".between-day-remove-btn").addEventListener("click", () => removeEntry("food"));
+    return card;
+  };
+
+  const makeSimpleDetailCard = (entry) => {
+    const labels = {
+      "water-uncertain": {
+        title: "Possible Water",
+        subtitle: "Unconfirmed source between planned days.",
+        titlePlaceholder: "Spring, creek, tap, store...",
+        descriptionPlaceholder: "Describe reliability, seasonality, treatment needs, or last-known status..."
+      },
+      water: {
+        title: "Confirmed Water",
+        subtitle: "Reliable water source between planned days.",
+        titlePlaceholder: "Tap, campground spigot, creek crossing...",
+        descriptionPlaceholder: "Describe the source, access, treatment, or useful rider notes..."
+      },
+      photo: {
+        title: "Picture Spot",
+        subtitle: "A photo stop worth remembering.",
+        titlePlaceholder: "Viewpoint, sign, pass, landmark...",
+        descriptionPlaceholder: "What makes this a good photo stop?"
+      },
+      scenery: {
+        title: "Excursion / Scenery",
+        subtitle: "A side stop, overlook, or scenic cue.",
+        titlePlaceholder: "Lake overlook, hot springs, short hike...",
+        descriptionPlaceholder: "Why stop here, and what should the rider know?"
+      }
+    };
+    const meta = labels[entry.type] || labels.scenery;
+    const card = document.createElement("article");
+    card.className = "day-card between-day-detail-card between-day-detail-card-simple";
+    card.innerHTML = `
+      <div class="between-day-detail-top">
+        <div>
+          <h4>${meta.title}</h4>
+          <p>${meta.subtitle}</p>
+        </div>
+        <button type="button" class="btn between-day-remove-btn">Remove</button>
+      </div>
+      <div class="between-day-detail-grid between-day-detail-grid-compact">
+        <label>
+          Mile marker
+          <input type="number" class="between-day-mile-input" min="0" step="0.1" placeholder="142.6" />
+        </label>
+        <label>
+          Name
+          <input type="text" class="between-day-title-input" placeholder="${meta.titlePlaceholder}" />
+        </label>
+      </div>
+      <label>
+        Description
+        <textarea class="between-day-description-input" rows="3" placeholder="${meta.descriptionPlaceholder}"></textarea>
+      </label>
+    `;
+
+    const mileInput = card.querySelector(".between-day-mile-input");
+    const titleInput = card.querySelector(".between-day-title-input");
+    const descriptionInput = card.querySelector(".between-day-description-input");
+    mileInput.value = entry.mile === "" ? "" : String(entry.mile);
+    titleInput.value = entry.title || "";
+    descriptionInput.value = entry.description || "";
+
+    const sync = () => {
+      updateEntry(entry.type, {
+        mile: mileInput.value === "" ? "" : Number(mileInput.value || 0),
+        title: titleInput.value.trim(),
+        description: descriptionInput.value.trim()
+      });
+    };
+
+    [mileInput, titleInput, descriptionInput].forEach((input) => input.addEventListener("input", sync));
+    card.querySelector(".between-day-remove-btn").addEventListener("click", () => removeEntry(entry.type));
+    return card;
+  };
+
+  const renderDetails = () => {
+    detailWrap.innerHTML = "";
+    readEntries().forEach((entry) => {
+      detailWrap.appendChild(entry.type === "food" ? makeFoodDetailCard(entry) : makeSimpleDetailCard(entry));
+    });
+  };
+
+  const fanYOffsets = [0, 0, 0, 0, 0];
+  BETWEEN_DAY_ACTION_OPTIONS.forEach((option, optionIndex) => {
+    const actionBtn = document.createElement("button");
+    actionBtn.type = "button";
+    actionBtn.className = `between-day-option is-${option.id}`;
+    actionBtn.dataset.actionId = option.id;
+    actionBtn.setAttribute("aria-label", option.label);
+    actionBtn.setAttribute("aria-pressed", "false");
+    actionBtn.style.setProperty("--fan-x", `${-76 - optionIndex * 56}px`);
+    actionBtn.style.setProperty("--fan-y", `${fanYOffsets[optionIndex] || 0}px`);
+    actionBtn.innerHTML = betweenDayIconMarkup(option);
+    actionBtn.addEventListener("click", () => {
+      const currentEntries = readEntries();
+      const exists = currentEntries.some((entry) => entry.type === option.id);
+      const nextEntries = exists
+        ? currentEntries.filter((entry) => entry.type !== option.id)
+        : [...currentEntries, defaultBetweenDayEntry(option.id)];
+      writeEntries(nextEntries);
+      refreshConnector();
+      renderDetails();
+    });
+    menu.appendChild(actionBtn);
+  });
+
+  toggle.addEventListener("click", () => {
+    connector.classList.toggle("is-open");
+    const isOpen = connector.classList.contains("is-open");
+    toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    menu.setAttribute("aria-hidden", isOpen ? "false" : "true");
+  });
+
+  connector.addEventListener("mouseleave", () => {
+    connector.classList.remove("is-open");
+    toggle.setAttribute("aria-expanded", "false");
+    menu.setAttribute("aria-hidden", "true");
+  });
+
+  refreshConnector();
+  renderDetails();
+  actionWrap.append(menu, toggle);
+  connector.append(selectedWrap, actionWrap);
+  section.append(connector, detailWrap);
+  return section;
+}
+
 function renderPlan(days) {
   dayList.innerHTML = "";
   const assignments = resupplyDayAssignments(days);
@@ -6915,6 +7335,7 @@ function renderPlan(days) {
       const autoDaysUntil = nextDayIdx === null ? 1 : Math.max(1, nextDayIdx - index);
       dayList.appendChild(createResupplyCard(day, index, stop, autoDaysUntil));
     });
+    if (index < days.length - 1) dayList.appendChild(createBetweenDaySection(day, index));
   });
 
   renderMapPlanSelection();

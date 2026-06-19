@@ -1918,6 +1918,191 @@ body.custom-builder-only-mode #planner-subhead {
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
 }
 
+.between-day-section {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.between-day-connector {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 0.9rem;
+  min-height: 4.9rem;
+  padding: 0.2rem 0.25rem 0.95rem;
+  margin-top: -0.2rem;
+}
+
+.between-day-selected {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  padding-top: 0.3rem;
+  max-width: min(65%, 28rem);
+}
+
+.between-day-actions {
+  position: relative;
+  min-width: 3.1rem;
+  min-height: 4.5rem;
+}
+
+.between-day-toggle,
+.between-day-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #df8a2f;
+  border-radius: 999px;
+  background: #fff3df;
+  color: #9a4200;
+  box-shadow: 0 12px 24px rgba(174, 101, 23, 0.18);
+}
+
+.between-day-toggle {
+  position: absolute;
+  right: 0;
+  top: 0.2rem;
+  z-index: 2;
+  width: 2.7rem;
+  height: 2.7rem;
+  transform: none;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  background: #ef8f2f;
+  color: #fffaf2;
+  border-color: #d87512;
+}
+
+.between-day-menu {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.between-day-option {
+  position: absolute;
+  right: 0.15rem;
+  top: 0.35rem;
+  width: 2.35rem;
+  height: 2.35rem;
+  transform: translate(0, 0) scale(0.65);
+  opacity: 0;
+  transition: transform 180ms ease, opacity 180ms ease, background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  font-size: 1.1rem;
+  background: #fff7eb;
+}
+
+.between-day-connector.is-open .between-day-menu {
+  pointer-events: auto;
+}
+
+.between-day-connector.is-open .between-day-option {
+  opacity: 1;
+  transform: translate(var(--fan-x), var(--fan-y)) scale(1);
+}
+
+.between-day-option.is-active,
+.between-day-chip {
+  border-color: #d87512;
+  background: #ef8f2f;
+  color: #fffaf2;
+}
+
+.between-day-toggle:hover,
+.between-day-toggle:focus-visible,
+.between-day-option:hover,
+.between-day-option:focus-visible {
+  box-shadow: 0 14px 28px rgba(174, 101, 23, 0.26);
+}
+
+.between-day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #d87512;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 18px rgba(174, 101, 23, 0.14);
+}
+
+.between-day-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+}
+
+.between-day-details {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.between-day-detail-card {
+  border-color: #efc18c;
+  background: linear-gradient(180deg, #fff8ee 0%, #fffdf9 100%);
+}
+
+.between-day-detail-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+.between-day-detail-top h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.between-day-detail-top p {
+  margin: 0.18rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+}
+
+.between-day-detail-grid {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.between-day-detail-grid-compact {
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1.3fr);
+  margin-bottom: 0.6rem;
+}
+
+.between-day-resupply-row {
+  margin-bottom: 0.6rem;
+}
+
+.between-day-remove-btn {
+  border-color: #efc18c;
+  color: #9a4200;
+  background: #fff2de;
+}
+
+@media (max-width: 540px) {
+  .between-day-connector {
+    min-height: 5.5rem;
+    padding-bottom: 1.2rem;
+  }
+
+  .between-day-selected {
+    max-width: calc(100% - 4rem);
+  }
+
+  .between-day-detail-grid-compact {
+    grid-template-columns: 1fr;
+  }
+}
+
 .resupply-row {
   display: grid;
   gap: 0.6rem;
