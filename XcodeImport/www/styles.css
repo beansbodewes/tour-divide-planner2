@@ -1631,6 +1631,13 @@ select:focus {
   flex-wrap: wrap;
 }
 
+.export-format-note {
+  margin: 0.7rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .metric-list {
   margin-top: 1rem;
   display: grid;

@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Bikepack Finishers" />
     <title>Bikepack Finishers</title>
-    <link rel="manifest" href="manifest.webmanifest?v=104" />
+    <link rel="manifest" href="manifest.webmanifest?v=105" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,7 +21,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="styles.css?v=38" />
+    <link rel="stylesheet" href="styles.css?v=39" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -653,20 +653,22 @@
 
           <section class="panel export">
             <h2>Export</h2>
-            <p>Save your planner as CSV or Excel for phone notes, spreadsheets, or crew docs.</p>
+            <p>Save your planner as CSV or Excel for phone notes, spreadsheets, crew docs, or a card-style day export you can format for print later.</p>
             <div class="export-controls">
               <label>
-                CSV format
+                Export format
                 <select id="export-format">
                   <option value="standard">Current Planner CSV</option>
                   <option value="detailed_days">Detailed Day-by-Day</option>
                   <option value="resupply_only">Resupply-Only Data</option>
                   <option value="day_matrix">Day Grid (Days as Columns)</option>
+                  <option value="day_cards_csv">Day Cards CSV</option>
                 </select>
               </label>
               <button id="export-btn" class="btn btn-accent" type="button">Export CSV</button>
               <button id="export-excel-btn" class="btn" type="button">Export Excel</button>
             </div>
+            <p id="export-format-note" class="export-format-note">Choose a spreadsheet export format. Day Cards CSV gives you one print-friendly summary row per day.</p>
           </section>
 
           <section class="panel days">
@@ -1007,7 +1009,7 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=68"></script>
+    <script src="script.js?v=69"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";

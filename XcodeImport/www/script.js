@@ -296,6 +296,7 @@ const customClearRoutesStatus = document.getElementById("custom-clear-routes-sta
 const exportBtn = document.getElementById("export-btn");
 const exportExcelBtn = document.getElementById("export-excel-btn");
 const exportFormatSelect = document.getElementById("export-format");
+const exportFormatNote = document.getElementById("export-format-note");
 const publishRoutePanel = document.getElementById("publish-route-panel");
 const publishRouteBadge = document.getElementById("publish-route-badge");
 const publishRouteCopy = document.getElementById("publish-route-copy");
@@ -803,6 +804,7 @@ function resetActiveRouteUiState() {
   routeProfileInitializedView = false;
   if (dayList) dayList.innerHTML = "";
   if (metricList) metricList.innerHTML = "";
+  updateExportActionState();
   clearRenderedRouteLayers();
 }
 
@@ -7335,6 +7337,7 @@ function renderPlan(days) {
   });
 
   renderMapPlanSelection();
+  updateExportActionState();
 }
 
 function ensureMapPlanPanel() {
@@ -8758,11 +8761,128 @@ function dayMatrixExportRows(baselinePlan) {
   return { headers, rows, suffix: "day-matrix" };
 }
 
+function compactJoinedList(items) {
+  return items.map((item) => String(item || "").trim()).filter(Boolean).join(" • ");
+}
+
+function formatCardDistanceOnly(miles) {
+  return Number.isFinite(Number(miles)) ? formatDistanceWithUnitFromMiles(Number(miles)) : `0 ${unitDistanceSuffix()}`;
+}
+
+function formatCardResupplyOption(label, hours, distance, address) {
+  const parts = [];
+  const safeLabel = String(label || "").trim();
+  const safeHours = String(hours || "").trim();
+  const safeAddress = String(address || "").trim();
+  const safeDistance = Number(distance || 0);
+  if (safeLabel) parts.push(safeLabel);
+  if (safeHours) parts.push(safeHours);
+  if (safeDistance > 0) parts.push(`${formatDistanceNumber(milesToDisplayDistance(safeDistance))} ${unitDistanceSuffix()} off route`);
+  if (safeAddress) parts.push(safeAddress);
+  return parts.join(" • ");
+}
+
+function buildDayCardModels() {
+  const summaries = daySummaries(plan);
+  const assignments = resupplyDayAssignments(plan);
+  const routeCap = getRouteDistanceInputMiles() || Number(resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
+  return summaries.map((day, index) => {
+    const reachedToday = (assignments.get(index) || []).map((entry) => entry.point);
+    const nextResupplyPoint = resupplyPoints.find((point, pointIndex) => pointIndex > 0 && point.mile > day.endMile && point.mile <= routeCap + 0.01)
+      || resupplyPoints[resupplyPoints.length - 1]
+      || null;
+    const resupplyOptions = [
+      formatCardResupplyOption(day.resupplyOptions1, day.resupplyHours1, day.resupplyDistance1, day.resupplyAddress1),
+      formatCardResupplyOption(day.resupplyOptions2, day.resupplyHours2, day.resupplyDistance2, day.resupplyAddress2),
+      ...((Array.isArray(day.resupplyExtraOptions) ? day.resupplyExtraOptions : []).map((option) => (
+        formatCardResupplyOption(option?.option, option?.hours, option?.distance, option?.address)
+      )))
+    ].filter(Boolean);
+    const bikeShops = (Array.isArray(day.resupplyBikeShops) ? day.resupplyBikeShops : [])
+      .map((shop) => formatCardResupplyOption(shop?.name, shop?.hours, shop?.distance, shop?.address))
+      .filter(Boolean);
+    return {
+      id: day.id,
+      date: day.date || "",
+      type: day.type || "Ride",
+      distance: formatCardDistanceOnly(day.endMile - day.startMile),
+      range: formatStageRangeWithUnits(day.startMile, day.endMile),
+      cumulative: formatDistanceWithUnitFromMiles(day.cumulativeMiles),
+      gain: formatElevationWithUnitFromFeet(day.gain || 0),
+      loss: formatElevationWithUnitFromFeet(day.loss || 0),
+      town: String(day.town || "").trim() || "Flexible stop",
+      reachedToday: reachedToday.length ? reachedToday.map((point) => point.name).join(" • ") : "No named resupply today",
+      nextResupply: nextResupplyPoint?.name ? `${nextResupplyPoint.name}${nextResupplyPoint.mile > day.endMile ? ` • ${formatCardDistanceOnly(nextResupplyPoint.mile - day.endMile)} ahead` : ""}` : "Finish push",
+      daysUntilNextResupply: Number(day.daysUntilNextResupply || 0) > 0 ? `${Math.round(Number(day.daysUntilNextResupply))} day(s)` : "",
+      resupplyOptions: compactJoinedList(resupplyOptions) || "Use route notes / own research",
+      bikeShops: compactJoinedList(bikeShops),
+      shoppingList: String(day.shoppingList || "").trim(),
+      calorieTarget: Number(day.calorieTarget || 0) > 0 ? `${Math.round(Number(day.calorieTarget)).toLocaleString()} kcal` : "",
+      resupplyNotes: String(day.resupplyNotes || "").trim(),
+      dayNotes: String(day.notes || "").trim()
+    };
+  });
+}
+
+function dayCardsCsvExportRows() {
+  const headers = [
+    "Day",
+    "Date",
+    "Type",
+    "DailyDistance",
+    "StageRange",
+    "CumulativeDistance",
+    "ElevationGain",
+    "ElevationLoss",
+    "Stop",
+    "ReachedToday",
+    "NextResupply",
+    "DaysUntilNextResupply",
+    "ResupplyPlan",
+    "BikeShopsAndExtras",
+    "ShoppingList",
+    "CalorieTarget",
+    "ResupplyNotes",
+    "DayNotes"
+  ];
+  const rows = buildDayCardModels().map((card) => [
+    `Day ${card.id}`,
+    card.date,
+    card.type,
+    card.distance,
+    card.range,
+    card.cumulative,
+    card.gain,
+    card.loss,
+    card.town,
+    card.reachedToday,
+    card.nextResupply,
+    card.daysUntilNextResupply,
+    card.resupplyOptions,
+    compactJoinedList([card.bikeShops, card.daysUntilNextResupply]),
+    card.shoppingList,
+    card.calorieTarget,
+    card.resupplyNotes,
+    card.dayNotes
+  ]);
+  return { headers, rows, suffix: "day-cards" };
+}
+
+function updateExportActionState() {
+  const format = exportFormatSelect?.value || "standard";
+  if (exportFormatNote) {
+    exportFormatNote.textContent = format === "day_cards_csv"
+      ? "Day Cards CSV gives you one condensed row per day, shaped more like a printable card than the full planner export."
+      : "Choose a spreadsheet export format. Day Cards CSV gives you one print-friendly summary row per day.";
+  }
+}
+
 function exportDataForSelectedFormat(baselinePlan) {
   const format = exportFormatSelect?.value || "standard";
   if (format === "detailed_days") return detailedDaysExportRows(baselinePlan);
   if (format === "resupply_only") return resupplyOnlyExportRows(baselinePlan);
   if (format === "day_matrix") return dayMatrixExportRows(baselinePlan);
+  if (format === "day_cards_csv") return dayCardsCsvExportRows();
   return standardExportRows(baselinePlan);
 }
 
@@ -11311,6 +11431,7 @@ resetBtn.addEventListener("click", () => {
   plan = [];
   dayList.innerHTML = "";
   metricList.innerHTML = "";
+  updateExportActionState();
   updateStagesFromInput();
 });
 
@@ -11318,6 +11439,10 @@ exportBtn.addEventListener("click", exportCsv);
 if (exportExcelBtn) {
   exportExcelBtn.addEventListener("click", exportExcel);
 }
+if (exportFormatSelect) {
+  exportFormatSelect.addEventListener("change", updateExportActionState);
+}
+updateExportActionState();
 
 if (customGpxFileInput && customGpxStatus) {
   customGpxFileInput.addEventListener("change", () => {
