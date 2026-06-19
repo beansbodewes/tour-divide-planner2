@@ -8827,43 +8827,38 @@ function buildDayCardModels() {
 function dayCardsCsvExportRows() {
   const headers = [
     "Day",
-    "Date",
-    "Type",
-    "DailyDistance",
-    "StageRange",
-    "CumulativeDistance",
-    "ElevationGain",
-    "ElevationLoss",
-    "Stop",
-    "ReachedToday",
-    "NextResupply",
-    "DaysUntilNextResupply",
-    "ResupplyPlan",
-    "BikeShopsAndExtras",
-    "ShoppingList",
-    "CalorieTarget",
-    "ResupplyNotes",
-    "DayNotes"
+    "Overview",
+    "CommentsOnTheDay",
+    "ResupplyInfo",
+    "MileMarkerAndRouteNotes"
   ];
   const rows = buildDayCardModels().map((card) => [
     `Day ${card.id}`,
-    card.date,
-    card.type,
-    card.distance,
-    card.range,
-    card.cumulative,
-    card.gain,
-    card.loss,
-    card.town,
-    card.reachedToday,
-    card.nextResupply,
-    card.daysUntilNextResupply,
-    card.resupplyOptions,
-    compactJoinedList([card.bikeShops, card.daysUntilNextResupply]),
-    card.shoppingList,
-    card.calorieTarget,
-    card.resupplyNotes,
-    card.dayNotes
+    compactJoinedList([
+      card.date,
+      card.type,
+      `Distance: ${card.distance}`,
+      `Gain: ${card.gain}`,
+      `Loss: ${card.loss}`,
+      `Stop: ${card.town}`
+    ]),
+    compactJoinedList([
+      card.dayNotes,
+      `Reached today: ${card.reachedToday}`
+    ]),
+    compactJoinedList([
+      `Next resupply: ${card.nextResupply}`,
+      card.daysUntilNextResupply ? `Days until next resupply: ${card.daysUntilNextResupply}` : "",
+      `Plan: ${card.resupplyOptions}`,
+      card.bikeShops ? `Bike shops / extras: ${card.bikeShops}` : "",
+      card.shoppingList ? `Shopping list: ${card.shoppingList}` : "",
+      card.calorieTarget ? `Calories: ${card.calorieTarget}` : "",
+      card.resupplyNotes ? `Resupply notes: ${card.resupplyNotes}` : ""
+    ]),
+    compactJoinedList([
+      `Stage range: ${card.range}`,
+      `Cumulative: ${card.cumulative}`
+    ])
   ]);
   return { headers, rows, suffix: "day-cards" };
 }
@@ -8872,8 +8867,8 @@ function updateExportActionState() {
   const format = exportFormatSelect?.value || "standard";
   if (exportFormatNote) {
     exportFormatNote.textContent = format === "day_cards_csv"
-      ? "Day Cards CSV gives you one condensed row per day, shaped more like a printable card than the full planner export."
-      : "Choose a spreadsheet export format. Day Cards CSV gives you one print-friendly summary row per day.";
+      ? "Day Cards CSV groups each day into larger overview, comments, resupply, and route-note blocks for easier printing."
+      : "Choose a spreadsheet export format. Day Cards CSV groups each day into larger blocks so it is easier to read and print later.";
   }
 }
 
