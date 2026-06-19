@@ -283,10 +283,6 @@ const metricList = document.getElementById("metric-list");
 const dayTemplate = document.getElementById("day-template");
 const resupplyTemplate = document.getElementById("resupply-template");
 const resetBtn = document.getElementById("reset-btn");
-const extraStopNameInput = document.getElementById("extra-stop-name");
-const extraStopMileInput = document.getElementById("extra-stop-mile");
-const extraStopNotesInput = document.getElementById("extra-stop-notes");
-const addExtraStopBtn = document.getElementById("add-extra-stop-btn");
 const planControlsPanel = document.querySelector(".panel.controls");
 const metricsPanel = document.querySelector(".panel.metrics");
 const customUploadPanel = document.getElementById("custom-upload-panel");
@@ -11532,41 +11528,6 @@ if (customUploadPanel) {
       customGpxStatus.textContent = file ? `Selected: ${file.name}` : "No GPX uploaded yet.";
     });
   }
-}
-
-if (addExtraStopBtn) {
-  addExtraStopBtn.addEventListener("click", () => {
-    const name = String(extraStopNameInput?.value || "").trim();
-    const notes = String(extraStopNotesInput?.value || "").trim();
-    const requestedMile = Number(extraStopMileInput?.value || 0);
-    const routeMax = getRouteDistanceInputMiles() || Number(resupplyPoints[resupplyPoints.length - 1]?.mile || 0);
-
-    if (!name) {
-      setCloudStatus("Enter a stop name before adding.");
-      return;
-    }
-    if (!Number.isFinite(requestedMile)) {
-      setCloudStatus("Enter a valid mile marker before adding.");
-      return;
-    }
-    const safeMile = Math.max(0.1, Math.min(Math.max(0.1, routeMax - 0.1), requestedMile));
-    const point = pointForMile(safeMile);
-
-    resupplyPoints.push({
-      mile: Number(safeMile.toFixed(1)),
-      name,
-      lat: point.lat,
-      lon: point.lon,
-      resupply: notes || "Added custom stop.",
-      isCustom: true
-    });
-
-    refreshResupplyUIAfterChange();
-    if (extraStopNameInput) extraStopNameInput.value = "";
-    if (extraStopMileInput) extraStopMileInput.value = "";
-    if (extraStopNotesInput) extraStopNotesInput.value = "";
-    setCloudStatus(`Added custom stop: ${name}.`);
-  });
 }
 
 if (customDeleteRouteBtn) {
