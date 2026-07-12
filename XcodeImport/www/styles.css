@@ -1373,6 +1373,605 @@ body.home-only-mode .tab-panel {
   color: #943131;
 }
 
+.bike-plan-hero,
+.bike-plan-route-card,
+.travel-plan-hero,
+.travel-plan-route-card {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.bike-plan-hero {
+  overflow: hidden;
+  position: relative;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(235, 94, 40, 0.18), transparent 30%),
+    linear-gradient(135deg, #fffdf8, #eef4ec);
+}
+
+.travel-plan-hero {
+  overflow: hidden;
+  position: relative;
+  background:
+    radial-gradient(circle at 90% 12%, rgba(47, 95, 185, 0.13), transparent 28%),
+    linear-gradient(135deg, #fffdf8, #edf4f5);
+}
+
+.travel-plan-hero::after {
+  content: "";
+  position: absolute;
+  right: -2.2rem;
+  bottom: -2.8rem;
+  width: 11rem;
+  height: 6rem;
+  border: 1rem solid rgba(47, 95, 185, 0.08);
+  border-radius: 999px;
+  transform: rotate(-12deg);
+}
+
+.bike-plan-hero::after {
+  content: "";
+  position: absolute;
+  right: -2.4rem;
+  bottom: -3.4rem;
+  width: 10rem;
+  height: 10rem;
+  border: 1.2rem solid rgba(29, 127, 91, 0.09);
+  border-radius: 999px;
+}
+
+.bike-plan-hero h2,
+.bike-plan-route-card h3,
+.travel-plan-hero h2,
+.travel-plan-route-card h3 {
+  margin: 0.2rem 0 0;
+}
+
+.bike-plan-hero p,
+.bike-plan-route-card p,
+.travel-plan-hero p,
+.travel-plan-route-card p {
+  margin: 0.45rem 0 0;
+  color: var(--ink-soft);
+  max-width: 760px;
+}
+
+.bike-plan-summary,
+.travel-plan-summary {
+  position: relative;
+  z-index: 1;
+  min-width: 14rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bike-plan-summary span,
+.travel-plan-summary span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border: 1px solid rgba(30, 36, 31, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.72);
+  padding: 0.45rem 0.65rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.bike-plan-summary strong,
+.travel-plan-summary strong {
+  color: var(--ink);
+}
+
+.travel-plan-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.travel-card {
+  display: grid;
+  gap: 0.8rem;
+  background:
+    linear-gradient(160deg, rgba(255, 253, 248, 0.96), rgba(235, 230, 220, 0.9)),
+    var(--card);
+}
+
+.travel-card[data-travel-phase="arrival"] {
+  border-color: rgba(47, 95, 185, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(47, 95, 185, 0.08), transparent 34%),
+    linear-gradient(160deg, #fffdf8, #eef4f5);
+}
+
+.travel-card[data-travel-phase="departure"] {
+  border-color: rgba(235, 94, 40, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(235, 94, 40, 0.08), transparent 34%),
+    linear-gradient(160deg, #fffdf8, #f5efe8);
+}
+
+.travel-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.travel-card-kicker {
+  margin: 0;
+  color: var(--accent-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.travel-card h3 {
+  margin: 0.15rem 0 0;
+}
+
+.travel-card p {
+  margin: 0.35rem 0 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.travel-confirm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid rgba(30, 36, 31, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.72);
+  padding: 0.38rem 0.55rem;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.travel-confirm-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.travel-fields {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.travel-card label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.travel-card input,
+.travel-card textarea {
+  width: 100%;
+  border: 1px solid #cdbfa8;
+  border-radius: 10px;
+  background: #fffefa;
+  color: var(--ink);
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+}
+
+.travel-card textarea {
+  min-height: 5.4rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.travel-notes-field,
+.travel-wide-field {
+  grid-column: 1 / -1;
+}
+
+.travel-plan-footer {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.bike-plan-weight-toggle {
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(29, 127, 91, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.76);
+  padding: 0.45rem 0.7rem;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.bike-plan-weight-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.bike-plan-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.bike-plan-bike-section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.bike-plan-bike-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid rgba(30, 36, 31, 0.12);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(29, 127, 91, 0.08), transparent 30%),
+    #fffdf8;
+  padding: 0.85rem;
+  box-shadow: 0 10px 26px rgba(24, 34, 28, 0.08);
+}
+
+.bike-plan-bike-head.is-single-bike {
+  display: none;
+}
+
+.bike-plan-bike-title {
+  width: min(18rem, 100%);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.56);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 900;
+  padding: 0.35rem 0.45rem;
+}
+
+.bike-plan-bike-title:focus {
+  border-color: rgba(29, 127, 91, 0.38);
+  background: #fffefa;
+  outline: none;
+}
+
+.bike-plan-bike-meta {
+  margin: 0.25rem 0 0;
+  color: var(--ink-soft);
+  font-weight: 800;
+}
+
+.bike-plan-bike-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.bike-plan-bike-bags {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bike-bag-card {
+  display: grid;
+  gap: 0.8rem;
+  background:
+    linear-gradient(160deg, rgba(255, 253, 248, 0.95), rgba(235, 230, 220, 0.9)),
+    var(--card);
+}
+
+.bike-bag-card.is-primary {
+  border-color: rgba(29, 127, 91, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(29, 127, 91, 0.1), transparent 34%),
+    linear-gradient(160deg, #fffdf8, #eef4ec);
+}
+
+.bike-bag-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.bike-bag-title-input {
+  width: 100%;
+  max-width: 18rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.45);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.12rem;
+  font-weight: 800;
+  padding: 0.3rem 0.4rem;
+}
+
+.bike-bag-title-input:focus {
+  border-color: rgba(29, 127, 91, 0.38);
+  background: #fffefa;
+  outline: none;
+}
+
+.bike-bag-head-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.bike-bag-delete-btn,
+.bike-bag-remove-item-btn,
+.bike-bag-add-item-btn {
+  min-height: 2.1rem;
+}
+
+.bike-bag-kicker {
+  margin: 0;
+  color: var(--accent-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bike-bag-head h3 {
+  margin: 0.1rem 0 0;
+}
+
+.bike-bag-tip {
+  margin: 0.35rem 0 0;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.bike-bag-weight {
+  min-width: 5.4rem;
+  border: 1px solid rgba(29, 127, 91, 0.22);
+  border-radius: 999px;
+  background: #f8fbf7;
+  padding: 0.35rem 0.55rem;
+  color: #1d694e;
+  text-align: center;
+  font-weight: 700;
+}
+
+.bike-bag-total {
+  border: 1px solid rgba(235, 94, 40, 0.24);
+  border-radius: 999px;
+  background: #fff4ec;
+  color: #8d3e18;
+  padding: 0.35rem 0.55rem;
+  text-align: center;
+  font-weight: 800;
+}
+
+.bike-bag-items {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.bike-bag-item {
+  display: grid;
+  grid-template-columns: auto 1fr minmax(4.4rem, 0.32fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.bike-bag-item input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.bike-bag-item input[type="text"],
+.bike-bag-item input[type="number"],
+.bike-bag-notes {
+  width: 100%;
+  border: 1px solid #cdbfa8;
+  border-radius: 10px;
+  background: #fffefa;
+  color: var(--ink);
+  font: inherit;
+}
+
+.bike-bag-item input[type="text"],
+.bike-bag-item input[type="number"] {
+  padding: 0.45rem 0.55rem;
+}
+
+.bike-bag-item input[type="number"] {
+  min-width: 0;
+}
+
+.bike-bag-notes {
+  min-height: 5rem;
+  resize: vertical;
+  padding: 0.6rem;
+  line-height: 1.5;
+}
+
+.bike-bag-card label {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.bike-bag-card label span {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--ink);
+}
+
+.bike-plan-no-weights .bike-bag-item {
+  grid-template-columns: auto 1fr auto;
+}
+
+.bike-plan-no-weights .bike-bag-weight-input,
+.bike-plan-no-weights .bike-bag-total,
+.bike-plan-no-weights #bike-plan-total-weight,
+.bike-plan-no-weights .bike-plan-summary span[data-bike-weight-summary] {
+  display: none;
+}
+
+.bike-plan-footer {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.bike-plan-total-weight {
+  border: 1px solid rgba(29, 127, 91, 0.24);
+  border-radius: 999px;
+  background: #eef8f0;
+  color: #1d694e;
+  padding: 0.55rem 0.8rem;
+  font-weight: 800;
+}
+
+.bike-plan-total-weight strong {
+  color: var(--ink);
+}
+
+.bike-plan-diagram {
+  margin-bottom: 1rem;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 0.8fr) minmax(18rem, 1.2fr);
+  align-items: center;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(235, 94, 40, 0.1), transparent 28%),
+    linear-gradient(150deg, #fffdf8, #f1eadc);
+}
+
+.bike-plan-diagram-copy h3,
+.bike-plan-diagram-copy p {
+  margin: 0;
+}
+
+.bike-plan-diagram-copy h3 {
+  margin-top: 0.25rem;
+}
+
+.bike-plan-diagram-copy p:last-child {
+  margin-top: 0.45rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.bike-diagram-wrap {
+  position: relative;
+  min-height: 18rem;
+  border: 1px dashed rgba(30, 36, 31, 0.16);
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.8), rgba(236, 228, 214, 0.72)),
+    repeating-linear-gradient(90deg, transparent 0 2.8rem, rgba(30, 36, 31, 0.035) 2.8rem 2.86rem);
+}
+
+.bike-diagram-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.bike-diagram-line {
+  stroke: rgba(30, 36, 31, 0.72);
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.bike-diagram-wheel {
+  stroke: rgba(30, 36, 31, 0.58);
+  stroke-width: 3.8;
+  fill: rgba(255, 253, 248, 0.56);
+}
+
+.bike-diagram-frame-fill {
+  fill: rgba(29, 127, 91, 0.06);
+  stroke: none;
+}
+
+.bike-diagram-hub,
+.bike-diagram-crank-dot {
+  fill: rgba(30, 36, 31, 0.72);
+}
+
+.bike-diagram-saddle,
+.bike-diagram-crank {
+  stroke: rgba(30, 36, 31, 0.78);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.bike-diagram-ground {
+  stroke: rgba(30, 36, 31, 0.16);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.bike-diagram-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(30, 36, 31, 0.24);
+}
+
+.bike-diagram-marker:hover,
+.bike-diagram-marker:focus-visible {
+  background: var(--accent-2);
+  outline: 3px solid rgba(235, 94, 40, 0.18);
+}
+
+.bike-diagram-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  max-width: 8.5rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.bike-bag-card.is-diagram-focus {
+  outline: 3px solid rgba(235, 94, 40, 0.28);
+  outline-offset: 3px;
+}
+
 .controls {
   grid-column: span 7;
 }
@@ -2585,6 +3184,204 @@ body.custom-builder-only-mode #planner-subhead {
   cursor: pointer;
 }
 
+.print-stage {
+  margin: 1rem auto 1.5rem;
+  width: min(1120px, calc(100% - 2rem));
+  border: 1px solid #cbbca4;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #f5f0e4;
+  box-shadow: 0 24px 60px rgba(12, 18, 14, 0.14);
+}
+
+.print-stage-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1rem 0.85rem;
+  background: #fffdf8;
+  border-bottom: 1px solid #d9cfbc;
+}
+
+.print-stage-toolbar h2,
+.print-stage-toolbar p {
+  margin: 0;
+}
+
+.print-stage-toolbar p {
+  margin-top: 0.25rem;
+  color: var(--ink-soft);
+}
+
+.print-stage-preview {
+  padding: 1rem;
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+  background: #efe7d8;
+}
+
+.print-stage-preview .doc-wrap {
+  padding: 0;
+}
+
+.print-stage-preview .page-grid {
+  width: 100%;
+  max-width: 7.85in;
+  height: 10in;
+  margin: 0 auto 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.16in 0.18in;
+}
+
+.print-stage-preview .page-card-slot {
+  min-width: 0;
+  min-height: 0;
+}
+
+.print-stage-preview .day-card {
+  border: 1.25pt solid #444;
+  min-height: 0;
+  height: 100%;
+  padding: 0.16in 0.17in 0.18in;
+  background: #fff;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.055in;
+  overflow: hidden;
+}
+
+.print-stage-preview .day-card-empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.print-stage-preview .card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
+  align-items: start;
+  gap: 0.08in;
+}
+
+.print-stage-preview .card-headline {
+  display: grid;
+  gap: 0.015in;
+}
+
+.print-stage-preview .card-day {
+  font-size: 16pt;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.print-stage-preview .card-date {
+  font-size: 10pt;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.print-stage-preview .card-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.02in 0.1in;
+  align-content: start;
+}
+
+.print-stage-preview .card-type-chip {
+  justify-self: end;
+  align-self: start;
+  font-size: 7.2pt;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.print-stage-preview .card-flow {
+  min-height: 0;
+  column-count: 2;
+  column-gap: 0.12in;
+  column-fill: auto;
+  overflow: hidden;
+}
+
+.print-stage-preview .compact-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 0.03in;
+  min-width: 0;
+}
+
+.print-stage-preview .compact-kv-label {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.print-stage-preview .compact-kv-value {
+  min-width: 0;
+}
+
+.print-stage-preview .card-flow-section {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-bottom: 0.07in;
+}
+
+.print-stage-preview .card-flow-title {
+  margin-bottom: 0.018in;
+  font-size: 6.8pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.print-stage-preview .card-flow-body {
+  display: grid;
+  gap: 0.012in;
+  font-size: 8pt;
+  line-height: 1.12;
+}
+
+.print-stage-preview .card-flow-body > div {
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+@media print {
+  body.day-cards-print-mode .hero,
+  body.day-cards-print-mode .app-shell,
+  body.day-cards-print-mode .planner-save-bar,
+  body.day-cards-print-mode #publish-route-panel,
+  body.day-cards-print-mode #comment-image-lightbox,
+  body.day-cards-print-mode .route-processing-indicator,
+  body.day-cards-print-mode .publish-confirm-modal,
+  body.day-cards-print-mode .sign-out-modal {
+    display: none !important;
+  }
+
+  body.day-cards-print-mode .print-stage {
+    display: block !important;
+    width: auto;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #fff;
+  }
+
+  body.day-cards-print-mode .print-stage .print-stage-toolbar {
+    display: none;
+  }
+
+  body.day-cards-print-mode .print-stage .print-stage-preview {
+    padding: 0;
+    max-height: none;
+    overflow: visible;
+    background: #fff;
+  }
+}
+
 .empty-note {
   color: var(--ink-soft);
   margin: 0;
@@ -2671,6 +3468,55 @@ body.custom-builder-only-mode #planner-subhead {
     align-items: flex-start;
   }
 
+  .bike-plan-hero,
+  .bike-plan-route-card,
+  .bike-plan-diagram,
+  .travel-plan-hero,
+  .travel-plan-route-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bike-plan-diagram {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bike-diagram-wrap {
+    width: 100%;
+    min-height: 15.5rem;
+  }
+
+  .bike-plan-summary,
+  .travel-plan-summary {
+    width: 100%;
+  }
+
+  .bike-plan-grid,
+  .bike-plan-bike-bags,
+  .travel-plan-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bike-plan-bike-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bike-plan-bike-actions {
+    justify-content: flex-start;
+  }
+
+  .bike-plan-footer,
+  .travel-plan-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .travel-fields {
+    grid-template-columns: 1fr;
+  }
+
   .planner-save-actions {
     width: 100%;
   }
@@ -2716,5 +3562,26 @@ body.custom-builder-only-mode #planner-subhead {
 
   .donation-grid {
     grid-template-columns: 1fr;
+  }
+
+  .bike-bag-head,
+  .bike-bag-item {
+    grid-template-columns: 1fr;
+  }
+
+  .bike-bag-head {
+    display: grid;
+  }
+
+  .bike-bag-weight {
+    justify-self: start;
+  }
+
+  .bike-bag-head-actions {
+    justify-items: start;
+  }
+
+  .bike-bag-title-input {
+    max-width: 100%;
   }
 }

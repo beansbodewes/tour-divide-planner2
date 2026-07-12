@@ -232,6 +232,8 @@ let LOCAL_ACCOUNTS_KEY = "";
 let LOCAL_AUTH_SESSION_KEY = "";
 let LOCAL_PROFILE_PREFIX = "";
 let CUSTOM_STOPS_KEY = "";
+let BIKE_PLAN_KEY = "";
+let TRAVEL_PLAN_KEY = "";
 let GPX_FILE = "";
 let PROFILE_COLLECTION = "";
 let CSV_FILENAME = "";
@@ -295,8 +297,13 @@ const customClearRoutesBtn = document.getElementById("custom-clear-routes-btn");
 const customClearRoutesStatus = document.getElementById("custom-clear-routes-status");
 const exportBtn = document.getElementById("export-btn");
 const exportExcelBtn = document.getElementById("export-excel-btn");
+const exportPrintBtn = document.getElementById("export-print-btn");
 const exportFormatSelect = document.getElementById("export-format");
 const exportFormatNote = document.getElementById("export-format-note");
+const printStage = document.getElementById("print-stage");
+const printStagePreview = document.getElementById("print-stage-preview");
+const printStagePrintBtn = document.getElementById("print-stage-print-btn");
+const printStageCloseBtn = document.getElementById("print-stage-close-btn");
 const publishRoutePanel = document.getElementById("publish-route-panel");
 const publishRouteBadge = document.getElementById("publish-route-badge");
 const publishRouteCopy = document.getElementById("publish-route-copy");
@@ -383,6 +390,25 @@ const unsignedWarningBanner = document.getElementById("unsigned-warning-banner")
 const sectionsNav = document.getElementById("sections-nav");
 const exportPanel = document.querySelector(".panel.export");
 const daysPanel = document.querySelector(".panel.days");
+const bikePlanGrid = document.getElementById("bike-plan-grid");
+const bikePlanSummary = document.getElementById("bike-plan-summary");
+const bikePlanRouteName = document.getElementById("bike-plan-route-name");
+const bikePlanRouteHint = document.getElementById("bike-plan-route-hint");
+const bikePlanTitle = document.getElementById("bike-plan-title");
+const bikePlanSaveStatus = document.getElementById("bike-plan-save-status");
+const bikePlanResetBtn = document.getElementById("bike-plan-reset-btn");
+const bikePlanWeightToggle = document.getElementById("bike-plan-weight-toggle");
+const bikePlanAddBagBtn = document.getElementById("bike-plan-add-bag-btn");
+const bikePlanAddBikeBtn = document.getElementById("bike-plan-add-bike-btn");
+const bikePlanTotalWeight = document.getElementById("bike-plan-total-weight");
+const bikePlanDiagram = document.getElementById("bike-plan-diagram");
+const travelPlanGrid = document.getElementById("travel-plan-grid");
+const travelPlanSummary = document.getElementById("travel-plan-summary");
+const travelPlanRouteName = document.getElementById("travel-plan-route-name");
+const travelPlanRouteHint = document.getElementById("travel-plan-route-hint");
+const travelPlanTitle = document.getElementById("travel-plan-title");
+const travelPlanSaveStatus = document.getElementById("travel-plan-save-status");
+const travelPlanResetBtn = document.getElementById("travel-plan-reset-btn");
 const routeProfileKicker = document.getElementById("route-profile-kicker");
 const siteTitle = document.querySelector(".site-title");
 
@@ -691,6 +717,224 @@ const LEGACY_ROUTE_DISTANCES = {
   silk_road_mountain_race: 1274
 };
 
+const BIKE_PLAN_BAGS = [
+  {
+    id: "handlebar",
+    label: "Handlebar Roll",
+    kicker: "Front",
+    tip: "Best for bulky, lighter sleep gear that can stay packed most of the day.",
+    primary: true,
+    items: ["Quilt or sleeping bag", "Bivy or tent body", "Rain shell", "Camp layers"]
+  },
+  {
+    id: "frame",
+    label: "Frame Bag",
+    kicker: "Center",
+    tip: "Keep dense items low and centered: food, tools, electronics, and water if your frame allows it.",
+    primary: true,
+    items: ["Repair kit", "Pump", "Food carry", "Battery bank"]
+  },
+  {
+    id: "seat",
+    label: "Seat Pack",
+    kicker: "Rear",
+    tip: "Good for compressible layers and camp gear. Keep it stable before rough descents.",
+    primary: true,
+    items: ["Extra layers", "Sleep clothes", "Camp socks", "Spare gloves"]
+  },
+  {
+    id: "top-tube",
+    label: "Top Tube Bag",
+    kicker: "Reach",
+    tip: "This is the snack drawer. Use it for anything you grab while moving.",
+    items: ["Ride snacks", "Lip balm", "Sunscreen", "Charging cable"]
+  },
+  {
+    id: "fork",
+    label: "Fork + Cargo Cages",
+    kicker: "Low front",
+    tip: "Balance left and right sides, then test hike-a-bike and tight turns.",
+    items: ["Water bottle", "Dry bag", "Stove or cook kit", "Extra food"]
+  },
+  {
+    id: "cockpit",
+    label: "Cockpit + Navigation",
+    kicker: "Control",
+    tip: "Keep route tools visible and weather-protected, with a backup plan if electronics fail.",
+    items: ["GPS device", "Phone mount", "Cue notes", "Headlight"]
+  },
+  {
+    id: "repair",
+    label: "Repair + Spares",
+    kicker: "Fix it",
+    tip: "A dedicated repair list helps catch the tiny things that become giant things out there.",
+    items: ["Tube or plugs", "Chain links", "Brake pads", "Derailleur hanger"]
+  },
+  {
+    id: "hydration",
+    label: "Hydration",
+    kicker: "Water",
+    tip: "Plan total capacity for the longest dry stretch, not the average day.",
+    items: ["Bottles", "Filter", "Bladder", "Electrolytes"]
+  }
+];
+
+const BIKE_PLAN_ROUTE_HINTS = {
+  tour_divide: "Long weather swings and big distances reward a stable setup: keep rain gear reachable and repair items easy to find.",
+  great_divide_route: "Touring pace gives room for comfort, but remote stretches still make water capacity and repair redundancy worth planning.",
+  colorado_trail: "Technical trail and hike-a-bike sections favor a tight, light load with balanced fork weight and no bag sway.",
+  azt_300: "Desert riding makes hydration the boss. Plan bottle placement, filter access, and sun gear before packing luxuries.",
+  azt_800: "Big temperature swings and long water gaps mean hydration, layers, and repair spares deserve extra attention.",
+  peruvian_divide: "High mountains and remote resupply favor warm layers, robust repair gear, and careful weight balance.",
+  silk_road_mountain_race: "Remote mountain racing favors durable bags, weatherproof layers, and easy access to food and navigation."
+};
+
+const TRAVEL_PLAN_SECTIONS = [
+  {
+    id: "outbound-flight",
+    phase: "arrival",
+    label: "Outbound Flight",
+    kicker: "Arrival",
+    tip: "Book enough runway for delays, customs, bike inspection, and a low-stress transfer to the start town.",
+    type: "flight",
+    fields: [
+      { key: "date", label: "Flight date", type: "date" },
+      { key: "airport", label: "Arrival airport", placeholder: "YYC / TUS / DEN" },
+      { key: "airline", label: "Airline + flight", placeholder: "Airline 123" },
+      { key: "confirmation", label: "Confirmation", placeholder: "Record locator" },
+      { key: "landingTime", label: "Landing time", placeholder: "14:30" },
+      { key: "notes", label: "Flight notes", type: "textarea", placeholder: "Baggage policy, layover risk, bike fee, passport or visa notes." }
+    ]
+  },
+  {
+    id: "bike-transport",
+    phase: "arrival",
+    label: "Bike + Baggage",
+    kicker: "Arrival",
+    tip: "Track the bike case, airline rules, tool plan, and where the case goes once the ride starts.",
+    type: "bike",
+    fields: [
+      { key: "caseType", label: "Bike case / bag", placeholder: "Cardboard box, EVOC bag, hard case" },
+      { key: "fee", label: "Airline bike fee", placeholder: "$" },
+      { key: "caseStorage", label: "Case storage", placeholder: "Hotel, shop, shipped home" },
+      { key: "tools", label: "Assembly tools", placeholder: "Torque key, pedals, pump" },
+      { key: "notes", label: "Bike transport notes", type: "textarea", placeholder: "Axle spacers, derailleur protection, sealant timing, spare tape, packing photos." }
+    ]
+  },
+  {
+    id: "arrival-lodging",
+    phase: "arrival",
+    label: "Arrival Lodging",
+    kicker: "Arrival",
+    tip: "Choose a place that makes bike assembly, food shopping, and route-start access easy.",
+    type: "lodging",
+    fields: [
+      { key: "checkIn", label: "Check-in date", type: "date" },
+      { key: "name", label: "Hotel / host", placeholder: "Lodging name" },
+      { key: "address", label: "Address", placeholder: "Street, town" },
+      { key: "confirmation", label: "Confirmation", placeholder: "Booking code" },
+      { key: "notes", label: "Lodging notes", type: "textarea", placeholder: "Bike-friendly details, laundry, nearby grocery, late arrival instructions." }
+    ]
+  },
+  {
+    id: "start-transfer",
+    phase: "arrival",
+    label: "Airport to Start",
+    kicker: "Ground",
+    tip: "Make the link between the airport, lodging, groceries, and route start explicit.",
+    type: "transfer",
+    fields: [
+      { key: "provider", label: "Transfer provider", placeholder: "Shuttle, rental car, taxi, friend" },
+      { key: "pickup", label: "Pickup place + time", placeholder: "Airport arrivals, 15:00" },
+      { key: "dropoff", label: "Dropoff", placeholder: "Start town / hotel" },
+      { key: "cost", label: "Estimated cost", placeholder: "$" },
+      { key: "notes", label: "Transfer notes", type: "textarea", placeholder: "Bike box fit, grocery stop, fuel canister stop, backup transport." }
+    ]
+  },
+  {
+    id: "pre-ride-buffer",
+    phase: "arrival",
+    label: "Pre-Ride Buffer",
+    kicker: "Start prep",
+    tip: "Use this for the final tasks that protect the first day: sleep, food, bike check, tracking, and documents.",
+    type: "prep",
+    fields: [
+      { key: "bufferDays", label: "Buffer days", type: "number", placeholder: "1" },
+      { key: "grocery", label: "Food stop", placeholder: "Grocery / gas station" },
+      { key: "bikeShop", label: "Bike shop", placeholder: "Shop name / none" },
+      { key: "startTime", label: "Start time", placeholder: "06:00" },
+      { key: "notes", label: "Start prep notes", type: "textarea", placeholder: "Shakeout ride, tracker setup, weather check, first water carry, passport/cash." }
+    ]
+  },
+  {
+    id: "finish-pickup",
+    phase: "departure",
+    label: "Finish Pickup",
+    kicker: "Finish",
+    tip: "Plan the finish as if you arrive tired, hungry, and later than expected.",
+    type: "transfer",
+    fields: [
+      { key: "provider", label: "Pickup provider", placeholder: "Shuttle, family, taxi, rental car" },
+      { key: "location", label: "Pickup location", placeholder: "Finish line / town" },
+      { key: "window", label: "Pickup window", placeholder: "Date range + time" },
+      { key: "backup", label: "Backup option", placeholder: "Second provider / lodging" },
+      { key: "notes", label: "Finish pickup notes", type: "textarea", placeholder: "Cell coverage, flexible timing, where to wait, food/water after finish." }
+    ]
+  },
+  {
+    id: "departure-lodging",
+    phase: "departure",
+    label: "Departure Lodging",
+    kicker: "Departure",
+    tip: "A recovery night near services makes packing the bike and changing flights far easier.",
+    type: "lodging",
+    fields: [
+      { key: "checkIn", label: "Check-in date", type: "date" },
+      { key: "name", label: "Hotel / host", placeholder: "Lodging name" },
+      { key: "address", label: "Address", placeholder: "Street, town" },
+      { key: "confirmation", label: "Confirmation", placeholder: "Booking code" },
+      { key: "notes", label: "Lodging notes", type: "textarea", placeholder: "Laundry, bike packing space, late arrival, airport distance." }
+    ]
+  },
+  {
+    id: "return-flight",
+    phase: "departure",
+    label: "Return Flight",
+    kicker: "Departure",
+    tip: "Give yourself enough finish buffer that the plane ticket does not dictate unsafe riding decisions.",
+    type: "flight",
+    fields: [
+      { key: "date", label: "Flight date", type: "date" },
+      { key: "airport", label: "Departure airport", placeholder: "ELP / PHX / DEN" },
+      { key: "airline", label: "Airline + flight", placeholder: "Airline 456" },
+      { key: "confirmation", label: "Confirmation", placeholder: "Record locator" },
+      { key: "departureTime", label: "Departure time", placeholder: "11:45" },
+      { key: "notes", label: "Return notes", type: "textarea", placeholder: "Bike box source, change fees, airport transfer, backup date." }
+    ]
+  }
+];
+
+const TRAVEL_PLAN_ROUTE_HINTS = {
+  tour_divide: "For Banff starts and Antelope Wells finishes, arrival buffer and finish pickup flexibility matter as much as the flight itself.",
+  great_divide_route: "Touring gives more schedule flexibility, but the border-to-border start and finish still reward confirmed shuttles and lodging buffers.",
+  colorado_trail: "Plan around Denver access at the start and Durango logistics at the finish, with room for bike assembly and altitude adjustment.",
+  azt_300: "Desert starts make water, fuel, and bike setup errands worth planning before you leave the arrival city.",
+  azt_800: "The long finish window makes flexible return travel useful; avoid a flight date that pressures the final days.",
+  peruvian_divide: "International travel, altitude, and remote starts make arrival buffer, documents, and bike-case storage especially important.",
+  silk_road_mountain_race: "International flights, bike baggage, and ground transport deserve a written backup plan before race week."
+};
+
+const BIKE_PLAN_MARKER_POSITIONS = {
+  handlebar: { x: 77, y: 34 },
+  frame: { x: 49, y: 53 },
+  seat: { x: 33, y: 35 },
+  "top-tube": { x: 50, y: 38 },
+  fork: { x: 71, y: 54 },
+  cockpit: { x: 69, y: 25 },
+  repair: { x: 14, y: 18 },
+  hydration: { x: 22, y: 18 }
+};
+
 function getRouteFromUrl() {
   const routeParam = new URLSearchParams(window.location.search).get("route");
   if (routeParam && ROUTES[routeParam]) return routeParam;
@@ -769,6 +1013,772 @@ function appUrlForView(routeId, viewMode) {
   if (viewMode === "customer_service") return customerServiceUrl(routeId);
   if (viewMode === "donations") return donationsUrl(routeId);
   return routeUrl(routeId);
+}
+
+function bikePlanDefaultBag(bag, index = 0) {
+  return {
+    id: bag.id || `bag-${Date.now().toString(36)}-${index}`,
+    label: String(bag.label || `Bag ${index + 1}`),
+    kicker: String(bag.kicker || "Custom"),
+    tip: String(bag.tip || "Add the gear you want to track for this bag."),
+    primary: Boolean(bag.primary),
+    notes: "",
+    items: (Array.isArray(bag.items) ? bag.items : ["Gear item"]).map((name) => ({ name: "", placeholder: name, packed: false, weight: "" }))
+  };
+}
+
+function createCustomBikePlanBag() {
+  const count = bikePlanGrid ? bikePlanGrid.querySelectorAll("[data-bike-bag]").length : BIKE_PLAN_BAGS.length;
+  return {
+    id: `custom-bag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    label: `Custom Bag ${count + 1}`,
+    kicker: "Custom",
+    tip: "Use this for extra cages, a backpack, feed bag, hip pack, or anything else on the bike.",
+    primary: false,
+    notes: "",
+    items: [{ name: "", placeholder: "New item", packed: false, weight: "" }]
+  };
+}
+
+function createDefaultBikePlanBike(index = 0) {
+  return {
+    id: `bike-${Date.now().toString(36)}-${index}`,
+    label: `Bike ${index + 1}`,
+    bags: BIKE_PLAN_BAGS.map(bikePlanDefaultBag)
+  };
+}
+
+function createCustomBikePlanBike(index = 0) {
+  return {
+    id: `bike-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    label: `Bike ${index + 1}`,
+    bags: BIKE_PLAN_BAGS.map(bikePlanDefaultBag)
+  };
+}
+
+function defaultBikePlanState() {
+  return {
+    version: 4,
+    routeId: getRouteFromUrl(),
+    useWeights: false,
+    bikes: [createDefaultBikePlanBike(0)],
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizeBikePlanItem(item, fallbackName = "Gear item", migrateSuggestion = false) {
+  const rawName = item?.name === undefined || item?.name === null ? "" : String(item.name);
+  const placeholder = String(item?.placeholder || fallbackName || "Gear item");
+  const name = migrateSuggestion && rawName === placeholder ? "" : rawName;
+  return {
+    name,
+    placeholder,
+    packed: Boolean(item?.packed),
+    weight: item?.weight === 0 || item?.weight ? String(item.weight) : ""
+  };
+}
+
+function normalizeBikePlanBag(source, index = 0, stateVersion = 0) {
+  const metadata = BIKE_PLAN_BAGS.find((bag) => bag.id === source?.id) || {};
+  const fallback = bikePlanDefaultBag({ ...metadata, ...source }, index);
+  const sourceItems = Array.isArray(source?.items) && source.items.length ? source.items : fallback.items;
+  const migrateSuggestion = Number(stateVersion || 0) < 3 && Boolean(metadata.id || metadata.label);
+  return {
+    id: String(source?.id || fallback.id),
+    label: String(source?.label || metadata.label || fallback.label),
+    kicker: String(source?.kicker || metadata.kicker || fallback.kicker),
+    tip: String(source?.tip || metadata.tip || fallback.tip),
+    primary: Boolean(source?.primary ?? metadata.primary ?? false),
+    notes: String(source?.notes || ""),
+    items: sourceItems.map((item, itemIndex) => normalizeBikePlanItem(item, metadata.items?.[itemIndex] || fallback.items[itemIndex]?.placeholder || "Gear item", migrateSuggestion))
+  };
+}
+
+function normalizeBikePlanBike(source, index = 0, stateVersion = 0) {
+  const fallback = createDefaultBikePlanBike(index);
+  const sourceBags = Array.isArray(source?.bags) ? source.bags : fallback.bags;
+  return {
+    id: String(source?.id || fallback.id),
+    label: String(source?.label || `Bike ${index + 1}`),
+    bags: sourceBags.map((bag, bagIndex) => normalizeBikePlanBag(bag, bagIndex, stateVersion)).filter((bag) => bag.items.length || bag.label)
+  };
+}
+
+function normalizeBikePlanState(rawState) {
+  const savedBikes = Array.isArray(rawState?.bikes)
+    ? rawState.bikes
+    : [{ id: "bike-1", label: "Bike 1", bags: Array.isArray(rawState?.bags) ? rawState.bags : BIKE_PLAN_BAGS }];
+  const bikes = savedBikes.map((bike, index) => normalizeBikePlanBike(bike, index, rawState?.version)).filter((bike) => bike.bags.length);
+  return {
+    version: 4,
+    routeId: String(rawState?.routeId || getRouteFromUrl()),
+    useWeights: Boolean(rawState?.useWeights),
+    updatedAt: String(rawState?.updatedAt || new Date().toISOString()),
+    bikes,
+    bags: bikes[0]?.bags || []
+  };
+}
+
+function loadStoredBikePlanState() {
+  if (!BIKE_PLAN_KEY) return defaultBikePlanState();
+  const raw = readStorageValue(BIKE_PLAN_KEY);
+  if (!raw) return defaultBikePlanState();
+  try {
+    return normalizeBikePlanState(JSON.parse(raw));
+  } catch {
+    try {
+      localStorage.removeItem(BIKE_PLAN_KEY);
+      sessionStorage.removeItem(BIKE_PLAN_KEY);
+    } catch {
+      // Ignore cleanup failures.
+    }
+    return defaultBikePlanState();
+  }
+}
+
+function collectBikePlanStateFromDom() {
+  if (!bikePlanGrid) return loadStoredBikePlanState();
+  const bikeSections = Array.from(bikePlanGrid.querySelectorAll("[data-bike-plan-bike]"));
+  const sections = bikeSections.length ? bikeSections : [bikePlanGrid];
+  const bikes = sections.map((section, bikeIndex) => {
+    const cards = Array.from(section.querySelectorAll("[data-bike-bag]"));
+    return {
+      id: String(section.dataset.bikePlanBike || `bike-${bikeIndex + 1}`),
+      label: String(section.querySelector("[data-bike-label]")?.value || `Bike ${bikeIndex + 1}`),
+      bags: cards.map((card, bagIndex) => {
+        const itemRows = Array.from(card.querySelectorAll("[data-bike-item]"));
+        const fallbackMeta = BIKE_PLAN_BAGS.find((bag) => bag.id === card.dataset.bikeBag) || {};
+        return {
+          id: String(card.dataset.bikeBag || `bag-${bagIndex + 1}`),
+          label: String(card.querySelector("[data-bike-bag-label]")?.value || fallbackMeta.label || `Bag ${bagIndex + 1}`),
+          kicker: String(card.dataset.bikeKicker || fallbackMeta.kicker || "Custom"),
+          tip: String(card.dataset.bikeTip || fallbackMeta.tip || "Add gear for this bag."),
+          primary: card.dataset.bikePrimary === "true",
+          notes: String(card.querySelector("[data-bike-notes]")?.value || ""),
+          items: itemRows.map((row, index) => ({
+            name: String(row.querySelector("[data-bike-item-name]")?.value || ""),
+            placeholder: String(row.querySelector("[data-bike-item-name]")?.placeholder || fallbackMeta.items?.[index] || "Gear item"),
+            packed: Boolean(row.querySelector("[data-bike-packed]")?.checked),
+            weight: String(row.querySelector("[data-bike-weight]")?.value || "")
+          }))
+        };
+      })
+    };
+  });
+  return {
+    version: 4,
+    routeId: getRouteFromUrl(),
+    useWeights: Boolean(bikePlanWeightToggle?.checked),
+    bags: bikes[0]?.bags || [],
+    bikes,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function getBikePlanBikes(state) {
+  const normalized = normalizeBikePlanState(state || collectBikePlanStateFromDom());
+  return normalized.bikes;
+}
+
+function getBikePlanAllBags(state) {
+  return getBikePlanBikes(state).flatMap((bike) => bike.bags);
+}
+
+function getBikePlanBikeWeight(bike) {
+  return (bike?.bags || []).reduce((sum, bag) => sum + calculateBikePlanBagWeight(bag), 0);
+}
+
+function getBikePlanTotalWeight(state) {
+  return getBikePlanBikes(state).reduce((sum, bike) => sum + getBikePlanBikeWeight(bike), 0);
+}
+
+function getBikePlanPayload() {
+  return normalizeBikePlanState(collectBikePlanStateFromDom());
+}
+
+function getBikePlanRouteHint(routeId) {
+  const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  if (BIKE_PLAN_ROUTE_HINTS[routeId]) return BIKE_PLAN_ROUTE_HINTS[routeId];
+  if (isNamedCustomRoute(routeId)) return "Custom routes are where testing pays off. Add the exact bags and gear you expect to run, then refine after shakedown rides.";
+  return `Use these boxes to balance weight, keep frequently used gear reachable, and plan the bike setup for ${route?.label || "this route"}.`;
+}
+
+function updateBikePlanRouteContext() {
+  const routeId = getRouteFromUrl();
+  const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  if (bikePlanTitle) bikePlanTitle.textContent = `${route.label} Bike Plan`;
+  if (bikePlanRouteName) bikePlanRouteName.textContent = route.label;
+  if (bikePlanRouteHint) bikePlanRouteHint.textContent = getBikePlanRouteHint(routeId);
+}
+
+function updateBikePlanSummary() {
+  if (!bikePlanSummary) return;
+  const state = collectBikePlanStateFromDom();
+  const bikes = getBikePlanBikes(state);
+  const bags = bikes.flatMap((bike) => bike.bags);
+  const items = bags.flatMap((bag) => bag.items);
+  const packedCount = items.filter((item) => item.packed).length;
+  const totalWeight = getBikePlanTotalWeight(state);
+  const weightText = formatBikePlanWeight(totalWeight);
+  const bikeWeightBreakdown = bikes.length > 1
+    ? `<span data-bike-weight-summary><strong>${bikes.map((bike, index) => `Bike ${index + 1}: ${formatBikePlanWeight(getBikePlanBikeWeight(bike))}`).join(" / ")}</strong></span>`
+    : "";
+  bikePlanSummary.innerHTML = `
+    <span><strong>${packedCount}/${items.length}</strong> packed</span>
+    <span data-bike-weight-summary><strong>${weightText}</strong> total weight</span>
+    ${bikeWeightBreakdown}
+    <span><strong>${bikes.length}</strong> ${bikes.length === 1 ? "bike" : "bikes"}</span>
+    <span><strong>${bags.length}</strong> bags</span>
+  `;
+  if (bikePlanTotalWeight) {
+    bikePlanTotalWeight.hidden = !state.useWeights;
+    bikePlanTotalWeight.innerHTML = `Total carry weight: <strong>${weightText}</strong>`;
+  }
+}
+
+function formatBikePlanWeight(value) {
+  const weight = Number(value) || 0;
+  return `${weight.toFixed(weight >= 10 ? 1 : 2)} lb`;
+}
+
+function calculateBikePlanBagWeight(bag) {
+  return (bag.items || []).reduce((sum, item) => sum + (Number.parseFloat(item.weight) || 0), 0);
+}
+
+function setBikePlanWeightMode(useWeights) {
+  const panel = document.getElementById("tab-bike-plan");
+  if (bikePlanWeightToggle) bikePlanWeightToggle.checked = Boolean(useWeights);
+  if (panel) panel.classList.toggle("bike-plan-no-weights", !useWeights);
+  updateBikePlanSummary();
+}
+
+function bikePlanMarkerPosition(bag, index) {
+  if (BIKE_PLAN_MARKER_POSITIONS[bag.id]) return BIKE_PLAN_MARKER_POSITIONS[bag.id];
+  const customIndex = Math.max(0, index - BIKE_PLAN_BAGS.length);
+  return {
+    x: Math.min(84, 18 + customIndex * 9),
+    y: 84,
+    labelY: 90
+  };
+}
+
+function renderBikePlanDiagram(state) {
+  if (!bikePlanDiagram) return;
+  const normalized = normalizeBikePlanState(state || collectBikePlanStateFromDom());
+  const diagramBags = normalized.bikes[0]?.bags || [];
+  bikePlanDiagram.innerHTML = `
+    <svg class="bike-diagram-svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <line class="bike-diagram-ground" x1="8" y1="86" x2="92" y2="86"></line>
+      <circle class="bike-diagram-wheel" cx="25" cy="72" r="15"></circle>
+      <circle class="bike-diagram-wheel" cx="76" cy="72" r="15"></circle>
+      <circle class="bike-diagram-hub" cx="25" cy="72" r="2.2"></circle>
+      <circle class="bike-diagram-hub" cx="76" cy="72" r="2.2"></circle>
+      <path class="bike-diagram-frame-fill" d="M25 72 L42 45 L58 72 Z"></path>
+      <path class="bike-diagram-frame-fill" d="M42 45 L64 45 L58 72 Z"></path>
+      <path class="bike-diagram-line" d="M25 72 L42 45 L64 45 L76 72"></path>
+      <path class="bike-diagram-line" d="M25 72 L58 72 L42 45"></path>
+      <path class="bike-diagram-line" d="M58 72 L64 45"></path>
+      <path class="bike-diagram-line" d="M64 45 L70 31"></path>
+      <path class="bike-diagram-line" d="M70 31 C74 30 78 31 82 34"></path>
+      <path class="bike-diagram-line" d="M42 45 L38 32"></path>
+      <path class="bike-diagram-saddle" d="M32 31 C36 29 42 29 47 31"></path>
+      <circle class="bike-diagram-crank-dot" cx="58" cy="72" r="3"></circle>
+      <path class="bike-diagram-crank" d="M58 72 L53 80 M58 72 L63 64"></path>
+    </svg>
+  `;
+  diagramBags.forEach((bag, index) => {
+    const position = bikePlanMarkerPosition(bag, index);
+    const marker = document.createElement("button");
+    marker.className = "bike-diagram-marker";
+    marker.type = "button";
+    marker.textContent = String(index + 1);
+    marker.style.left = `${position.x}%`;
+    marker.style.top = `${position.y}%`;
+    marker.dataset.bikeMarkerFor = bag.id;
+    marker.setAttribute("aria-label", `Show ${bag.label} bag`);
+
+    bikePlanDiagram.append(marker);
+  });
+}
+
+function focusBikePlanBagFromDiagram(bagId) {
+  if (!bikePlanGrid) return;
+  const card = bikePlanGrid.querySelector(`[data-bike-bag="${CSS.escape(bagId)}"]`);
+  if (!card) return;
+  bikePlanGrid.querySelectorAll(".bike-bag-card.is-diagram-focus").forEach((node) => {
+    node.classList.remove("is-diagram-focus");
+  });
+  card.classList.add("is-diagram-focus");
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => {
+    card.classList.remove("is-diagram-focus");
+  }, 1600);
+}
+
+function renderBikePlan(state = loadStoredBikePlanState()) {
+  if (!bikePlanGrid) return;
+  const normalized = normalizeBikePlanState(state);
+  bikePlanGrid.innerHTML = "";
+  const showBikeLabels = normalized.bikes.length > 1;
+  normalized.bikes.forEach((bikeState, bikeIndex) => {
+    const bikeSection = document.createElement("section");
+    bikeSection.className = "bike-plan-bike-section";
+    bikeSection.dataset.bikePlanBike = bikeState.id;
+
+    const bikeHead = document.createElement("div");
+    bikeHead.className = `bike-plan-bike-head${showBikeLabels ? "" : " is-single-bike"}`;
+
+    const bikeCopy = document.createElement("div");
+    const bikeKicker = document.createElement("p");
+    bikeKicker.className = "bike-bag-kicker";
+    bikeKicker.textContent = `Bike ${bikeIndex + 1}`;
+    const bikeTitle = document.createElement("input");
+    bikeTitle.className = "bike-plan-bike-title";
+    bikeTitle.type = "text";
+    bikeTitle.value = showBikeLabels ? bikeState.label || `Bike ${bikeIndex + 1}` : "";
+    bikeTitle.placeholder = `Bike ${bikeIndex + 1}`;
+    bikeTitle.dataset.bikeLabel = "true";
+    const bikeMeta = document.createElement("p");
+    bikeMeta.className = "bike-plan-bike-meta";
+    bikeMeta.textContent = `${bikeState.bags.length} bags · ${formatBikePlanWeight(getBikePlanBikeWeight(bikeState))}`;
+    bikeCopy.append(bikeKicker, bikeTitle, bikeMeta);
+
+    const bikeActions = document.createElement("div");
+    bikeActions.className = "bike-plan-bike-actions";
+    const addBagBtn = document.createElement("button");
+    addBagBtn.className = "btn";
+    addBagBtn.type = "button";
+    addBagBtn.textContent = "+ Add Bag";
+    addBagBtn.dataset.bikeAddBag = "true";
+    bikeActions.appendChild(addBagBtn);
+    if (showBikeLabels) {
+      const deleteBikeBtn = document.createElement("button");
+      deleteBikeBtn.className = "btn";
+      deleteBikeBtn.type = "button";
+      deleteBikeBtn.textContent = "Delete Bike";
+      deleteBikeBtn.dataset.bikeDeleteBike = "true";
+      bikeActions.appendChild(deleteBikeBtn);
+    }
+    bikeHead.append(bikeCopy, bikeActions);
+    bikeSection.appendChild(bikeHead);
+
+    const bagGrid = document.createElement("div");
+    bagGrid.className = "bike-plan-bike-bags";
+    bikeState.bags.forEach((bagState, bagIndex) => {
+      const card = document.createElement("article");
+      card.className = `panel bike-bag-card${bagState.primary ? " is-primary" : ""}`;
+      card.dataset.bikeBag = bagState.id;
+      card.dataset.bikeKicker = bagState.kicker;
+      card.dataset.bikeTip = bagState.tip;
+      card.dataset.bikePrimary = String(Boolean(bagState.primary));
+
+      const head = document.createElement("div");
+      head.className = "bike-bag-head";
+      const copy = document.createElement("div");
+      const kicker = document.createElement("p");
+      kicker.className = "bike-bag-kicker";
+      kicker.textContent = bagState.kicker;
+      const title = document.createElement("input");
+      title.className = "bike-bag-title-input";
+      title.type = "text";
+      title.value = bagState.label;
+      title.placeholder = "Bag name";
+      title.dataset.bikeBagLabel = "true";
+      const tip = document.createElement("p");
+      tip.className = "bike-bag-tip";
+      tip.textContent = bagState.tip;
+      copy.append(kicker, title, tip);
+      const headActions = document.createElement("div");
+      headActions.className = "bike-bag-head-actions";
+      const weight = document.createElement("div");
+      weight.className = "bike-bag-weight";
+      weight.textContent = `Bag ${bagIndex + 1}`;
+      const bagTotal = document.createElement("div");
+      bagTotal.className = "bike-bag-total";
+      bagTotal.textContent = `Bag weight: ${formatBikePlanWeight(calculateBikePlanBagWeight(bagState))}`;
+      const deleteBagBtn = document.createElement("button");
+      deleteBagBtn.className = "btn bike-bag-delete-btn";
+      deleteBagBtn.type = "button";
+      deleteBagBtn.textContent = "Delete Bag";
+      deleteBagBtn.dataset.bikeDeleteBag = "true";
+      headActions.append(weight, bagTotal, deleteBagBtn);
+      head.append(copy, headActions);
+
+      const items = document.createElement("div");
+      items.className = "bike-bag-items";
+      bagState.items.forEach((item, itemIndex) => {
+        const row = document.createElement("div");
+        row.className = "bike-bag-item";
+        row.dataset.bikeItem = String(itemIndex);
+        const checked = document.createElement("input");
+        checked.type = "checkbox";
+        checked.checked = Boolean(item.packed);
+        checked.setAttribute("aria-label", `Packed ${item.name || item.placeholder || "item"}`);
+        checked.dataset.bikePacked = "true";
+        const name = document.createElement("input");
+        name.type = "text";
+        name.value = item.name;
+        name.placeholder = item.placeholder || "Gear item";
+        name.dataset.bikeItemName = "true";
+        const itemWeight = document.createElement("input");
+        itemWeight.type = "number";
+        itemWeight.min = "0";
+        itemWeight.step = "0.1";
+        itemWeight.value = item.weight;
+        itemWeight.placeholder = "lb";
+        itemWeight.setAttribute("aria-label", `${item.name || item.placeholder || "Item"} weight in pounds`);
+        itemWeight.dataset.bikeWeight = "true";
+        itemWeight.className = "bike-bag-weight-input";
+        const removeItemBtn = document.createElement("button");
+        removeItemBtn.className = "btn bike-bag-remove-item-btn";
+        removeItemBtn.type = "button";
+        removeItemBtn.textContent = "-";
+        removeItemBtn.setAttribute("aria-label", `Remove ${item.name || item.placeholder || "item"}`);
+        removeItemBtn.dataset.bikeRemoveItem = "true";
+        row.append(checked, name, itemWeight, removeItemBtn);
+        items.appendChild(row);
+      });
+
+      const addItemBtn = document.createElement("button");
+      addItemBtn.className = "btn bike-bag-add-item-btn";
+      addItemBtn.type = "button";
+      addItemBtn.textContent = "+ Add Item";
+      addItemBtn.dataset.bikeAddItem = "true";
+
+      const noteLabel = document.createElement("label");
+      const noteLabelText = document.createElement("span");
+      noteLabelText.textContent = "Bag notes";
+      const notes = document.createElement("textarea");
+      notes.className = "bike-bag-notes";
+      notes.value = bagState.notes;
+      notes.placeholder = "Fit notes, strap reminders, items to buy, or what you want to test on a shakedown ride.";
+      notes.dataset.bikeNotes = "true";
+      noteLabel.append(noteLabelText, notes);
+
+      card.append(head, items, addItemBtn, noteLabel);
+      bagGrid.appendChild(card);
+    });
+    bikeSection.appendChild(bagGrid);
+    bikePlanGrid.appendChild(bikeSection);
+  });
+  updateBikePlanRouteContext();
+  setBikePlanWeightMode(normalized.useWeights);
+  updateBikePlanSummary();
+  renderBikePlanDiagram(normalized);
+}
+
+function persistBikePlan(options = {}) {
+  if (!BIKE_PLAN_KEY || !bikePlanGrid) return;
+  const state = getBikePlanPayload();
+  const result = storeJsonWithFallback(BIKE_PLAN_KEY, state);
+  updateBikePlanSummary();
+  if (bikePlanSaveStatus) {
+    bikePlanSaveStatus.textContent = result.ok
+      ? `Bike plan saved for ${ROUTES[getRouteFromUrl()]?.label || "this route"}.`
+      : "Bike plan could not auto-save in this browser.";
+  }
+  if (!options.skipCloudSync) scheduleCloudSync();
+}
+
+function applyBikePlanState(state, options = {}) {
+  renderBikePlan(state || defaultBikePlanState());
+  if (options.persist) persistBikePlan({ skipCloudSync: options.skipCloudSync });
+}
+
+function loadBikePlan() {
+  renderBikePlan(loadStoredBikePlanState());
+  if (bikePlanSaveStatus) bikePlanSaveStatus.textContent = "Bike plan auto-saves on this route.";
+}
+
+function setupBikePlan() {
+  if (!bikePlanGrid) return;
+  bikePlanGrid.addEventListener("input", () => persistBikePlan());
+  bikePlanGrid.addEventListener("change", () => persistBikePlan());
+  bikePlanGrid.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    const section = button.closest("[data-bike-plan-bike]");
+    if (!section) return;
+    const state = collectBikePlanStateFromDom();
+    const bikeIndex = state.bikes.findIndex((bike) => bike.id === section.dataset.bikePlanBike);
+    if (bikeIndex < 0) return;
+    if (button.dataset.bikeAddBag) {
+      state.bikes[bikeIndex].bags.push(createCustomBikePlanBag());
+    } else if (button.dataset.bikeDeleteBike) {
+      state.bikes.splice(bikeIndex, 1);
+    } else {
+      const card = button.closest("[data-bike-bag]");
+      if (!card) return;
+      const bagIndex = state.bikes[bikeIndex].bags.findIndex((bag) => bag.id === card.dataset.bikeBag);
+      if (bagIndex < 0) return;
+      if (button.dataset.bikeAddItem) {
+        state.bikes[bikeIndex].bags[bagIndex].items.push({ name: "", placeholder: "New item", packed: false, weight: "" });
+      } else if (button.dataset.bikeRemoveItem) {
+      const row = button.closest("[data-bike-item]");
+      const itemIndex = Number(row?.dataset.bikeItem || -1);
+        if (itemIndex >= 0) state.bikes[bikeIndex].bags[bagIndex].items.splice(itemIndex, 1);
+      } else if (button.dataset.bikeDeleteBag) {
+        state.bikes[bikeIndex].bags.splice(bagIndex, 1);
+      } else {
+        return;
+      }
+    }
+    if (!state.bikes.length) state.bikes.push(createDefaultBikePlanBike(0));
+    renderBikePlan(state);
+    persistBikePlan();
+  });
+  if (bikePlanResetBtn) {
+    bikePlanResetBtn.addEventListener("click", () => {
+      if (!window.confirm("Reset this route's Bike Plan back to the starter setup?")) return;
+      applyBikePlanState(defaultBikePlanState(), { persist: true });
+    });
+  }
+  if (bikePlanWeightToggle) {
+    bikePlanWeightToggle.addEventListener("change", () => {
+      setBikePlanWeightMode(bikePlanWeightToggle.checked);
+      persistBikePlan();
+    });
+  }
+  if (bikePlanAddBagBtn) {
+    bikePlanAddBagBtn.addEventListener("click", () => {
+      const state = collectBikePlanStateFromDom();
+      if (!state.bikes.length) state.bikes.push(createDefaultBikePlanBike(0));
+      state.bikes[state.bikes.length - 1].bags.push(createCustomBikePlanBag());
+      renderBikePlan(state);
+      persistBikePlan();
+    });
+  }
+  if (bikePlanAddBikeBtn) {
+    bikePlanAddBikeBtn.addEventListener("click", () => {
+      const state = collectBikePlanStateFromDom();
+      state.bikes.push(createCustomBikePlanBike(state.bikes.length));
+      renderBikePlan(state);
+      persistBikePlan();
+    });
+  }
+  if (bikePlanDiagram) {
+    bikePlanDiagram.addEventListener("click", (event) => {
+      const marker = event.target.closest("[data-bike-marker-for]");
+      if (!marker) return;
+      focusBikePlanBagFromDiagram(marker.dataset.bikeMarkerFor || "");
+    });
+  }
+}
+
+function defaultTravelPlanSection(section) {
+  const values = {};
+  section.fields.forEach((field) => {
+    values[field.key] = "";
+  });
+  return {
+    id: section.id,
+    confirmed: false,
+    values
+  };
+}
+
+function defaultTravelPlanState() {
+  return {
+    version: 1,
+    routeId: getRouteFromUrl(),
+    sections: TRAVEL_PLAN_SECTIONS.map(defaultTravelPlanSection),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizeTravelPlanState(rawState) {
+  const savedSections = Array.isArray(rawState?.sections) ? rawState.sections : [];
+  const sections = TRAVEL_PLAN_SECTIONS.map((section) => {
+    const saved = savedSections.find((item) => item?.id === section.id) || {};
+    const values = {};
+    section.fields.forEach((field) => {
+      values[field.key] = saved?.values?.[field.key] === undefined || saved?.values?.[field.key] === null
+        ? ""
+        : String(saved.values[field.key]);
+    });
+    return {
+      id: section.id,
+      confirmed: Boolean(saved.confirmed),
+      values
+    };
+  });
+  return {
+    version: 1,
+    routeId: String(rawState?.routeId || getRouteFromUrl()),
+    sections,
+    updatedAt: String(rawState?.updatedAt || new Date().toISOString())
+  };
+}
+
+function loadStoredTravelPlanState() {
+  if (!TRAVEL_PLAN_KEY) return defaultTravelPlanState();
+  const raw = readStorageValue(TRAVEL_PLAN_KEY);
+  if (!raw) return defaultTravelPlanState();
+  try {
+    return normalizeTravelPlanState(JSON.parse(raw));
+  } catch {
+    try {
+      localStorage.removeItem(TRAVEL_PLAN_KEY);
+      sessionStorage.removeItem(TRAVEL_PLAN_KEY);
+    } catch {
+      // Ignore cleanup failures.
+    }
+    return defaultTravelPlanState();
+  }
+}
+
+function getTravelPlanRouteHint(routeId) {
+  const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  if (TRAVEL_PLAN_ROUTE_HINTS[routeId]) return TRAVEL_PLAN_ROUTE_HINTS[routeId];
+  if (isNamedCustomRoute(routeId)) return "Use the arrival and departure cards to turn your uploaded route into a complete trip plan, not just a riding plan.";
+  return `Use these cards to plan flights, lodging, bike baggage, ground transfers, and finish logistics for ${route?.label || "this route"}.`;
+}
+
+function updateTravelPlanRouteContext() {
+  const routeId = getRouteFromUrl();
+  const route = ROUTES[routeId] || ROUTES[DEFAULT_ROUTE_ID];
+  if (travelPlanTitle) travelPlanTitle.textContent = `${route.label} Arrival / Departure`;
+  if (travelPlanRouteName) travelPlanRouteName.textContent = route.label;
+  if (travelPlanRouteHint) travelPlanRouteHint.textContent = getTravelPlanRouteHint(routeId);
+}
+
+function collectTravelPlanStateFromDom() {
+  if (!travelPlanGrid) return loadStoredTravelPlanState();
+  const cards = Array.from(travelPlanGrid.querySelectorAll("[data-travel-card]"));
+  return normalizeTravelPlanState({
+    version: 1,
+    routeId: getRouteFromUrl(),
+    sections: cards.map((card) => {
+      const section = TRAVEL_PLAN_SECTIONS.find((item) => item.id === card.dataset.travelCard);
+      const values = {};
+      (section?.fields || []).forEach((field) => {
+        values[field.key] = String(card.querySelector(`[data-travel-field="${CSS.escape(field.key)}"]`)?.value || "");
+      });
+      return {
+        id: card.dataset.travelCard,
+        confirmed: Boolean(card.querySelector("[data-travel-confirmed]")?.checked),
+        values
+      };
+    }),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function getTravelPlanPayload() {
+  return normalizeTravelPlanState(collectTravelPlanStateFromDom());
+}
+
+function updateTravelPlanSummary() {
+  if (!travelPlanSummary) return;
+  const state = collectTravelPlanStateFromDom();
+  const sections = state.sections || [];
+  const confirmedCount = sections.filter((section) => section.confirmed).length;
+  const flightCount = sections.filter((section) => {
+    const meta = TRAVEL_PLAN_SECTIONS.find((item) => item.id === section.id);
+    return meta?.type === "flight" && section.confirmed;
+  }).length;
+  const lodgingCount = sections.filter((section) => {
+    const meta = TRAVEL_PLAN_SECTIONS.find((item) => item.id === section.id);
+    return meta?.type === "lodging" && section.confirmed;
+  }).length;
+  travelPlanSummary.innerHTML = `
+    <span><strong>${confirmedCount}/${sections.length}</strong> confirmed</span>
+    <span><strong>${flightCount}</strong> flights confirmed</span>
+    <span><strong>${lodgingCount}</strong> lodging stops confirmed</span>
+  `;
+}
+
+function renderTravelPlan(state = loadStoredTravelPlanState()) {
+  if (!travelPlanGrid) return;
+  const normalized = normalizeTravelPlanState(state);
+  travelPlanGrid.innerHTML = "";
+  TRAVEL_PLAN_SECTIONS.forEach((section) => {
+    const sectionState = normalized.sections.find((item) => item.id === section.id) || defaultTravelPlanSection(section);
+    const card = document.createElement("article");
+    card.className = "panel travel-card";
+    card.dataset.travelCard = section.id;
+    card.dataset.travelPhase = section.phase;
+
+    const head = document.createElement("div");
+    head.className = "travel-card-head";
+    const copy = document.createElement("div");
+    const kicker = document.createElement("p");
+    kicker.className = "travel-card-kicker";
+    kicker.textContent = section.kicker;
+    const title = document.createElement("h3");
+    title.textContent = section.label;
+    const tip = document.createElement("p");
+    tip.textContent = section.tip;
+    copy.append(kicker, title, tip);
+
+    const confirmLabel = document.createElement("label");
+    confirmLabel.className = "travel-confirm-toggle";
+    const confirmed = document.createElement("input");
+    confirmed.type = "checkbox";
+    confirmed.checked = Boolean(sectionState.confirmed);
+    confirmed.dataset.travelConfirmed = "true";
+    const confirmText = document.createElement("span");
+    confirmText.textContent = "Confirmed";
+    confirmLabel.append(confirmed, confirmText);
+    head.append(copy, confirmLabel);
+
+    const fields = document.createElement("div");
+    fields.className = "travel-fields";
+    section.fields.forEach((field) => {
+      const label = document.createElement("label");
+      if (field.type === "textarea") label.classList.add("travel-notes-field");
+      if (field.wide) label.classList.add("travel-wide-field");
+      label.textContent = field.label;
+      const input = field.type === "textarea" ? document.createElement("textarea") : document.createElement("input");
+      if (field.type && field.type !== "textarea") input.type = field.type;
+      if (!field.type) input.type = "text";
+      input.value = sectionState.values[field.key] || "";
+      input.placeholder = field.placeholder || "";
+      input.dataset.travelField = field.key;
+      label.appendChild(input);
+      fields.appendChild(label);
+    });
+
+    card.append(head, fields);
+    travelPlanGrid.appendChild(card);
+  });
+  updateTravelPlanRouteContext();
+  updateTravelPlanSummary();
+}
+
+function persistTravelPlan(options = {}) {
+  if (!TRAVEL_PLAN_KEY || !travelPlanGrid) return;
+  const state = getTravelPlanPayload();
+  const result = storeJsonWithFallback(TRAVEL_PLAN_KEY, state);
+  updateTravelPlanSummary();
+  if (travelPlanSaveStatus) {
+    travelPlanSaveStatus.textContent = result.ok
+      ? `Arrival / departure plan saved for ${ROUTES[getRouteFromUrl()]?.label || "this route"}.`
+      : "Arrival / departure plan could not auto-save in this browser.";
+  }
+  if (!options.skipCloudSync) scheduleCloudSync();
+}
+
+function applyTravelPlanState(state, options = {}) {
+  renderTravelPlan(state || defaultTravelPlanState());
+  if (options.persist) persistTravelPlan({ skipCloudSync: options.skipCloudSync });
+}
+
+function loadTravelPlan() {
+  renderTravelPlan(loadStoredTravelPlanState());
+  if (travelPlanSaveStatus) travelPlanSaveStatus.textContent = "Arrival / departure plan auto-saves on this route.";
+}
+
+function setupTravelPlan() {
+  if (!travelPlanGrid) return;
+  travelPlanGrid.addEventListener("input", () => persistTravelPlan());
+  travelPlanGrid.addEventListener("change", () => persistTravelPlan());
+  if (travelPlanResetBtn) {
+    travelPlanResetBtn.addEventListener("click", () => {
+      if (!window.confirm("Reset this route's arrival / departure plan back to the starter setup?")) return;
+      applyTravelPlanState(defaultTravelPlanState(), { persist: true });
+    });
+  }
 }
 
 function clearRenderedRouteLayers() {
@@ -865,6 +1875,8 @@ async function syncUiToLocation(options = {}) {
     loadComments();
     renderComments();
     loadSavedPlan();
+    loadBikePlan();
+    loadTravelPlan();
     if (!plan.length && !isRouteBuilderActive()) {
       const config = parseForm();
       if (config) {
@@ -1960,6 +2972,8 @@ function buildCurrentRouteAccountSnapshot() {
     config,
     plan: Array.isArray(plan) ? plan : [],
     comments: Array.isArray(comments) ? comments : [],
+    bikePlan: getBikePlanPayload(),
+    travelPlan: getTravelPlanPayload(),
     resupplyPoints: buildRouteResupplySnapshot(),
     customRideData,
     updatedAt: new Date().toISOString()
@@ -4860,6 +5874,8 @@ function applyRouteConfig(routeId) {
   LOCAL_AUTH_SESSION_KEY = `${route.storagePrefix}-local-session-v1`;
   LOCAL_PROFILE_PREFIX = `${route.storagePrefix}-local-profile-v1:`;
   CUSTOM_STOPS_KEY = `${route.storagePrefix}-custom-resupply-stops-v1`;
+  BIKE_PLAN_KEY = `${route.storagePrefix}-bike-plan-v1`;
+  TRAVEL_PLAN_KEY = `${route.storagePrefix}-travel-plan-v1`;
   GPX_FILE = route.gpxFile;
   PROFILE_COLLECTION = route.profileCollection;
   CSV_FILENAME = route.csvName;
@@ -5898,6 +6914,8 @@ async function persistMyRouteSnapshot(options = {}) {
   const commentsToStore = Array.isArray(options.commentsOverride) ? options.commentsOverride : Array.isArray(comments) ? comments : [];
   const sourceStops = Array.isArray(options.resupplyPointsOverride) ? options.resupplyPointsOverride : resupplyPoints;
   const routeResupplySnapshot = sourceStops.map(normalizeStoredResupplyPoint).filter(Boolean);
+  const bikePlan = getBikePlanPayload();
+  const travelPlan = getTravelPlanPayload();
   let localWriteOk = true;
   try {
     localStorage.setItem(
@@ -5905,6 +6923,8 @@ async function persistMyRouteSnapshot(options = {}) {
       JSON.stringify({
         config,
         plan: planToStore,
+        bikePlan,
+        travelPlan,
         resupplyPoints: routeResupplySnapshot,
         // Keep this key light; GPX payload lives in dedicated custom payload store.
         customRideData: null
@@ -5943,6 +6963,8 @@ async function persistMyRouteSnapshot(options = {}) {
       config,
       plan: Array.isArray(planToStore) ? planToStore : [],
       comments: Array.isArray(commentsToStore) ? commentsToStore : [],
+      bikePlan,
+      travelPlan,
       resupplyPoints: routeResupplySnapshot,
       customRideData: candidateCustomRideData,
       updatedAt: new Date().toISOString()
@@ -5961,6 +6983,8 @@ async function persistMyRouteSnapshot(options = {}) {
                 config,
                 plan: planToStore,
                 comments: commentsToStore,
+                bikePlan,
+                travelPlan,
                 resupplyPoints: routeResupplySnapshot,
                 customRideData: candidateCustomRideData,
                 updatedAt: new Date().toISOString()
@@ -5980,6 +7004,8 @@ async function persistMyRouteSnapshot(options = {}) {
                     config,
                     plan: planToStore,
                     comments: commentsToStore,
+                    bikePlan,
+                    travelPlan,
                     resupplyPoints: routeResupplySnapshot,
                     customRideData: candidateCustomRideData,
                     updatedAt: new Date().toISOString()
@@ -7488,10 +8514,14 @@ async function pushCloudData() {
   if (localAuthMode) {
     try {
       const config = parseForm();
+      const bikePlan = getBikePlanPayload();
+      const travelPlan = getTravelPlanPayload();
       const result = saveLocalProfileWithFallback(authUser.email, {
         config,
         plan,
         comments,
+        bikePlan,
+        travelPlan,
         resupplyPoints: buildRouteResupplySnapshot(),
         customRideData,
         updatedAt: new Date().toISOString()
@@ -7514,6 +8544,8 @@ async function pushCloudData() {
     if (!docId) return;
     const accountStateDocId = cloudProfileDocIdForRoute("account_state", authUser.uid);
     const routeUpdatedAt = new Date().toISOString();
+    const bikePlan = getBikePlanPayload();
+    const travelPlan = getTravelPlanPayload();
     const accountStatePayload = buildAccountStatePayload();
     const accountUpdatedAt = accountStatePayload.updatedAt || new Date().toISOString();
     accountStatePayload.updatedAt = accountUpdatedAt;
@@ -7534,6 +8566,8 @@ async function pushCloudData() {
               config: customConfig,
               plan: customPlan,
               comments: Array.isArray(comments) ? comments : [],
+              bikePlan,
+              travelPlan,
               resupplyPoints: buildRouteResupplySnapshot(),
               customRideData,
               updatedAt: routeUpdatedAt
@@ -7549,6 +8583,8 @@ async function pushCloudData() {
           config,
           plan,
           comments,
+          bikePlan,
+          travelPlan,
           resupplyPoints: buildRouteResupplySnapshot(),
           customRideData,
           updatedAt: routeUpdatedAt
@@ -7725,6 +8761,8 @@ async function loadCloudData() {
       applyRouteResupplySnapshot(data.resupplyPoints);
       applyPlanArray(data.plan);
       applyCommentsArray(data.comments);
+      if (data.bikePlan) applyBikePlanState(data.bikePlan, { persist: true, skipCloudSync: true });
+      if (data.travelPlan) applyTravelPlanState(data.travelPlan, { persist: true, skipCloudSync: true });
       if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
         applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
       }
@@ -7783,6 +8821,8 @@ async function loadCloudData() {
           applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
           applyPlanArray(localCustomSnapshot.plan);
           applyCommentsArray(localCustomSnapshot.comments);
+          if (localCustomSnapshot.bikePlan) applyBikePlanState(localCustomSnapshot.bikePlan, { persist: true, skipCloudSync: true });
+          if (localCustomSnapshot.travelPlan) applyTravelPlanState(localCustomSnapshot.travelPlan, { persist: true, skipCloudSync: true });
           if (map && customUploadedTrackPoints.length >= 2) {
             applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
           }
@@ -7819,6 +8859,8 @@ async function loadCloudData() {
     applyRouteResupplySnapshot(data.resupplyPoints);
     applyPlanArray(data.plan);
     applyCommentsArray(data.comments);
+    if (data.bikePlan) applyBikePlanState(data.bikePlan, { persist: true, skipCloudSync: true });
+    if (data.travelPlan) applyTravelPlanState(data.travelPlan, { persist: true, skipCloudSync: true });
     if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
       applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
     }
@@ -8098,6 +9140,8 @@ function persistPlan() {
   const result = storeJsonWithFallback(STORAGE_KEY, {
     config,
     plan,
+    bikePlan: getBikePlanPayload(),
+    travelPlan: getTravelPlanPayload(),
     resupplyPoints: buildRouteResupplySnapshot(),
     customRideData: compactRouteStorage ? null : customRideData
   });
@@ -8111,6 +9155,8 @@ function persistPlan() {
       config,
       plan: Array.isArray(plan) ? plan : [],
       comments: Array.isArray(comments) ? comments : [],
+      bikePlan: getBikePlanPayload(),
+      travelPlan: getTravelPlanPayload(),
       resupplyPoints: buildRouteResupplySnapshot(),
       customRideData,
       updatedAt: new Date().toISOString()
@@ -8141,6 +9187,8 @@ function loadSavedPlan() {
         applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
         applyPlanArray(localCustomSnapshot.plan);
         applyCommentsArray(localCustomSnapshot.comments);
+        if (localCustomSnapshot.bikePlan) applyBikePlanState(localCustomSnapshot.bikePlan, { persist: true, skipCloudSync: true });
+        if (localCustomSnapshot.travelPlan) applyTravelPlanState(localCustomSnapshot.travelPlan, { persist: true, skipCloudSync: true });
         if (map && customUploadedTrackPoints.length >= 2) {
           applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
         }
@@ -8166,6 +9214,8 @@ function loadSavedPlan() {
           applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
           applyPlanArray(localCustomSnapshot.plan);
           applyCommentsArray(localCustomSnapshot.comments);
+          if (localCustomSnapshot.bikePlan) applyBikePlanState(localCustomSnapshot.bikePlan, { persist: true, skipCloudSync: true });
+          if (localCustomSnapshot.travelPlan) applyTravelPlanState(localCustomSnapshot.travelPlan, { persist: true, skipCloudSync: true });
           if (map && customUploadedTrackPoints.length >= 2) {
             applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
           }
@@ -8180,6 +9230,8 @@ function loadSavedPlan() {
     enforceRouteDistanceBaseline();
     applyRouteResupplySnapshot(saved.resupplyPoints);
     applyPlanArray(saved.plan);
+    if (saved.bikePlan) applyBikePlanState(saved.bikePlan, { persist: true, skipCloudSync: true });
+    if (saved.travelPlan) applyTravelPlanState(saved.travelPlan, { persist: true, skipCloudSync: true });
     if (isCustomRouteActive() && map && customUploadedTrackPoints.length >= 2) {
       applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
     }
@@ -8193,6 +9245,8 @@ function loadSavedPlan() {
         applyRouteResupplySnapshot(localCustomSnapshot.resupplyPoints);
         applyPlanArray(localCustomSnapshot.plan);
         applyCommentsArray(localCustomSnapshot.comments);
+        if (localCustomSnapshot.bikePlan) applyBikePlanState(localCustomSnapshot.bikePlan, { persist: true, skipCloudSync: true });
+        if (localCustomSnapshot.travelPlan) applyTravelPlanState(localCustomSnapshot.travelPlan, { persist: true, skipCloudSync: true });
         if (map && customUploadedTrackPoints.length >= 2) {
           applyTrackToMap(customUploadedTrackPoints, { fitBounds: true, rebuildPlan: false });
         }
@@ -8214,7 +9268,8 @@ function csvEscape(cell) {
 }
 
 function buildCsv(headers, rows) {
-  return [headers, ...rows]
+  const allRows = Array.isArray(headers) && headers.length ? [headers, ...rows] : rows;
+  return allRows
     .map((row) => row.map(csvEscape).join(","))
     .join("\n");
 }
@@ -8233,7 +9288,8 @@ function downloadExcel(headers, rows, filename) {
   if (typeof XLSX === "undefined") {
     return false;
   }
-  const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const sheetRows = Array.isArray(headers) && headers.length ? [headers, ...rows] : rows;
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Plan");
   XLSX.writeFile(workbook, filename, { bookType: "xlsx" });
@@ -8249,6 +9305,12 @@ function excelNameWithSuffix(suffix) {
   const baseCsv = CSV_FILENAME || "bikepack-plan.csv";
   const base = baseCsv.endsWith(".csv") ? baseCsv.slice(0, -4) : baseCsv;
   return suffix ? `${base}-${suffix}.xlsx` : `${base}.xlsx`;
+}
+
+function htmlNameWithSuffix(suffix) {
+  const baseCsv = CSV_FILENAME || "bikepack-plan.csv";
+  const base = baseCsv.endsWith(".csv") ? baseCsv.slice(0, -4) : baseCsv;
+  return suffix ? `${base}-${suffix}.html` : `${base}.html`;
 }
 
 function defaultPlanForCurrentConfig() {
@@ -8765,8 +9827,20 @@ function compactJoinedList(items) {
   return items.map((item) => String(item || "").trim()).filter(Boolean).join(" • ");
 }
 
+function multilineJoinedList(items) {
+  return items.map((item) => String(item || "").trim()).filter(Boolean).join("\n");
+}
+
 function formatCardDistanceOnly(miles) {
   return Number.isFinite(Number(miles)) ? formatDistanceWithUnitFromMiles(Number(miles)) : `0 ${unitDistanceSuffix()}`;
+}
+
+function formatCardMileMarker(mile) {
+  const value = Number(mile);
+  if (!Number.isFinite(value)) return "";
+  const rounded = Math.round(value * 10) / 10;
+  const text = Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
+  return `Mile ${text}`;
 }
 
 function formatCardResupplyOption(label, hours, distance, address) {
@@ -8780,6 +9854,72 @@ function formatCardResupplyOption(label, hours, distance, address) {
   if (safeDistance > 0) parts.push(`${formatDistanceNumber(milesToDisplayDistance(safeDistance))} ${unitDistanceSuffix()} off route`);
   if (safeAddress) parts.push(safeAddress);
   return parts.join(" • ");
+}
+
+function formatCardPointDetail(point, suffix = "") {
+  if (!point) return "";
+  const name = String(point.name || "").trim();
+  const detail = String(point.resupply || "").trim();
+  const mile = formatCardMileMarker(point.mile);
+  const lead = [mile, name, suffix].filter(Boolean).join(" • ");
+  if (lead && detail) return `${lead}\n${detail}`;
+  return lead || detail;
+}
+
+function formatBetweenDayFoodEntry(entry) {
+  if (!entry || entry.type !== "food") return "";
+  const title = String(entry.title || "").trim() || "Food stop";
+  const mile = formatCardMileMarker(entry.mile);
+  const options = [
+    formatCardResupplyOption(entry.resupplyOptions1, entry.resupplyHours1, entry.resupplyDistance1, entry.resupplyAddress1),
+    formatCardResupplyOption(entry.resupplyOptions2, entry.resupplyHours2, entry.resupplyDistance2, entry.resupplyAddress2)
+  ].filter(Boolean);
+  const notes = String(entry.notes || "").trim();
+  return multilineJoinedList([
+    [mile, title].filter(Boolean).join(" • "),
+    ...options.map((item) => `- ${item}`),
+    notes ? `Notes: ${notes}` : ""
+  ]);
+}
+
+function formatBetweenDaySimpleEntry(entry) {
+  if (!entry || !entry.type || entry.type === "food") return "";
+  const typeLabel = BETWEEN_DAY_ACTION_OPTIONS.find((option) => option.id === entry.type)?.label || "Extra";
+  const title = String(entry.title || "").trim();
+  const description = String(entry.description || "").trim();
+  const mile = formatCardMileMarker(entry.mile);
+  return multilineJoinedList([
+    title ? [mile, `${typeLabel}: ${title}`].filter(Boolean).join(" • ") : [mile, typeLabel].filter(Boolean).join(" • "),
+    description
+  ]);
+}
+
+function sectionBlockLines(title, items) {
+  const clean = items.map((item) => String(item || "").trim()).filter(Boolean);
+  return clean.length ? [title, ...clean, ""] : [];
+}
+
+function renderCompactKeyValueItems(items) {
+  return items
+    .filter((item) => item && item.value)
+    .map((item) => `
+      <div class="compact-kv">
+        <span class="compact-kv-label">${escapeHtml(item.label)}</span>
+        <span class="compact-kv-value">${escapeHtml(item.value)}</span>
+      </div>
+    `)
+    .join("");
+}
+
+function renderCompactBlock(title, items, extraClass = "") {
+  const clean = items.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!clean.length) return "";
+  return `
+    <div class="resupply-block${extraClass ? ` ${escapeHtml(extraClass)}` : ""}">
+      <div class="resupply-block-title">${escapeHtml(title)}</div>
+      <div class="resupply-block-body">${clean.map((item) => `<div>${escapeHtml(item)}</div>`).join("")}</div>
+    </div>
+  `;
 }
 
 function buildDayCardModels() {
@@ -8801,6 +9941,19 @@ function buildDayCardModels() {
     const bikeShops = (Array.isArray(day.resupplyBikeShops) ? day.resupplyBikeShops : [])
       .map((shop) => formatCardResupplyOption(shop?.name, shop?.hours, shop?.distance, shop?.address))
       .filter(Boolean);
+    const betweenDayEntries = Array.isArray(day.betweenDayEntries) ? day.betweenDayEntries : [];
+    const waterDetails = betweenDayEntries
+      .filter((entry) => entry?.type === "water" || entry?.type === "water-uncertain")
+      .map((entry) => formatBetweenDaySimpleEntry(entry))
+      .filter(Boolean);
+    const foodDetails = betweenDayEntries
+      .filter((entry) => entry?.type === "food")
+      .map((entry) => formatBetweenDayFoodEntry(entry))
+      .filter(Boolean);
+    const extraDetails = betweenDayEntries
+      .filter((entry) => entry?.type && entry.type !== "food" && entry.type !== "water" && entry.type !== "water-uncertain")
+      .map((entry) => formatBetweenDaySimpleEntry(entry))
+      .filter(Boolean);
     return {
       id: day.id,
       date: day.date || "",
@@ -8812,63 +9965,423 @@ function buildDayCardModels() {
       loss: formatElevationWithUnitFromFeet(day.loss || 0),
       town: String(day.town || "").trim() || "Flexible stop",
       reachedToday: reachedToday.length ? reachedToday.map((point) => point.name).join(" • ") : "No named resupply today",
+      reachedTodayDetails: reachedToday.map((point) => formatCardPointDetail(point)).filter(Boolean),
+      nextResupplyName: String(nextResupplyPoint?.name || "").trim() || "Finish push",
       nextResupply: nextResupplyPoint?.name ? `${nextResupplyPoint.name}${nextResupplyPoint.mile > day.endMile ? ` • ${formatCardDistanceOnly(nextResupplyPoint.mile - day.endMile)} ahead` : ""}` : "Finish push",
+      nextResupplyDetail: nextResupplyPoint ? formatCardPointDetail(
+        nextResupplyPoint,
+        nextResupplyPoint.mile > day.endMile ? `• ${formatCardDistanceOnly(nextResupplyPoint.mile - day.endMile)} ahead` : ""
+      ) : "",
+      nextResupplyGap: nextResupplyPoint?.mile > day.endMile ? formatCardDistanceOnly(nextResupplyPoint.mile - day.endMile) : "Finish",
       daysUntilNextResupply: Number(day.daysUntilNextResupply || 0) > 0 ? `${Math.round(Number(day.daysUntilNextResupply))} day(s)` : "",
-      resupplyOptions: compactJoinedList(resupplyOptions) || "Use route notes / own research",
-      bikeShops: compactJoinedList(bikeShops),
+      resupplyOptions,
+      bikeShops,
       shoppingList: String(day.shoppingList || "").trim(),
       calorieTarget: Number(day.calorieTarget || 0) > 0 ? `${Math.round(Number(day.calorieTarget)).toLocaleString()} kcal` : "",
       resupplyNotes: String(day.resupplyNotes || "").trim(),
-      dayNotes: String(day.notes || "").trim()
+      dayNotes: String(day.notes || "").trim(),
+      waterDetails,
+      foodDetails,
+      extraDetails
     };
   });
 }
 
+function buildDayCardPagesMarkup() {
+  const cards = buildDayCardModels();
+  const pages = [];
+  for (let i = 0; i < cards.length; i += 4) {
+    const pageCards = cards.slice(i, i + 4);
+    const cardHtml = pageCards.map((card) => {
+      const summaryMarkup = renderCompactKeyValueItems([
+        { label: "Distance", value: card.distance },
+        { label: "Total", value: card.cumulative },
+        { label: "Elev", value: `${card.gain} / ${card.loss}` },
+        { label: "Next", value: card.nextResupplyGap }
+      ]);
+      const flowSection = (title, items, extraClass = "") => {
+        const clean = items.map((item) => String(item || "").trim()).filter(Boolean);
+        if (!clean.length) return "";
+        return `
+          <section class="card-flow-section${extraClass ? ` ${escapeHtml(extraClass)}` : ""}">
+            <div class="card-flow-title">${escapeHtml(title)}</div>
+            <div class="card-flow-body">${clean.map((item) => `<div>${escapeHtml(item)}</div>`).join("")}</div>
+          </section>
+        `;
+      };
+      const commentsSection = flowSection("Comments", [card.dayNotes || "N/A"]);
+      const waterScenerySection = flowSection("Water / Scenery", [
+        ...card.waterDetails,
+        ...card.extraDetails
+      ]);
+      const foodStopsSection = flowSection("Food Stops", [
+        ...card.foodDetails,
+        ...card.resupplyOptions
+      ]);
+      const resupplySection = flowSection("Resupply", [
+        `Today: ${card.reachedToday}`,
+        `Next stop: ${card.nextResupplyName}`,
+        card.daysUntilNextResupply ? `Gap: ${card.daysUntilNextResupply}` : "",
+        ...card.reachedTodayDetails,
+        card.nextResupplyDetail || "",
+        ...card.bikeShops
+      ]);
+      const requestsSection = flowSection("Requests / Fuel", [
+        card.shoppingList ? `Food list: ${card.shoppingList}` : "",
+        card.calorieTarget ? `Calories: ${card.calorieTarget}` : "",
+        card.resupplyNotes ? `Notes: ${card.resupplyNotes}` : ""
+      ]);
+      const routeSection = flowSection("Route Notes", [
+        `Stage: ${card.range}`,
+        `Total: ${card.cumulative}`
+      ], "card-flow-section-route");
+      return `
+        <div class="page-card-slot">
+          <div class="day-card">
+            <div class="card-header">
+              <div class="card-headline">
+                <div class="card-day">Day ${card.id}</div>
+                <div class="card-date">${escapeHtml(card.date)}</div>
+              </div>
+              <div class="card-summary-grid">
+                ${summaryMarkup}
+              </div>
+              <div class="card-type-chip">${escapeHtml(card.type)}</div>
+            </div>
+            <div class="card-flow">
+              ${commentsSection}
+              ${waterScenerySection}
+              ${foodStopsSection}
+              ${resupplySection}
+              ${requestsSection}
+              ${routeSection}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+    while (cardHtml.length < 4) {
+      cardHtml.push(`
+        <div class="page-card-slot">
+          <div class="day-card day-card-empty">
+            <div class="card-header">
+              <div class="card-headline">
+                <div class="card-day"></div>
+                <div class="card-date"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+    pages.push(`
+      <section class="page-grid" role="presentation">
+        ${cardHtml[0]}${cardHtml[1]}${cardHtml[2]}${cardHtml[3]}
+      </section>
+    `);
+  }
+  return pages.join("");
+}
+
+function openPrintStage() {
+  if (!printStage || !printStagePreview) return;
+  printStagePreview.innerHTML = `<div class="doc-wrap">${buildDayCardPagesMarkup()}</div>`;
+  printStage.hidden = false;
+  document.body.classList.add("day-cards-print-mode");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function closePrintStage() {
+  if (!printStage || !printStagePreview) return;
+  printStage.hidden = true;
+  printStagePreview.innerHTML = "";
+  document.body.classList.remove("day-cards-print-mode");
+}
+
+function buildDayCardsPrintDocument() {
+  const markup = buildDayCardPagesMarkup();
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml((CSV_FILENAME || "bikepack-plan").replace(/\.csv$/i, ""))} Day Cards</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      @page {
+        size: letter landscape;
+        margin: 0.35in;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Aptos", "Segoe UI", sans-serif;
+        background: #f2ecdf;
+        color: #111;
+      }
+
+      .doc-wrap {
+        padding: 0.35in;
+      }
+
+      .page-grid {
+        width: 100%;
+        max-width: 10.3in;
+        height: 7.45in;
+        margin: 0 auto 0.16in;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+        gap: 0.16in 0.18in;
+        page-break-after: always;
+        break-after: page;
+        break-inside: avoid;
+      }
+
+      .page-grid:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+
+      .page-card-slot {
+        min-width: 0;
+        min-height: 0;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .day-card {
+        min-height: 0;
+        height: 100%;
+        padding: 0.16in 0.17in 0.18in;
+        border: 1.25pt solid #444;
+        background: #fff;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 0.055in;
+        overflow: hidden;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .day-card-empty {
+        border-color: transparent;
+        background: transparent;
+      }
+
+      .card-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
+        align-items: start;
+        gap: 0.08in;
+      }
+
+      .card-headline {
+        display: grid;
+        gap: 0.015in;
+      }
+
+      .card-day {
+        font-size: 16pt;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .card-date {
+        font-size: 10pt;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+
+      .card-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.02in 0.1in;
+        align-content: start;
+      }
+
+      .card-type-chip {
+        justify-self: end;
+        align-self: start;
+        font-size: 7.2pt;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .card-flow {
+        min-height: 0;
+        column-count: 2;
+        column-gap: 0.12in;
+        column-fill: auto;
+        overflow: hidden;
+      }
+
+      .compact-kv {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: baseline;
+        gap: 0.03in;
+        min-width: 0;
+      }
+
+      .compact-kv-label {
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .compact-kv-value {
+        min-width: 0;
+      }
+
+      .card-flow-section {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin-bottom: 0.07in;
+      }
+
+      .card-flow-title {
+        margin-bottom: 0.018in;
+        font-size: 6.8pt;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .card-flow-body {
+        display: grid;
+        gap: 0.012in;
+        font-size: 8pt;
+        line-height: 1.12;
+      }
+
+      .card-flow-body > div {
+        white-space: pre-line;
+        word-break: break-word;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        .doc-wrap {
+          padding: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="doc-wrap">${markup}</div>
+  </body>
+</html>`;
+}
+
+function openTextDocument(content, mimeType = "text/html;charset=utf-8;") {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  try {
+    window.location.assign(url);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60_000);
+    return true;
+  } catch {
+    URL.revokeObjectURL(url);
+    return false;
+  }
+}
+
 function dayCardsCsvExportRows() {
-  const headers = [
-    "Day",
-    "Overview",
-    "CommentsOnTheDay",
-    "ResupplyInfo",
-    "MileMarkerAndRouteNotes"
-  ];
-  const rows = buildDayCardModels().map((card) => [
-    `Day ${card.id}`,
-    compactJoinedList([
-      card.date,
-      card.type,
-      `Distance: ${card.distance}`,
-      `Gain: ${card.gain}`,
-      `Loss: ${card.loss}`,
-      `Stop: ${card.town}`
-    ]),
-    compactJoinedList([
-      card.dayNotes,
-      `Reached today: ${card.reachedToday}`
-    ]),
-    compactJoinedList([
-      `Next resupply: ${card.nextResupply}`,
-      card.daysUntilNextResupply ? `Days until next resupply: ${card.daysUntilNextResupply}` : "",
-      `Plan: ${card.resupplyOptions}`,
-      card.bikeShops ? `Bike shops / extras: ${card.bikeShops}` : "",
-      card.shoppingList ? `Shopping list: ${card.shoppingList}` : "",
+  const cards = buildDayCardModels();
+  const rows = [];
+
+  const sectionValue = (value, fallback = " ") => String(value || "").trim() || fallback;
+  const cardBody = (items, fallback = " ") => multilineJoinedList(items) || fallback;
+  const buildCardLines = (card) => {
+    if (!card) {
+      return [
+        ["", ""],
+        ["", ""],
+        ["", ""],
+        ["", ""],
+        ["", ""]
+      ];
+    }
+    const comments = [];
+    if (card.dayNotes) comments.push(card.dayNotes);
+    comments.push(`Reached today: ${card.reachedToday}`);
+
+    const resupply = [
+      `Next: ${card.nextResupply}`,
+      card.daysUntilNextResupply ? `Gap: ${card.daysUntilNextResupply}` : "",
+      ...card.reachedTodayDetails.map((item) => `Reached stop: ${item}`),
+      ...card.resupplyOptions.map((item) => `Store: ${item}`),
+      ...card.bikeShops.map((item) => `Bike: ${item}`),
+      ...card.foodDetails.map((item) => `Food: ${item}`),
+      ...card.waterDetails.map((item) => `Water: ${item}`),
+      ...card.extraDetails.map((item) => `Extra: ${item}`),
+      card.shoppingList ? `Food: ${card.shoppingList}` : "",
       card.calorieTarget ? `Calories: ${card.calorieTarget}` : "",
-      card.resupplyNotes ? `Resupply notes: ${card.resupplyNotes}` : ""
-    ]),
-    compactJoinedList([
-      `Stage range: ${card.range}`,
+      card.resupplyNotes ? `Notes: ${card.resupplyNotes}` : ""
+    ].filter(Boolean);
+
+    const routeNotes = [
+      `Stage: ${card.range}`,
       `Cumulative: ${card.cumulative}`
-    ])
-  ]);
-  return { headers, rows, suffix: "day-cards" };
+    ].filter(Boolean);
+
+    return [
+      [`Day ${card.id}`, sectionValue(card.date)],
+      [
+        "Overview",
+        cardBody([
+          card.type,
+          `Distance: ${card.distance}`,
+          `Gain: ${card.gain}`,
+          `Loss: ${card.loss}`,
+          `Stop: ${card.town}`
+        ])
+      ],
+      [
+        "Comments on the day",
+        cardBody(comments)
+      ],
+      [
+        "Resupply info",
+        cardBody(resupply)
+      ],
+      [
+        "Notes about mile markers / route",
+        cardBody(routeNotes)
+      ]
+    ];
+  };
+
+  for (const card of cards) {
+    const lines = buildCardLines(card);
+    for (const [label, value] of lines) {
+      rows.push([sectionValue(label), sectionValue(value)]);
+    }
+    rows.push(["", ""]);
+  }
+
+  return { headers: [], rows, suffix: "day-cards" };
 }
 
 function updateExportActionState() {
   const format = exportFormatSelect?.value || "standard";
+  if (exportPrintBtn) exportPrintBtn.disabled = format !== "day_cards_csv";
   if (exportFormatNote) {
     exportFormatNote.textContent = format === "day_cards_csv"
-      ? "Day Cards CSV groups each day into larger overview, comments, resupply, and route-note blocks for easier printing."
-      : "Choose a spreadsheet export format. Day Cards CSV groups each day into larger blocks so it is easier to read and print later.";
+      ? "Day Cards CSV still downloads as a spreadsheet. Use Open Print Document when you want the real card layout."
+      : "Choose a spreadsheet export format. Use Open Print Document with Day Cards CSV when you want a printable card layout.";
   }
 }
 
@@ -8898,6 +10411,21 @@ function exportExcel() {
     alert("Excel library could not load, so CSV was exported instead.");
   }
 }
+
+function exportPrintView() {
+  if (!plan.length) return;
+  const format = exportFormatSelect?.value || "standard";
+  if (format !== "day_cards_csv") {
+    window.alert("Switch the export format to Day Cards CSV first, then open the print document.");
+    return;
+  }
+  const opened = openTextDocument(buildDayCardsPrintDocument(), "text/html;charset=utf-8;");
+  if (!opened) {
+    openPrintStage();
+  }
+}
+
+window.exportPrintView = exportPrintView;
 
 function setupTabs() {
   const activateTab = (tabName) => {
@@ -11284,6 +12812,8 @@ function persistComments() {
         config,
         plan: Array.isArray(plan) ? plan : [],
         comments: Array.isArray(comments) ? comments : [],
+        bikePlan: getBikePlanPayload(),
+        travelPlan: getTravelPlanPayload(),
         resupplyPoints: buildRouteResupplySnapshot(),
         customRideData,
         updatedAt: new Date().toISOString()
@@ -11434,8 +12964,19 @@ exportBtn.addEventListener("click", exportCsv);
 if (exportExcelBtn) {
   exportExcelBtn.addEventListener("click", exportExcel);
 }
+if (exportPrintBtn) {
+  exportPrintBtn.addEventListener("click", exportPrintView);
+  exportPrintBtn.onclick = exportPrintView;
+  exportPrintBtn.setAttribute("onclick", "window.exportPrintView()");
+}
 if (exportFormatSelect) {
   exportFormatSelect.addEventListener("change", updateExportActionState);
+}
+if (printStagePrintBtn) {
+  printStagePrintBtn.addEventListener("click", () => window.print());
+}
+if (printStageCloseBtn) {
+  printStageCloseBtn.addEventListener("click", closePrintStage);
 }
 updateExportActionState();
 
@@ -11549,6 +13090,8 @@ if (customApplyUploadBtn) {
         config: configForRoute,
         plan: initialPlan,
         comments: Array.isArray(comments) ? comments : [],
+        bikePlan: defaultBikePlanState(),
+        travelPlan: defaultTravelPlanState(),
         resupplyPoints: Array.isArray(initialStops) ? initialStops.map(normalizeStoredResupplyPoint).filter(Boolean) : [],
         customRideData: explicitPayload,
         updatedAt: new Date().toISOString()
@@ -11559,6 +13102,7 @@ if (customApplyUploadBtn) {
         config: configForRoute,
         plan: initialPlan,
         comments: Array.isArray(comments) ? comments : [],
+        travelPlan: defaultTravelPlanState(),
         resupplyPoints: Array.isArray(initialStops) ? initialStops.map(normalizeStoredResupplyPoint).filter(Boolean) : []
       });
       const persisted = await persistMyRouteSnapshot({
@@ -12586,6 +14130,8 @@ if (isNamedCustomRoute(getRouteFromUrl())) {
       config: handoff.config || null,
       plan: Array.isArray(handoff.plan) ? handoff.plan : [],
       comments: Array.isArray(handoff.comments) ? handoff.comments : [],
+      bikePlan: handoff.bikePlan || defaultBikePlanState(),
+      travelPlan: handoff.travelPlan || defaultTravelPlanState(),
       resupplyPoints: Array.isArray(handoff.resupplyPoints)
         ? handoff.resupplyPoints.map(normalizeStoredResupplyPoint).filter(Boolean)
         : Array.isArray(handoff.customRideData?.resupplyPoints)
@@ -12615,6 +14161,8 @@ setupAccountMenu();
 void initCloud();
 refreshMyRouteShortcutVisibility();
 setupTabs();
+setupBikePlan();
+setupTravelPlan();
 setupPublishRoutePanel();
 setupCustomerServiceForm();
 setupDonationSuggestionForm();
@@ -12625,6 +14173,8 @@ setupCommentForm();
 loadComments();
 renderComments();
 loadSavedPlan();
+loadBikePlan();
+loadTravelPlan();
 loadPublishedCommunityRoutes();
 updatePublishRoutePanel();
 
