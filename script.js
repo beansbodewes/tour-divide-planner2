@@ -10406,7 +10406,7 @@ function resetDuraExport() {
   document.getElementById("dura-download").disabled = true;
   document.getElementById("dura-share").disabled = true;
   document.getElementById("dura-cues").replaceChildren();
-  document.getElementById("dura-status").textContent = "Prepare the selected day to preview its size and checkpoints.";
+  document.getElementById("dura-status").textContent = "Choose a riding day or the full route, then prepare its GPX to preview size and checkpoints.";
 }
 
 function refreshDuraDays() {
@@ -10421,6 +10421,10 @@ function refreshDuraDays() {
     option.textContent = `Day ${day.id} · ${day.date || "Undated"} · ${formatDistanceWithUnitFromMiles(day.endMile - day.startMile)} · ${day.town || "Flexible stop"}`;
     select.appendChild(option);
   });
+  const fullOption = document.createElement("option");
+  fullOption.value = "full";
+  fullOption.textContent = "Full route · all planned stops and day endpoints";
+  select.appendChild(fullOption);
   if ([...select.options].some(o => o.value === previous)) select.value = previous;
   document.getElementById("dura-prepare").disabled = !select.options.length;
   resetDuraExport();
@@ -10432,15 +10436,17 @@ async function prepareDuraDay() {
   const status = document.getElementById("dura-status");
   const snapshot = duraSnapshot();
   const selection = select.value;
-  const day = daySummaries(plan)[Number(selection)];
+  const fullRoute = selection === "full";
+  const days = daySummaries(plan);
+  const day = days[Number(selection)];
   const button = document.getElementById("dura-prepare");
   button.disabled = true;
-  status.textContent = "Preparing this day’s GPX…";
+  status.textContent = "Preparing route and checkpoints…";
   try {
-    if (!day || selection === "") throw new Error("Create a riding day first.");
+    if ((!fullRoute && !day) || selection === "") throw new Error("Create a riding day first.");
     const points = isCustomRouteActive() ? customUploadedTrackPoints : await loadGpxTrackPoints(GPX_FILE);
     if (snapshot !== duraSnapshot() || select.value !== selection) throw new Error("The plan changed. Prepare the selected day again.");
-    const result = CorosDura.build({ day, points, cumulative: buildTrackCumulativeMiles(points),
+    const result = CorosDura.build({ day, fullRoute, days, points, cumulative: buildTrackCumulativeMiles(points),
       stops: resupplyPoints.slice(1, -1), entries: plan.flatMap(d => normalizeBetweenDayEntries(d)),
       routeName: ROUTES[activeRouteId()]?.label || customRouteDisplayName || "Bikepack" });
     const file = new File([result.gpx], result.filename, { type: "application/gpx+xml" });
@@ -10448,11 +10454,11 @@ async function prepareDuraDay() {
     document.getElementById("dura-download").disabled = false;
     const canShare = typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
     document.getElementById("dura-share").disabled = !canShare;
-    status.textContent = `Day ${day.id}: ${(result.bytes / 1024).toFixed(1)} KB · ${result.cues.length} checkpoints · ${result.pointCount.toLocaleString()} route points. ${result.skipped ? `${result.skipped} food/water entries across the plan have no valid route mile and were omitted. ` : ""}${canShare ? "Ready to share or download." : "Download and open the GPX in the COROS phone app; file sharing is unavailable here."}`;
+    status.textContent = `${fullRoute ? "Full route" : `Day ${day.id}`}: ${(result.bytes / 1024).toFixed(1)} KB · ${result.cues.length} checkpoints · ${result.pointCount.toLocaleString()} route points. ${result.skipped ? `${result.skipped} food/water entries across the plan have no valid route mile and were omitted. ` : ""}${result.warnings.join(" ")} ${canShare ? "Ready to share or download." : "Download and open the GPX in the COROS phone app; file sharing is unavailable here."}`;
     const list = document.getElementById("dura-cues");
     result.cues.forEach(cue => {
       const item = document.createElement("li");
-      item.textContent = `${formatDistanceWithUnitFromMiles(cue.mile - day.startMile)} into day · ${cue.name}`;
+      item.textContent = `${formatDistanceWithUnitFromMiles(cue.mile - (fullRoute ? 0 : day.startMile))} ${fullRoute ? "along route" : "into day"} · ${cue.name}`;
       list.appendChild(item);
     });
   } catch (error) {
@@ -10466,7 +10472,7 @@ async function transferDuraDay(share) {
   const prepared = document.getElementById("dura-panel").duraPrepared;
   if (!prepared || prepared.snapshot !== duraSnapshot() || prepared.selection !== document.getElementById("dura-day").value) {
     resetDuraExport();
-    document.getElementById("dura-status").textContent = "The plan changed. Prepare a fresh daily GPX first.";
+    document.getElementById("dura-status").textContent = "The plan changed. Prepare a fresh GPX first.";
     return;
   }
   try {

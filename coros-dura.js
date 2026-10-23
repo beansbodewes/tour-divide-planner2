@@ -12,14 +12,17 @@
       Number(entry.resupplyDistance1) > 0 ? `${entry.resupplyDistance1} mi off route` : '', entry.resupplyAddress1,
       entry.resupplyOptions2, entry.resupplyHours2, entry.resupplyAddress2, entry.description, entry.notes], 180);
   }
-  function build({ day, points, cumulative, stops, entries, routeName }) {
+  function build({ day, points, cumulative, stops, entries, routeName, fullRoute = false, days = [] }) {
+    if (fullRoute) day = { id: "full", type: "Ride", startMile: 0, endMile: cumulative[cumulative.length - 1] };
     const start = Number(day.startMile), end = Number(day.endMile);
     if (day.type === 'Rest' || !(end > start)) throw new Error('Choose a riding day with a positive distance.');
     if (points.length < 2 || cumulative.length !== points.length) throw new Error('Load a GPX route before preparing a DURA day.');
     const total = cumulative[cumulative.length - 1];
     if (start < 0 || end > total + 0.1 || start >= total) throw new Error('This day extends beyond the GPX route. Adjust the daily distances first.');
     const finish = Math.min(end, total);
-    if ((finish - start) * 1.609344 >= 2000) throw new Error('Split this day into routes shorter than 2,000 km.');
+    const warnings = [];
+    if (fullRoute && finish * 1.609344 >= 2000) warnings.push('COROS recommends routes under 2,000 km. Use day-by-day files on DURA for this long route.');
+    if (!fullRoute && (finish - start) * 1.609344 >= 2000) throw new Error('Split this day into routes shorter than 2,000 km.');
     if (points.some(p => !Number.isFinite(p.lat) || !Number.isFinite(p.lon) || Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180)) throw new Error('The GPX contains invalid coordinates.');
     function at(mile) {
       let lo = 0, hi = cumulative.length - 1;
@@ -46,12 +49,20 @@
     stops.forEach(stop => add(stop.mile, `Resupply: ${stop.name || 'Stop'}`, 'Route checkpoint; services may be off route. Check the full plan.'));
     const types = { water: 'Water', 'water-uncertain': 'Water? unverified', food: 'Food' };
     entries.filter(e => types[e.type]).forEach(e => add(e.mile, `${types[e.type]}: ${e.title || e.resupplyOptions1 || 'Stop'}`, e.type === 'food' ? foodDetail(e) : e.description || e.notes));
-    add(finish, `End: ${day.town || 'Day ' + day.id}`, 'Planned day endpoint; confirm accommodation in the full plan.');
+    if (fullRoute) {
+      days.filter(d => d.type !== 'Rest' && d.endMile > d.startMile).forEach(d => {
+        add(d.endMile, `D${d.id} end: ${d.town || 'Overnight'}`, compact([d.date, d.notes, d.resupplyNotes], 180));
+      });
+      add(finish, 'Route finish', 'End of the complete GPX route.');
+    } else {
+      add(finish, `End: ${day.town || 'Day ' + day.id}`, 'Planned day endpoint; confirm accommodation in the full plan.');
+    }
     cues.sort((a, b) => a.mile - b.mile);
-    if (cues.length >= 200) throw new Error('This day has 200 or more checkpoints. Reduce stops or split the day before exporting.');
+    if (fullRoute && cues.length >= 200) warnings.push('COROS recommends fewer than 200 checkpoints. All checkpoints are included; use daily files for better device performance.');
+    if (!fullRoute && cues.length >= 200) throw new Error('This day has 200 or more checkpoints. Reduce stops or split the day before exporting.');
     function location(p) { return `lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"`; }
-    const name = `${routeName} D${day.id}${day.date ? ' ' + day.date : ''}`.slice(0, 80);
-    const summary = compact([`Day ${day.id}`, day.date, day.town,
+    const name = `${routeName}${fullRoute ? ' Full route' : ` D${day.id}${day.date ? ' ' + day.date : ''}`}`.slice(0, 80);
+    const summary = fullRoute ? 'Complete GPX route with planned day endpoints, water, food, and resupply checkpoints. Full roadbook remains in the planner.' : compact([`Day ${day.id}`, day.date, day.town,
       day.notes, day.resupplyNotes, day.shoppingList ? `Food list: ${day.shoppingList}` : '',
       Number(day.calorieTarget) > 0 ? `Target: ${day.calorieTarget} kcal` : '',
       foodDetail(day)], 600);
@@ -62,7 +73,7 @@
       + '</trkseg></trk></gpx>';
     const bytes = new TextEncoder().encode(gpx).length;
     if (bytes >= 100000000) throw new Error('This daily route exceeds 100 MB. Split it into smaller days.');
-    return { gpx, bytes, cues, skipped, pointCount: track.length, filename: `${String(routeName).replace(/[^a-z0-9]+/gi, '-').slice(0, 50)}-D${day.id}.gpx` };
+    return { gpx, bytes, cues, skipped, warnings, pointCount: track.length, filename: `${String(routeName).replace(/[^a-z0-9]+/gi, '-').slice(0, 50)}-${fullRoute ? 'full-route' : 'D' + day.id}.gpx` };
   }
   root.CorosDura = { build };
 })(globalThis);
