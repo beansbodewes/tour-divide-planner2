@@ -1,9 +1,10 @@
-const CACHE_NAME = "bikepack-route-pwa-v105";
+const CACHE_NAME = "bikepack-route-pwa-v135";
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./script.js",
+  "./coros-dura.js",
   "./vendor/leaflet/leaflet.css",
   "./vendor/leaflet/leaflet.js",
   "./vendor/leaflet/images/layers.png",

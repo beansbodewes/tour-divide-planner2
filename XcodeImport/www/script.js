@@ -8364,6 +8364,7 @@ function renderPlan(days) {
 
   renderMapPlanSelection();
   updateExportActionState();
+  refreshDuraDays();
 }
 
 function ensureMapPlanPanel() {
@@ -10392,6 +10393,99 @@ function exportDataForSelectedFormat(baselinePlan) {
   if (format === "day_matrix") return dayMatrixExportRows(baselinePlan);
   if (format === "day_cards_csv") return dayCardsCsvExportRows();
   return standardExportRows(baselinePlan);
+}
+
+function duraSnapshot() {
+  return JSON.stringify([activeRouteId(), GPX_FILE, plan, resupplyPoints, customUploadedTrackPoints]);
+}
+
+function resetDuraExport() {
+  const panel = document.getElementById("dura-panel");
+  if (!panel) return;
+  panel.duraPrepared = null;
+  document.getElementById("dura-download").disabled = true;
+  document.getElementById("dura-share").disabled = true;
+  document.getElementById("dura-cues").replaceChildren();
+  document.getElementById("dura-status").textContent = "Prepare the selected day to preview its size and checkpoints.";
+}
+
+function refreshDuraDays() {
+  const select = document.getElementById("dura-day");
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren();
+  daySummaries(plan).forEach((day, index) => {
+    if (day.type === "Rest" || day.endMile <= day.startMile) return;
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `Day ${day.id} · ${day.date || "Undated"} · ${formatDistanceWithUnitFromMiles(day.endMile - day.startMile)} · ${day.town || "Flexible stop"}`;
+    select.appendChild(option);
+  });
+  if ([...select.options].some(o => o.value === previous)) select.value = previous;
+  document.getElementById("dura-prepare").disabled = !select.options.length;
+  resetDuraExport();
+}
+
+async function prepareDuraDay() {
+  resetDuraExport();
+  const select = document.getElementById("dura-day");
+  const status = document.getElementById("dura-status");
+  const snapshot = duraSnapshot();
+  const selection = select.value;
+  const day = daySummaries(plan)[Number(selection)];
+  const button = document.getElementById("dura-prepare");
+  button.disabled = true;
+  status.textContent = "Preparing this day’s GPX…";
+  try {
+    if (!day || selection === "") throw new Error("Create a riding day first.");
+    const points = isCustomRouteActive() ? customUploadedTrackPoints : await loadGpxTrackPoints(GPX_FILE);
+    if (snapshot !== duraSnapshot() || select.value !== selection) throw new Error("The plan changed. Prepare the selected day again.");
+    const result = CorosDura.build({ day, points, cumulative: buildTrackCumulativeMiles(points),
+      stops: resupplyPoints.slice(1, -1), entries: plan.flatMap(d => normalizeBetweenDayEntries(d)),
+      routeName: ROUTES[activeRouteId()]?.label || customRouteDisplayName || "Bikepack" });
+    const file = new File([result.gpx], result.filename, { type: "application/gpx+xml" });
+    document.getElementById("dura-panel").duraPrepared = { file, snapshot, selection };
+    document.getElementById("dura-download").disabled = false;
+    const canShare = typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
+    document.getElementById("dura-share").disabled = !canShare;
+    status.textContent = `Day ${day.id}: ${(result.bytes / 1024).toFixed(1)} KB · ${result.cues.length} checkpoints · ${result.pointCount.toLocaleString()} route points. ${result.skipped ? `${result.skipped} food/water entries across the plan have no valid route mile and were omitted. ` : ""}${canShare ? "Ready to share or download." : "Download and open the GPX in the COROS phone app; file sharing is unavailable here."}`;
+    const list = document.getElementById("dura-cues");
+    result.cues.forEach(cue => {
+      const item = document.createElement("li");
+      item.textContent = `${formatDistanceWithUnitFromMiles(cue.mile - day.startMile)} into day · ${cue.name}`;
+      list.appendChild(item);
+    });
+  } catch (error) {
+    status.textContent = error.message || "Could not prepare this route. Try again.";
+  } finally {
+    button.disabled = !select.options.length;
+  }
+}
+
+async function transferDuraDay(share) {
+  const prepared = document.getElementById("dura-panel").duraPrepared;
+  if (!prepared || prepared.snapshot !== duraSnapshot() || prepared.selection !== document.getElementById("dura-day").value) {
+    resetDuraExport();
+    document.getElementById("dura-status").textContent = "The plan changed. Prepare a fresh daily GPX first.";
+    return;
+  }
+  try {
+    if (share) {
+      await navigator.share({ files: [prepared.file] });
+    } else {
+      const url = URL.createObjectURL(prepared.file);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = prepared.file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    document.getElementById("dura-status").textContent = "GPX handed off. Open it in COROS, review waypoint alerts, then sync to DURA. Device transfer is not confirmed by this planner.";
+  } catch (error) {
+    document.getElementById("dura-status").textContent = error.name === "AbortError" ? "Sharing canceled. Your GPX is still ready." : "Sharing failed. Download the GPX and open it in COROS instead.";
+  }
 }
 
 function exportCsv() {
@@ -12960,6 +13054,10 @@ resetBtn.addEventListener("click", () => {
   updateStagesFromInput();
 });
 
+document.getElementById("dura-day")?.addEventListener("change", resetDuraExport);
+document.getElementById("dura-prepare")?.addEventListener("click", prepareDuraDay);
+document.getElementById("dura-download")?.addEventListener("click", () => transferDuraDay(false));
+document.getElementById("dura-share")?.addEventListener("click", () => transferDuraDay(true));
 exportBtn.addEventListener("click", exportCsv);
 if (exportExcelBtn) {
   exportExcelBtn.addEventListener("click", exportExcel);

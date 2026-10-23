@@ -672,6 +672,26 @@
               <button id="export-print-btn" class="btn" type="button">Open Print Document</button>
             </div>
             <p id="export-format-note" class="export-format-note">Choose a spreadsheet export format. Use Day Cards CSV for the download version, or open the print document for the printable card layout.</p>
+            <details id="dura-panel">
+              <summary>COROS DURA · daily route</summary>
+              <p>Import one day’s route and existing water, food, resupply, and overnight checkpoints together. No redrawing the route or recreating these stops in COROS. A short day summary and food-stop details are included; the complete roadbook stays in your planner.</p>
+              <div class="export-controls">
+                <label>Riding day<select id="dura-day" aria-label="Day to send to DURA"></select></label>
+                <button id="dura-prepare" class="btn" type="button">Prepare daily GPX</button>
+                <button id="dura-download" class="btn" type="button" disabled>Download GPX</button>
+                <button id="dura-share" class="btn btn-accent" type="button" disabled>Share to COROS app</button>
+              </div>
+              <p id="dura-status" role="status" aria-live="polite">Choose a day and prepare its route to see the file size and checkpoints.</p>
+              <ul id="dura-cues"></ul>
+              <ol>
+                <li>Share the prepared route + information file to COROS on your phone, or download it and open it with COROS. Save the imported route with its included checkpoints.</li>
+                <li>Review the imported checkpoints in COROS and enable Waypoint Alert where available. Save the route, then choose Sync with Your Device → Send.</li>
+                <li>On DURA, select the route under Navigation. Test checkpoint alerts on a short ride before relying on them.</li>
+              </ol>
+              <p>Importing is a manual handoff to COROS, not a connected-account sync. COROS controls which descriptions it displays; check the imported route once. This planner cannot set DURA’s alert distance or guarantee imported waypoint alerts on your firmware. Checkpoints mark route locations; services may require a detour. Entries without a route mile cannot be placed.</p>
+              <p>Keep today and tomorrow on DURA and remove completed routes there to save space. Each file preserves that day’s route geometry and elevation, with no photos or full roadbook.</p>
+              <a href="https://support.coros.com/hc/en-us/articles/26895703330196-Downloading-and-Syncing-Routes-to-DURA" target="_blank" rel="noopener">COROS transfer instructions</a>
+            </details>
           </section>
 
           <section class="panel days">
@@ -1102,11 +1122,12 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="script.js?v=103"></script>
+    <script src="coros-dura.js?v=2"></script>
+    <script src="script.js?v=105"></script>
     <script>
       (function ensureFreshBuildAcrossBrowsers() {
         const BUILD_KEY = "bikepack-build-version";
-        const BUILD_VERSION = "159";
+        const BUILD_VERSION = "161";
         try {
           const previous = localStorage.getItem(BUILD_KEY);
           localStorage.setItem(BUILD_KEY, BUILD_VERSION);
